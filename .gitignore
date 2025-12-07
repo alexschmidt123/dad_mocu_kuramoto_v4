@@ -1,0 +1,190 @@
+# ============================================================================
+# Python
+# ============================================================================
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyc
+*.pyo
+*.pyd
+
+# C extensions
+*.so
+*.out
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# PyInstaller
+*.manifest
+*.spec
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+.pytest_cache/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+*.ipynb
+
+# IPython
+profile_default/
+ipython_config.py
+
+# Virtual environments
+venv/
+env/
+ENV/
+.venv
+virtualenv/
+conda_env/
+
+# ============================================================================
+# IDEs and Editors
+# ============================================================================
+.vscode/
+.idea/
+*.swp
+*.swo
+*.swa
+*~
+.project
+.pydevproject
+.settings/
+
+# ============================================================================
+# Operating System Files
+# ============================================================================
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.Spotlight-V100
+.Trashes
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# Linux
+*~
+
+# ============================================================================
+# Project-Specific: Data & Models (Large Files)
+# ============================================================================
+# Trained models (PyTorch)
+*.pth
+*.pt
+*.h5
+*.pkl
+*.pickle
+
+# Datasets
+*.npy
+*.npz
+*.hdf5
+*.mat
+
+# JSON data files (can be large)
+**/data/*.json
+
+# Experiment outputs folder (contains all runs)
+experiments/
+../experiments/
+
+# Data, models, and results folders (generated files, not in git)
+data/
+models/
+!src/models/
+results/
+Experiment/
+../experiments/
+
+# Allow example configs and small test files (optional)
+# !configs/**
+# !data/README.md
+
+# ============================================================================
+# Project-Specific: Results & Logs
+# ============================================================================
+# Result files
+*.txt
+!requirements.txt
+!README.txt
+
+# Plots and figures
+*.png
+*.jpg
+*.jpeg
+*.pdf
+*.svg
+
+# Logs
+*.log
+logs/
+
+# Tensorboard
+runs/
+tensorboard/
+
+# ============================================================================
+# Temporary & Backup Files
+# ============================================================================
+*.tmp
+*.temp
+*.bak
+*.backup
+*.orig
+*.rej
+*.swp
+*.swo
+
+# ============================================================================
+# Git & GitHub
+# ============================================================================
+*.orig
+.git-rewrite/
+
+# ============================================================================
+# Node & Web (if applicable)
+# ============================================================================
+node_modules/
+.sass-cache/
+
+# ============================================================================
+# Environment & Secrets
+# ============================================================================
+.env
+.env.local
+.env.*.local
+secrets.yaml
+*.key
+*.pem
