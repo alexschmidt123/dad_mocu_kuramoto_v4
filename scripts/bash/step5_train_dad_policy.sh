@@ -35,7 +35,7 @@ MPNN_MODEL_FOLDER=$(cat /tmp/mocu_model_folder_${CONFIG_NAME}.txt 2>/dev/null ||
 MOCU_MODEL_NAME=$(cat /tmp/mocu_model_name_${CONFIG_NAME}.txt 2>/dev/null || echo "")
 
 if [ -z "$MPNN_MODEL_FOLDER" ] || [ ! -d "$MPNN_MODEL_FOLDER" ]; then
-    echo "Error: MPNN model folder not found. Run step2_train_mpnn.sh first."
+    echo "Error: Swing MLP model folder not found. Run step2_train_swing_mlp.sh first."
     exit 1
 fi
 

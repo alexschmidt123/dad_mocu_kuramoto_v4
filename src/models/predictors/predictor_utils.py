@@ -58,8 +58,8 @@ def load_mpnn_predictor(model_name, device='cuda'):
             f"Searched paths:\n"
             f"  - {PROJECT_ROOT / 'models' / model_name / 'model.pth'}\n"
             f"  - {PROJECT_ROOT / 'models' / model_name / 'statistics.pth'}\n"
-            f"Please train MPNN predictor first:\n"
-            f"  python scripts/train_predictor.py --name {model_name}"
+            f"Please train Swing MLP predictor first:\n"
+            f"  python scripts/train_swing_mlp_predictor.py --config <config_file>"
         )
     
     # Reuse loading logic from iNN/NN (same as paper 2023)

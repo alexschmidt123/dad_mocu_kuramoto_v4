@@ -31,6 +31,7 @@ from .cnn import CNNPredictor
 from .mpnn import MPNNPredictor
 from .mpnn_plus import MPNNPlusPredictor
 from .ensemble import EnsemblePredictor
+from .swing_mlp_predictor import SwingMLPPredictor
 
 # Import utilities
 from .utils import (
@@ -55,6 +56,7 @@ __all__ = [
     'MPNNPredictor',
     'MPNNPlusPredictor',
     'EnsemblePredictor',
+    'SwingMLPPredictor',
     # Utilities
     'get_edge_index',
     'get_edge_attr_from_bounds',

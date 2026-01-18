@@ -1429,7 +1429,7 @@ def main():
                         print(f"\n[REINFORCE] REINFORCE training requires MPNN predictor to avoid segmentation faults.")
                         print(f"[REINFORCE] MPNN predictor is required for efficient training.")
                         print(f"\n[REINFORCE] Solutions:")
-                        print(f"  1. Train MPNN predictor first: bash scripts/bash/step2_train_mpnn.sh configs/fast_config.yaml")
+                        print(f"  1. Train Swing MLP predictor first: bash scripts/bash/step2_train_swing_mlp.sh configs/fast_config.yaml")
                         print(f"  2. Or set MOCU_MODEL_NAME environment variable: export MOCU_MODEL_NAME='{model_name}'")
                         print(f"  3. Or ensure MPNN model exists in: models/{model_name.split('_')[0]}/")
                         print(f"!"*80 + "\n")

@@ -91,9 +91,9 @@ echo "[Step 1/6] Generating MPNN training data..."
 bash "${PROJECT_ROOT}/scripts/bash/step1_generate_mocu_data.sh" "$CONFIG_FILE"
 echo ""
 
-# Step 2: Train MPNN predictor
-echo "[Step 2/6] Training MPNN predictor..."
-bash "${PROJECT_ROOT}/scripts/bash/step2_train_mpnn.sh" "$CONFIG_FILE"
+# Step 2: Train Swing MLP predictor
+echo "[Step 2/6] Training Swing MLP predictor..."
+bash "${PROJECT_ROOT}/scripts/bash/step2_train_swing_mlp.sh" "$CONFIG_FILE"
 echo ""
 
 # Step 3: Run baseline evaluation and visualization

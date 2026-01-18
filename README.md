@@ -1,6 +1,6 @@
 # DAD-MOCU: Deep Adaptive Design for Optimal Experimental Design
 
-This project implements Deep Adaptive Design (DAD) and Implicit Deep Adaptive Design (iDAD) methods for sequential optimal experimental design using MOCU (Mean Objective Cost of Uncertainty) as the objective. The framework uses neural message passing networks (MPNN) to accelerate MOCU prediction and reinforcement learning to learn optimal experimental selection policies.
+This project implements Deep Adaptive Design (DAD) and Implicit Deep Adaptive Design (iDAD) methods for sequential optimal experimental design using MOCU (Mean Objective Cost of Uncertainty) as the objective. The framework uses a simple MLP predictor to accelerate MOCU prediction and reinforcement learning to learn optimal experimental selection policies.
 
 ## System Model
 
@@ -101,7 +101,7 @@ dad_mocu_kuramoto_v4/
 │   │   ├── mocu_torchdiffeq.py        # MOCU interface
 │   │   └── sync_detection.py          # Frequency synchronization check
 │   ├── models/           # Neural network models
-│   │   ├── predictors/   # MPNN predictors for MOCU
+│   │   ├── predictors/   # MOCU predictors (Swing MLP for second-order model)
 │   │   └── policy_networks.py  # DAD policy networks
 │   └── methods/          # OED methods
 │       ├── ode.py        # ODE-based method
@@ -109,8 +109,10 @@ dad_mocu_kuramoto_v4/
 │       ├── nn.py         # NN method
 │       └── ...
 ├── scripts/              # Data generation and training scripts
-│   ├── generate_mocu_data.py    # Generate MPNN training data
+│   ├── generate_mocu_data.py    # Generate Swing MLP training data
+│   ├── train_swing_mlp_predictor.py  # Train Swing MLP predictor
 │   ├── generate_dad_data.py    # Generate DAD training data
+│   ├── train_dad_policy.py     # Train DAD policy network
 │   ├── evaluate.py              # Baseline evaluation
 │   └── ...
 ├── run.sh                # Main pipeline script
@@ -121,7 +123,7 @@ dad_mocu_kuramoto_v4/
 
 ### Using `run.sh` (Main Pipeline)
 
-Run the complete pipeline (data generation, MPNN training, baseline evaluation, DAD training, DAD evaluation):
+Run the complete pipeline (data generation, Swing MLP training, baseline evaluation, DAD training, DAD evaluation):
 
 ```bash
 conda activate dad_mocu
@@ -143,8 +145,8 @@ The script creates a self-contained experiment directory: `experiments/<config>_
 
 ### Pipeline Steps
 
-1. **Generate MPNN training data**: Sample $(M, K)$ parameters and compute $\gamma^*(M, K)$
-2. **Train MPNN predictor**: Learn to predict MOCU from system state
+1. **Generate Swing MLP training data**: Sample $(M, K)$ parameters and compute $\gamma^*(M, K)$
+2. **Train Swing MLP predictor**: Learn to predict MOCU from uncertainty bounds $(M_{\text{lower}}, M_{\text{upper}}, K_{\text{lower}}, K_{\text{upper}})$
 3. **Evaluate baselines**: Compare RANDOM, ENTROPY, ODE, iNN, NN, REGRESSION_SCORER methods
 4. **Generate DAD training data**: Generate trajectories for RL training
 5. **Train DAD policy**: Learn optimal experimental selection policy
@@ -162,7 +164,7 @@ bash run_sweepK.sh configs/ieee14_config.yaml
 bash run_sweepK.sh configs/ieee14_config.yaml 2 4 6 8 10
 ```
 
-This will run the complete pipeline for each K value and save results in separate experiment directories. Each run reuses shared MPNN data and models but generates fresh DAD training data and models for each K value.
+This will run the complete pipeline for each K value and save results in separate experiment directories. Each run reuses shared Swing MLP data and models but generates fresh DAD training data and models for each K value.
 
 ## Methods
 
@@ -170,8 +172,8 @@ This will run the complete pipeline for each K value and save results in separat
 - **RANDOM**: Random probe selection
 - **ENTROPY**: Select probe that maximizes information entropy
 - **ODE**: Use ODE-based MOCU computation for selection
-- **iNN**: Implicit Neural Network method (uses MPNN predictor)
-- **NN**: Neural Network method (uses MPNN predictor)
+- **iNN**: Implicit Neural Network method (uses Swing MLP predictor)
+- **NN**: Neural Network method (uses Swing MLP predictor)
 - **REGRESSION_SCORER**: Regression-based scoring method
 
 ### DAD Methods
@@ -189,8 +191,18 @@ Configuration files define:
 
 See `configs/ieee14_config.yaml` for a complete example.
 
+## MOCU Predictor
+
+For the second-order Kuramoto (swing equation) model, we use a **simple MLP predictor** instead of MPNN because:
+
+- **Uncertainty is simpler**: Just 2 scalars $(M, K)$ with 4 bounds, not graph-structured
+- **No graph structure needed**: Network topology $B$ is fixed (IEEE-14), so uncertainty is not graph-structured
+- **Faster training**: MLP is much simpler and faster than MPNN
+
+**Architecture**: Input `[M_lower, M_upper, K_lower, K_upper]` (4 scalars) → Output MOCU (1 scalar)
+
 ## References
 
 - **Swing Equation Model**: Based on "Probing Signal-Based Inertia and Frequency Response Estimation for Power Systems with High Penetration of Inverter-Based Resources"
 - **DAD/iDAD Methods**: Deep Adaptive Design for sequential optimal experimental design
-- **MPNN Predictors**: Neural Message Passing for Objective-Based Uncertainty Quantification
+- **MOCU Prediction**: Simple MLP for swing equation (replaces MPNN used in first-order model)
