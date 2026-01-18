@@ -99,8 +99,15 @@ class iNN_Method(OEDMethod):
             # Default dim=32 (matching original paper implementation)
             saved_dim = 32
         
-        self.model = MPNNPlusPredictor(dim=saved_dim).to(self.device)
-        self.model.load_state_dict(torch.load(model_path, map_location=self.device, weights_only=False), strict=True)
+        # Infer node_feature_dim from saved model (supports both original and Coutinho 2013)
+        state_dict = torch.load(model_path, map_location=self.device, weights_only=False)
+        if 'lin0.weight' in state_dict:
+            node_feature_dim = state_dict['lin0.weight'].shape[1]  # Input dimension
+        else:
+            node_feature_dim = 1  # Default to original (backward compatibility)
+        
+        self.model = MPNNPlusPredictor(dim=saved_dim, node_feature_dim=node_feature_dim).to(self.device)
+        self.model.load_state_dict(state_dict, strict=True)
         self.model.eval()
         
         stats = torch.load(stats_path, map_location=self.device, weights_only=False)
@@ -118,7 +125,9 @@ class iNN_Method(OEDMethod):
         data_list = []
         P_syn_list = []
         
-        x = torch.from_numpy(w.astype(np.float32)).unsqueeze(dim=1).to(self.device)
+        # Create node features with degree (for Coutinho 2013 model)
+        from src.models.predictors.utils import get_node_features_with_degree
+        x = get_node_features_with_degree(w, a_upper_bounds, a_upper_bounds, device=self.device)
         edge_index = get_edge_index(self.N).long().to(self.device)
         dummy_y = torch.tensor(0.0).unsqueeze(0).unsqueeze(0).to(self.device)
         

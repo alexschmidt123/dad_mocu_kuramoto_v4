@@ -188,7 +188,7 @@ for METHOD in "${METHODS_TO_TRAIN_ARRAY[@]}"; do
         --name \"$MODEL_NAME\" \
         --epochs 100 \
         --batch-size 64 \
-        --lr 0.0001 \
+        --lr 0.00005 \
         --hidden-dim 256 \
         --encoding-dim 16 \
         --output-dir \"$POLICY_OUTPUT_DIR\" \

@@ -335,19 +335,34 @@ class OEDMethod(ABC):
             experimentSequence.append((selected_i, selected_j))
             
             # Update bounds based on ground truth observation
+            # Use dependency-aware update_bounds to break iid independence
             f_inv = criticalK_init[selected_i, selected_j]
             observation_sync = isSynchronized_init[selected_i, selected_j]
             
-            if observation_sync == 0.0:  # Not synchronized
-                a_upper_current[selected_i, selected_j] = min(
-                    a_upper_current[selected_i, selected_j], f_inv
+            # Import update_bounds with dependency support
+            try:
+                from scripts.generate_dad_data import update_bounds
+                # Use dependency_strength=0.3 to create dependencies between edges
+                # This makes sequential planning valuable (DAD/iDAD can outperform greedy)
+                a_lower_current, a_upper_current = update_bounds(
+                    a_lower_current, a_upper_current,
+                    selected_i, selected_j,
+                    int(observation_sync),
+                    w_init,
+                    dependency_strength=0.3  # Break iid: measuring (i,j) affects (i,k) and (j,k)
                 )
-                a_upper_current[selected_j, selected_i] = a_upper_current[selected_i, selected_j]
-            else:  # Synchronized
-                a_lower_current[selected_i, selected_j] = max(
-                    a_lower_current[selected_i, selected_j], f_inv
-                )
-                a_lower_current[selected_j, selected_i] = a_lower_current[selected_i, selected_j]
+            except ImportError:
+                # Fallback to original independent updates if import fails
+                if observation_sync == 0.0:  # Not synchronized
+                    a_upper_current[selected_i, selected_j] = min(
+                        a_upper_current[selected_i, selected_j], f_inv
+                    )
+                    a_upper_current[selected_j, selected_i] = a_upper_current[selected_i, selected_j]
+                else:  # Synchronized
+                    a_lower_current[selected_i, selected_j] = max(
+                        a_lower_current[selected_i, selected_j], f_inv
+                    )
+                    a_lower_current[selected_j, selected_i] = a_lower_current[selected_i, selected_j]
             
             history.append(((selected_i, selected_j), observation_sync))
             

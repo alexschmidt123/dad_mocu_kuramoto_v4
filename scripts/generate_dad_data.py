@@ -43,26 +43,90 @@ except ImportError:
     print("[WARNING] torchdiffeq not available. Will use CPU-based sync detection.")
 
 
-def generate_random_system(N):
-    """Generate a random oscillator system."""
-    # Generate random natural frequencies
-    w = np.zeros(N)
-    for i in range(N):
-        w[i] = 12 * (0.5 - random.random())
+def generate_frequencies_coutinho_2013(N, w0=0.0, alpha=2.0, network_topology=None):
+    """
+    Generate natural frequencies using Coutinho 2013 Frequency-Degree Correlation model.
+    
+    ω_i = ω_0 + α * k_i
+    
+    where:
+    - ω_i = natural frequency of oscillator i
+    - ω_0 = base frequency
+    - α = correlation strength
+    - k_i = degree of node i
+    
+    Args:
+        N: Number of oscillators
+        w0: Base frequency (default: 0.0)
+        alpha: Correlation strength (default: 2.0)
+        network_topology: Optional [N, N] adjacency matrix. If None, uses fully connected.
+    
+    Returns:
+        w: Natural frequencies [N]
+        degrees: Node degrees [N] (for reference)
+    """
+    if network_topology is None:
+        # Fully connected network: all nodes have degree N-1
+        # To create variation, we'll use a weighted degree based on expected coupling strength
+        # For now, use random variation around mean degree
+        degrees = np.array([N - 1] * N)  # All have same degree in fully connected
+        # Add some variation to create meaningful differences
+        # Increased variation to create more diverse degree distributions
+        # This increases frequency diversity and MOCU variance
+        degrees = degrees + np.random.normal(0, 1.0, N)
+        degrees = np.maximum(degrees, 1.0)  # Ensure positive
+    else:
+        # Compute degrees from topology
+        degrees = np.sum(network_topology, axis=1)
+    
+    # Generate frequencies: ω_i = ω_0 + α * k_i
+    w = w0 + alpha * degrees
+    
+    # Add random noise to break perfect correlation and increase diversity
+    # Increased from 0.1 to 1.0 to create more diverse systems and increase MOCU variance
+    # This is critical for small N (e.g., N=5) where action space is limited
+    # Higher variance needed so different sequences lead to different outcomes
+    w = w + np.random.normal(0, 1.0, N)
+    
+    return w, degrees
+
+
+def generate_random_system(N, use_coutinho_model=True, w0=0.0, alpha=2.0):
+    """
+    Generate a random oscillator system.
+    
+    Args:
+        N: Number of oscillators
+        use_coutinho_model: If True, use Coutinho 2013 frequency-degree correlation
+        w0: Base frequency for Coutinho model
+        alpha: Correlation strength for Coutinho model
+    """
+    if use_coutinho_model:
+        # Generate frequencies using Coutinho 2013 model
+        w, degrees = generate_frequencies_coutinho_2013(N, w0=w0, alpha=alpha)
+    else:
+        # Original independent frequency generation
+        w = np.zeros(N)
+        for i in range(N):
+            w[i] = 12 * (0.5 - random.random())
+        degrees = None
     
     # Generate initial bounds
     a_upper_bound = np.zeros((N, N))
     a_lower_bound = np.zeros((N, N))
     
-    uncertainty = 0.3 * random.random()
+    # Increased uncertainty range to create more diverse initial bounds
+    # This increases MOCU variance: different systems start with different uncertainties
+    uncertainty = 0.5 * random.random()  # Increased from 0.3 to 0.5
     
     for i in range(N):
         for j in range(i + 1, N):
-            # Random multiplier
+            # Random multiplier with wider range for more diversity
             if random.random() < 0.5:
-                mul = 0.6 * random.random()
+                mul = 0.4 + 0.4 * random.random()  # Range: [0.4, 0.8]
             else:
-                mul = 1.1 * random.random()
+                mul = 0.8 + 0.6 * random.random()  # Range: [0.8, 1.4]
+            # Overall multiplier range: [0.4, 1.4] (was [0, 1.1])
             
             f_inv = np.abs(w[i] - w[j]) / 2.0
             a_upper_bound[i, j] = f_inv * (1 + uncertainty) * mul
@@ -129,19 +193,75 @@ def perform_experiment(a_true, i, j, w, h, M, device='cuda', timeout=5.0):
     return sync_result
 
 
-def update_bounds(a_lower, a_upper, i, j, observation, w):
-    """Update bounds based on observation."""
+def update_bounds(a_lower, a_upper, i, j, observation, w, dependency_strength=0.3):
+    """
+    Update bounds based on observation.
+    
+    NEW: Also updates related edges to break iid independence.
+    When measuring edge (i,j), this also affects edges (i,k) and (j,k) for all k.
+    This creates dependencies between edges, making sequential planning valuable.
+    
+    Args:
+        a_lower: Lower bounds [N, N]
+        a_upper: Upper bounds [N, N]
+        i, j: Measured edge indices
+        observation: 1 if synchronized, 0 if not
+        w: Natural frequencies [N]
+        dependency_strength: How much related edges are affected (0.0 = independent, 1.0 = fully dependent)
+    
+    Returns:
+        a_lower_new, a_upper_new: Updated bounds
+    """
     a_lower_new = a_lower.copy()
     a_upper_new = a_upper.copy()
     
     f_inv = 0.5 * np.abs(w[i] - w[j])
+    N = len(w)
     
+    # Update measured edge (i,j)
     if observation == 1:  # Synchronized
         a_lower_new[i, j] = max(a_lower_new[i, j], f_inv)
         a_lower_new[j, i] = max(a_lower_new[j, i], f_inv)
     else:  # Not synchronized
         a_upper_new[i, j] = min(a_upper_new[i, j], f_inv)
         a_upper_new[j, i] = min(a_upper_new[j, i], f_inv)
+    
+    # NEW: Update related edges to break iid independence
+    # When we measure (i,j), we also get information about edges connected to i and j
+    if dependency_strength > 0:
+        for k in range(N):
+            if k != i and k != j:
+                # Edge (i,k) - related to measured edge (i,j)
+                f_inv_ik = 0.5 * np.abs(w[i] - w[k])
+                bound_range_ik = a_upper_new[i, k] - a_lower_new[i, k]
+                
+                if observation == 1:  # If (i,j) syncs, (i,k) more likely to sync
+                    # Increase lower bound (more likely to be >= f_inv_ik)
+                    adjustment = dependency_strength * bound_range_ik * 0.1
+                    a_lower_new[i, k] = min(a_upper_new[i, k], 
+                                           a_lower_new[i, k] + adjustment)
+                    a_lower_new[k, i] = a_lower_new[i, k]
+                else:  # If (i,j) doesn't sync, (i,k) less likely to sync
+                    # Decrease upper bound
+                    adjustment = dependency_strength * bound_range_ik * 0.1
+                    a_upper_new[i, k] = max(a_lower_new[i, k],
+                                           a_upper_new[i, k] - adjustment)
+                    a_upper_new[k, i] = a_upper_new[i, k]
+                
+                # Same for edge (j,k)
+                f_inv_jk = 0.5 * np.abs(w[j] - w[k])
+                bound_range_jk = a_upper_new[j, k] - a_lower_new[j, k]
+                
+                if observation == 1:
+                    adjustment = dependency_strength * bound_range_jk * 0.1
+                    a_lower_new[j, k] = min(a_upper_new[j, k],
+                                           a_lower_new[j, k] + adjustment)
+                    a_lower_new[k, j] = a_lower_new[j, k]
+                else:
+                    adjustment = dependency_strength * bound_range_jk * 0.1
+                    a_upper_new[j, k] = max(a_lower_new[j, k],
+                                           a_upper_new[j, k] - adjustment)
+                    a_upper_new[k, j] = a_upper_new[j, k]
     
     return a_lower_new, a_upper_new
 

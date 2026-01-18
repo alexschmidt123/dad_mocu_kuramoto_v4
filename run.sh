@@ -1,245 +1,133 @@
 #!/bin/bash
-# Main workflow script - ORCHESTRATES separate steps
-# Each step runs in its own process for clean CUDA context isolation
-# Usage: bash run.sh configs/N5_config.yaml [K_override]
-#        K_OVERRIDE=4 bash run.sh configs/N5_config.yaml
-#
-# If K_OVERRIDE is set (via argument or env var), it will:
-# - Update experiment.update_count = K_OVERRIDE
-# - Update dad_data.K = K_OVERRIDE
-# - Create a temporary config file with updated K
+# Main pipeline script for second-order Kuramoto (swing equation) with active probing
+# Based on new_plan.tex and paper: "Probing Signal-Based Inertia and Frequency Response Estimation"
 
-set -e  # Exit on error
+set -e
 
-# Set Python path to project root for imports
-PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-export PYTHONPATH="${PROJECT_ROOT}:${PYTHONPATH}"
-
-# Colors for output
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-NC='\033[0m' # No Color
-
-# Check if config file is provided
-if [ $# -eq 0 ]; then
-    echo -e "${RED}Error: No configuration file provided${NC}"
-    echo "Usage: bash run.sh <config_file> [K_override]"
-    echo "       K_OVERRIDE=4 bash run.sh configs/N5_config.yaml"
-    echo "Example: bash run.sh configs/N5_config.yaml 4"
+# Check arguments
+if [ $# -lt 1 ]; then
+    echo "Usage: $0 <config_file> [K_value]"
+    echo ""
+    echo "Examples:"
+    echo "  $0 configs/fast_config.yaml        # Quick test (IEEE-14)"
+    echo "  $0 configs/ieee14_config.yaml      # Full IEEE-14 experiment"
+    echo "  $0 configs/ieee14_config.yaml 10   # Override K=10"
+    echo ""
     exit 1
 fi
 
 CONFIG_FILE=$1
+K_OVERRIDE=$2
 
-# Check if config file exists
 if [ ! -f "$CONFIG_FILE" ]; then
-    echo -e "${RED}Error: Configuration file '$CONFIG_FILE' not found${NC}"
+    echo "Error: Config file not found: $CONFIG_FILE"
     exit 1
 fi
 
-# Resolve config file to absolute path
-if [[ "$CONFIG_FILE" != /* ]]; then
-    CONFIG_FILE="${PROJECT_ROOT}/${CONFIG_FILE}"
-fi
+# Get absolute paths
+PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+export PYTHONPATH="${PROJECT_ROOT}:${PYTHONPATH}"
 
-ORIGINAL_CONFIG_FILE="$CONFIG_FILE"
 CONFIG_NAME=$(basename "$CONFIG_FILE" .yaml)
-# Remove _K* suffix if present to get base config name
 BASE_CONFIG_NAME=$(echo "$CONFIG_NAME" | sed 's/_K[0-9]*$//')
-CONFIG_NAME="$BASE_CONFIG_NAME"  # Always use base name for folders
+
+# Parse config to get model type
+MODEL_TYPE=$(grep "^model_type:" $CONFIG_FILE | awk '{print $2}' | tr -d "'\"")
+if [ -z "$MODEL_TYPE" ]; then
+    MODEL_TYPE="second_order"  # Default to second-order
+fi
+
+echo "=========================================="
+echo "MOCU-OED Experiment Workflow"
+echo "=========================================="
+echo "Config file: $CONFIG_FILE"
+if [ -n "$K_OVERRIDE" ]; then
+    echo "K value: K=$K_OVERRIDE (override)"
+    # Update config temporarily
+    sed -i.bak "s/update_count:.*/update_count: $K_OVERRIDE/" "$CONFIG_FILE"
+    sed -i.bak "s/^  K:.*/  K: $K_OVERRIDE/" "$CONFIG_FILE"
+fi
 TIMESTAMP=$(date +"%m%d%Y_%H%M%S")
-
-# Read K from config file (default from config)
-CURRENT_UPDATE_COUNT=$(grep -A 3 "^experiment:" "$ORIGINAL_CONFIG_FILE" | grep "update_count:" | awk '{print $2}' || echo "")
-CURRENT_DAD_K=$(grep -A 3 "^dad_data:" "$ORIGINAL_CONFIG_FILE" | grep "  K:" | awk '{print $2}' || echo "")
-
-# Use config K as default, allow override via argument or env var
-# Priority: argument > env var > config file
-K_VALUE=${2:-${K_OVERRIDE:-}}
-if [ -z "$K_VALUE" ]; then
-    # No override provided, use value from config
-    if [ -n "$CURRENT_UPDATE_COUNT" ]; then
-        K_VALUE="$CURRENT_UPDATE_COUNT"
-    elif [ -n "$CURRENT_DAD_K" ]; then
-        K_VALUE="$CURRENT_DAD_K"
-    else
-        # Fallback to 10 if not in config
-        K_VALUE=10
-        echo -e "${YELLOW}Warning: K not found in config, using default K=10${NC}"
-    fi
-fi
-
-# Validate K is a positive integer
-if ! [[ "$K_VALUE" =~ ^[0-9]+$ ]] || [ "$K_VALUE" -le 0 ]; then
-    echo -e "${RED}Error: K must be a positive integer, got: $K_VALUE${NC}"
-    exit 1
-fi
-
-# Create experiment directory structure and resolved config
-EXPERIMENTS_ROOT="${PROJECT_ROOT}/experiments"
-EXPERIMENT_NAME="${CONFIG_NAME}_${TIMESTAMP}"
-EXPERIMENT_DIR="${EXPERIMENTS_ROOT}/${EXPERIMENT_NAME}"
-mkdir -p "${EXPERIMENT_DIR}/dad_data" "${EXPERIMENT_DIR}/dad_models" "${EXPERIMENT_DIR}/logs" "${EXPERIMENT_DIR}/eval"
-
-export EXPERIMENT_DIR
-export EXP_DAD_DATA_DIR="${EXPERIMENT_DIR}/dad_data"
-export EXP_DAD_MODELS_DIR="${EXPERIMENT_DIR}/dad_models"
-export EXP_LOGS_DIR="${EXPERIMENT_DIR}/logs"
-export EXP_EVAL_DIR="${EXPERIMENT_DIR}/eval"
-
-WORKFLOW_LOG="${EXP_LOGS_DIR}/workflow.log"
-touch "$WORKFLOW_LOG"
-exec > >(tee -a "$WORKFLOW_LOG")
-exec 2>&1
-
-RESOLVED_CONFIG_PATH="${EXPERIMENT_DIR}/${CONFIG_NAME}.yaml"
-
-python3 << PYEOF
-import yaml
-from pathlib import Path
-
-with open('$ORIGINAL_CONFIG_FILE', 'r') as f:
-    config = yaml.safe_load(f)
-
-if 'experiment' in config:
-    config['experiment']['update_count'] = $K_VALUE
-
-if 'dad_data' in config:
-    config['dad_data']['K'] = $K_VALUE
-
-output_path = Path('$RESOLVED_CONFIG_PATH')
-with output_path.open('w') as f:
-    yaml.dump(config, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
-
-print(f"Wrote experiment config to {output_path}")
-PYEOF
-
-CONFIG_FILE="$RESOLVED_CONFIG_PATH"
-
-if [ -n "$2" ] || [ -n "${K_OVERRIDE:-}" ]; then
-    echo -e "${BLUE}K override: Setting K=$K_VALUE (config had update_count=$CURRENT_UPDATE_COUNT, dad_data.K=$CURRENT_DAD_K)${NC}"
-else
-    echo -e "${BLUE}Using K=$K_VALUE from config${NC}"
-fi
-
-echo -e "${BLUE}Experiment directory:${NC} $EXPERIMENT_DIR"
-echo -e "${BLUE}Logging to:${NC} $WORKFLOW_LOG"
+echo "Run timestamp: $TIMESTAMP"
+echo "Model type: $MODEL_TYPE"
 echo ""
 
-echo -e "${GREEN}========================================${NC}"
-echo -e "${GREEN}MOCU-OED Experiment Workflow${NC}"
-echo -e "${GREEN}========================================${NC}"
-echo -e "Config file: ${YELLOW}$ORIGINAL_CONFIG_FILE${NC}"
-if [ -n "$2" ] || [ -n "${K_OVERRIDE:-}" ]; then
-    echo -e "K value: ${YELLOW}K=$K_VALUE${NC} (override: config had update_count=$CURRENT_UPDATE_COUNT, dad_data.K=$CURRENT_DAD_K)"
-else
-    echo -e "K value: ${YELLOW}K=$K_VALUE${NC} (from config file)"
-fi
-echo -e "Run timestamp: ${YELLOW}$TIMESTAMP${NC}"
+# Create experiment directory
+EXP_DIR="${PROJECT_ROOT}/experiments/${CONFIG_NAME}_${TIMESTAMP}"
+mkdir -p "$EXP_DIR"
+echo "Experiment directory: $EXP_DIR"
 echo ""
 
-# Parse basic config
+# Parse experiment parameters
 N=$(grep "^N:" $CONFIG_FILE | awk '{print $2}')
-N_GLOBAL=$(grep "^N_global:" $CONFIG_FILE | awk '{print $2}')
+UPDATE_CNT=$(grep -A 10 "^experiment:" $CONFIG_FILE | grep "update_count:" | awk '{print $2}')
+IT_IDX=$(grep -A 10 "^experiment:" $CONFIG_FILE | grep "it_idx:" | awk '{print $2}')
+K_MAX=$(grep -A 10 "^experiment:" $CONFIG_FILE | grep "K_max:" | awk '{print $2}')
+NUM_SIMULATIONS=$(grep -A 10 "^experiment:" $CONFIG_FILE | grep "num_simulations:" | awk '{print $2}')
 
-# Extract methods list - handle both original format (    - "METHOD") and dumped format (  - METHOD)
-# Try Python first (more robust), fallback to grep
-METHODS=$(python3 << PYEOF
-import yaml
-import sys
-
-try:
-    with open('$CONFIG_FILE', 'r') as f:
-        config = yaml.safe_load(f)
-    
-    if 'experiment' in config and 'methods' in config['experiment']:
-        methods = config['experiment']['methods']
-        if isinstance(methods, list):
-            print(','.join(methods))
-        else:
-            print('')
-    else:
-        print('')
-except Exception as e:
-    print('', file=sys.stderr)
-    sys.exit(1)
-PYEOF
-)
-
-# Fallback to grep if Python fails
-if [ -z "$METHODS" ]; then
-    METHODS=$(grep -A 20 "^  methods:" $CONFIG_FILE | grep -E '^\s+-' | sed -E 's/^\s+-\s*"?([^"]*)"?.*/\1/' | grep -v '^#' | tr '\n' ',' | sed 's/,$//')
-fi
-
-echo -e "${BLUE}Experiment Configuration:${NC}"
+echo "Experiment Configuration:"
 echo "  System size (N): $N"
-echo "  N_global: $N_GLOBAL"
-echo "  K: $K_VALUE"
-echo "  Methods to evaluate: $METHODS"
+echo "  N_global: $((N + 1))"
+echo "  K: $UPDATE_CNT"
+echo "  Methods to evaluate: RANDOM,ENTROPY,ODE,iNN,NN,REGRESSION_SCORER,DAD_MOCU,IDAD_MOCU"
 echo ""
+
+# Export environment variables for scripts
+export EXP_EVAL_DIR="$EXP_DIR/eval"
+export EXP_DAD_DIR="$EXP_DIR/dad_models"
+export EXP_RESULTS_DIR="$EXP_DIR/results"
 
 # Step 0: Verify configuration
-echo -e "${GREEN}[Step 0/6]${NC} Verifying configuration..."
-echo -e "${GREEN}✓${NC} Configuration loaded: N=$N_GLOBAL"
-
-# Step 1: Generate MPNN data (uses PyCUDA - original paper workflow)
-echo ""
-echo -e "${GREEN}[Step 1/6]${NC} Generating MPNN training data..."
-
-# Check if data already exists in config folder
-DATA_FOLDER="${PROJECT_ROOT}/data/${CONFIG_NAME}/"
-TRAIN_FILE=$(find "$DATA_FOLDER" -name "*_${N}o_train.pth" -type f 2>/dev/null | head -1)
-
-if [ -n "$TRAIN_FILE" ]; then
-    echo -e "${BLUE}✓${NC} Found existing data file: $TRAIN_FILE"
-    echo -e "${BLUE}  Skipping data generation (data already exists)${NC}"
-    # Save train file path for next steps
-    echo "$TRAIN_FILE" > /tmp/mocu_train_file_${CONFIG_NAME}.txt
-else
-    echo -e "${YELLOW}  No existing data found, generating new data...${NC}"
-    bash "${PROJECT_ROOT}/scripts/bash/step1_generate_mocu_data.sh" "$CONFIG_FILE"
-    TRAIN_FILE=$(cat /tmp/mocu_train_file_${CONFIG_NAME}.txt)
+echo "[Step 0/6] Verifying configuration..."
+if [ "$MODEL_TYPE" != "second_order" ]; then
+    echo "⚠️  Warning: model_type is '$MODEL_TYPE', expected 'second_order'"
+    echo "   Continuing anyway, but scripts may fail if not properly configured"
 fi
-
-# Step 2: Train MPNN predictor (runs in separate process - uses PyTorch only)
+echo "✓ Configuration loaded: N=$N"
 echo ""
-echo -e "${GREEN}[Step 2/6]${NC} Training MPNN predictor..."
-bash "${PROJECT_ROOT}/scripts/bash/step2_train_mpnn.sh" "$CONFIG_FILE" "$TRAIN_FILE"
 
-# Step 3: Evaluate baseline methods first and visualize (uses PyCUDA for MOCU computation - original paper workflow)
+# Step 1: Generate MPNN training data
+echo "[Step 1/6] Generating MPNN training data..."
+bash "${PROJECT_ROOT}/scripts/bash/step1_generate_mocu_data.sh" "$CONFIG_FILE"
 echo ""
-echo -e "${GREEN}[Step 3/6]${NC} Running baseline evaluation and visualization..."
+
+# Step 2: Train MPNN predictor
+echo "[Step 2/6] Training MPNN predictor..."
+bash "${PROJECT_ROOT}/scripts/bash/step2_train_mpnn.sh" "$CONFIG_FILE"
+echo ""
+
+# Step 3: Run baseline evaluation and visualization
+echo "[Step 3/6] Running baseline evaluation and visualization..."
 bash "${PROJECT_ROOT}/scripts/bash/step3_evaluate_baselines.sh" "$CONFIG_FILE"
+echo ""
 
-# Step 4: Generate DAD training data and train DAD policies (if DAD_MOCU or IDAD_MOCU is in methods list)
-# This runs AFTER baselines so DAD can use the same initial MOCU
-if echo "$METHODS" | grep -qE "(DAD_MOCU|IDAD_MOCU)"; then
-    echo ""
-    echo -e "${GREEN}[Step 4/6]${NC} Generating DAD training data..."
-    bash "${PROJECT_ROOT}/scripts/bash/step4_generate_dad_data.sh" "$CONFIG_FILE"
+# Step 4: Generate DAD training data
+echo "[Step 4/6] Generating DAD training data..."
+bash "${PROJECT_ROOT}/scripts/bash/step4_generate_dad_data.sh" "$CONFIG_FILE"
+echo ""
 
-    echo ""
-    echo -e "${GREEN}[Step 5/6]${NC} Training DAD policies..."
-    bash "${PROJECT_ROOT}/scripts/bash/step5_train_dad_policy.sh" "$CONFIG_FILE"
+# Step 5: Train DAD policy
+echo "[Step 5/6] Training DAD policy..."
+bash "${PROJECT_ROOT}/scripts/bash/step5_train_dad_policy.sh" "$CONFIG_FILE"
+echo ""
 
-    echo ""
-    echo -e "${GREEN}[Step 6/6]${NC} Evaluating DAD methods and generating final visualizations..."
-    bash "${PROJECT_ROOT}/scripts/bash/step6_evaluate_dad.sh" "$CONFIG_FILE"
-else
-    echo ""
-    echo -e "${BLUE}[Step 4/6]${NC} Skipping DAD data generation (DAD_MOCU/IDAD_MOCU not in methods list)"
-    echo -e "${BLUE}[Step 5/6]${NC} Skipping DAD policy training"
-    echo -e "${BLUE}[Step 6/6]${NC} Skipping DAD evaluation/visualization"
+# Step 6: Evaluate DAD methods
+echo "[Step 6/6] Evaluating DAD methods..."
+bash "${PROJECT_ROOT}/scripts/bash/step6_evaluate_dad.sh" "$CONFIG_FILE"
+echo ""
+
+# Restore config if modified
+if [ -n "$K_OVERRIDE" ] && [ -f "${CONFIG_FILE}.bak" ]; then
+    mv "${CONFIG_FILE}.bak" "$CONFIG_FILE"
 fi
 
-# Summary
+echo "=========================================="
+echo "✓ Experiment completed successfully!"
+echo "=========================================="
+echo "Results saved to: $EXP_DIR"
 echo ""
-echo -e "${GREEN}========================================${NC}"
-echo -e "${GREEN}✓ Workflow Complete!${NC}"
-echo -e "${GREEN}========================================${NC}"
-echo ""
-echo -e "${BLUE}Results:${NC}"
-echo "  $EXPERIMENT_DIR"
+echo "To view results:"
+echo "  - Evaluation plots: $EXP_DIR/eval/"
+echo "  - DAD training curves: $EXP_DIR/dad_models/"
+echo "  - Final results: $EXP_DIR/results/"
 echo ""

@@ -117,8 +117,15 @@ class RegressionScorer_Method(OEDMethod):
             # Default dim=32 (matching original paper implementation)
             saved_dim = 32
         
-        self.model = MPNNPlusPredictor(dim=saved_dim).to(self.device)
-        self.model.load_state_dict(torch.load(model_path, map_location=self.device, weights_only=False), strict=True)
+        # Infer node_feature_dim from saved model (supports both original and Coutinho 2013)
+        state_dict = torch.load(model_path, map_location=self.device, weights_only=False)
+        if 'lin0.weight' in state_dict:
+            node_feature_dim = state_dict['lin0.weight'].shape[1]  # Input dimension
+        else:
+            node_feature_dim = 1  # Default to original (backward compatibility)
+        
+        self.model = MPNNPlusPredictor(dim=saved_dim, node_feature_dim=node_feature_dim).to(self.device)
+        self.model.load_state_dict(state_dict, strict=True)
         self.model.eval()
         
         # Load statistics
@@ -165,8 +172,9 @@ class RegressionScorer_Method(OEDMethod):
         P_sync = (a_upper_ij - a_tilde) / (a_upper_ij - a_lower_ij + 1e-10)
         P_nonsync = 1.0 - P_sync
         
-        # Create state data for MPNN
-        x = torch.from_numpy(w.astype(np.float32)).unsqueeze(-1).to(self.device)  # [N, 1]
+        # Create state data for MPNN with degree features (Coutinho 2013)
+        from src.models.predictors.utils import get_node_features_with_degree
+        x = get_node_features_with_degree(w, a_lower_bounds, a_upper_bounds, device=self.device)  # [N, 2]
         edge_index = get_edge_index(self.N).to(self.device)
         
         # Predict MOCU for sync outcome
@@ -255,7 +263,9 @@ class RegressionScorer_Method(OEDMethod):
         P_sync_list = []
         pair_indices = []  # Track which pair each prediction corresponds to
         
-        x = torch.from_numpy(w.astype(np.float32)).unsqueeze(-1).to(self.device)  # [N, 1]
+        # Create node features with degree (for Coutinho 2013 model)
+        from src.models.predictors.utils import get_node_features_with_degree
+        x = get_node_features_with_degree(w, a_lower_bounds, a_upper_bounds, device=self.device)  # [N, 2]
         edge_index = get_edge_index(self.N).to(self.device)
         
         # Pre-allocate arrays to avoid repeated allocations

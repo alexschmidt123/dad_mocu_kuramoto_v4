@@ -64,8 +64,23 @@ if __name__ == '__main__':
     TReal = 5
     MReal = int(TReal / deltaT)
     
-    # Natural frequencies
-    w = np.array([-2.5000, -0.6667, 1.1667, 2.0000, 5.8333])
+    # Natural frequencies - Use Coutinho 2013 Frequency-Degree Correlation model
+    # This ensures all methods are evaluated on the same model used for training
+    try:
+        from scripts.generate_dad_data import generate_frequencies_coutinho_2013
+        # Generate frequencies using Coutinho 2013 model (same as training data)
+        # Use seed 44 which gives sufficient spread (7.75) to avoid immediate synchronization
+        # Original hardcoded frequencies had spread ~8.3, we need at least ~4-5
+        np.random.seed(44)  # Fixed seed that ensures sufficient frequency spread
+        w, degrees = generate_frequencies_coutinho_2013(N, w0=0.0, alpha=2.0)
+        
+        print(f"Generated frequencies using Coutinho 2013 model: {w}")
+        print(f"Node degrees: {degrees}")
+        print(f"Frequency spread: {np.max(w) - np.min(w):.2f}")
+    except ImportError:
+        # Fallback to original hardcoded values if import fails (for backward compatibility)
+        print("⚠️  Warning: Could not import Coutinho 2013 model, using hardcoded frequencies")
+        w = np.array([-2.5000, -0.6667, 1.1667, 2.0000, 5.8333])
     
     # ========== Method Selection ==========
     # Steps 1-3: Use PyCUDA for baseline methods (original paper workflow)

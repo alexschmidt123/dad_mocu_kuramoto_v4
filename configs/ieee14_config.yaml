@@ -1,0 +1,73 @@
+# Configuration for IEEE-14 bus system (second-order Kuramoto / swing equation)
+# This config file (ieee14_config.yaml) defines the experiment configuration
+# Based on new_plan.tex: "Probing Signal-Based Inertia and Frequency Response Estimation"
+
+# System parameters
+N: 14  # IEEE-14 bus system
+N_global: 15  # N + 1 for CUDA kernel (if needed)
+
+# Model type: 'second_order' (swing equation with active probing)
+model_type: 'second_order'  # Use second-order Kuramoto (swing equation) with active probing
+
+# Second-order model parameters (swing equation for IEEE-14)
+swing_equation:
+  topology: 'ieee14'          # IEEE-14 bus network topology
+  coupling_strength: 1.0       # Base coupling strength for B matrix
+  damping: 0.1                # Damping coefficient D
+  base_power: 1.0              # Base mechanical power P_m
+  M_lower: 0.5                 # Inertia lower bound
+  M_upper: 2.0                 # Inertia upper bound
+  K_lower: 0.1                 # Control gain lower bound
+  K_upper: 1.0                 # Control gain upper bound
+  r_max: 0.5                   # Maximum ROCOF constraint (Hz/s)
+  f_min: 49.5                  # Minimum frequency constraint (Hz)
+  probe_duration: 2.0          # Probe duration T (seconds) - from new_plan.tex
+  probe_amplitudes: [0.5, 1.0, 2.0]  # Probe amplitude options A
+
+# Dataset generation
+dataset:
+  samples_per_type: 37500  # Total samples = 2 × samples_per_type
+  train_size: 70000
+  K_max: 20480  # Monte Carlo samples for MOCU computation
+  save_json: false
+
+# Data generation optimization settings (production: use defaults for stability)
+data_generation:
+  num_workers: 2           # Conservative: 2 workers to avoid GPU memory issues with CUDA
+  chunk_size: 10            # Samples per worker batch
+
+# Training parameters
+training:
+  model_name: "ieee14"  # Identifier for trained model directory (models/ieee14/)
+  epochs: 400
+  constrain_weight: 0.0001
+  batch_size: 128
+  learning_rate: 0.001
+
+# Experiment parameters
+experiment:
+  num_simulations: 10  # Number of random systems to test
+  update_count: 10     # K: Sequential experiments per system (10 design steps = 11 total steps 0-10)
+  it_idx: 10           # MOCU averaging iterations
+  K_max: 20480
+  methods:
+    - "RANDOM"             # PyCUDA methods FIRST
+    - "ENTROPY"
+    - "ODE"
+    - "iNN"                # PyTorch methods AFTER
+    - "NN"
+    - "REGRESSION_SCORER"  # Regression Scorer baseline
+    - "DAD_MOCU"           # DAD-MOCU (no critic, simple baseline, uses per-step rewards)
+    - "IDAD_MOCU"          # iDAD-MOCU (with critic from scratch, uses per-step rewards)
+
+# DAD policy training data generation
+dad_data:
+  num_episodes: 20000      # Number of trajectories to generate
+  K: 10                    # K: Number of sequential experiments per trajectory (must match experiment.update_count)
+  use_precomputed_mocu: true  # Pre-compute terminal MOCU using MPNN predictor (recommended)
+
+# Paths (relative to project root)
+paths:
+  data_dir: "data"
+  models_dir: "models"
+  results_dir: "results"

@@ -173,7 +173,9 @@ class DAD_MOCU_Method(OEDMethod):
         data_list = []
         P_syn_list = []
         
-        x = torch.from_numpy(w.astype(np.float32)).unsqueeze(dim=1).to(self.device)
+        # Create node features with degree (for Coutinho 2013 model)
+        from src.models.predictors.utils import get_node_features_with_degree
+        x = get_node_features_with_degree(w, a_upper_bounds, a_upper_bounds, device=self.device)
         edge_index = get_edge_index(self.N).long().to(self.device)
         dummy_y = torch.tensor(0.0).unsqueeze(0).unsqueeze(0).to(self.device)
         

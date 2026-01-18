@@ -44,7 +44,8 @@ class DADPolicyNetwork(nn.Module):
         self.history_encoder_type = history_encoder_type
         
         # ========== Graph State Encoder (similar to iNN) ==========
-        self.lin0 = nn.Linear(1, encoding_dim)  # Node features: frequencies
+        # Support both original (1 feature) and Coutinho 2013 (2 features: frequency + degree)
+        self.lin0 = nn.Linear(2, encoding_dim)  # Node features: [frequency, degree] for Coutinho 2013
         
         # Message passing with edge features [a_lower, a_upper]
         edge_nn = Sequential(
@@ -463,7 +464,7 @@ class DADPolicyNetwork(nn.Module):
         raise ValueError(f"Invalid pair: ({i}, {j})")
 
 
-def create_state_data(w, a_lower, a_upper, device='cpu'):
+def create_state_data(w, a_lower, a_upper, device='cpu', include_degree=True):
     """
     Create PyTorch Geometric Data object from state.
     
@@ -478,8 +479,12 @@ def create_state_data(w, a_lower, a_upper, device='cpu'):
     """
     N = len(w)
     
-    # Node features: frequencies
-    x = torch.from_numpy(w.astype(np.float32)).unsqueeze(-1)  # [N, 1]
+    # Node features: frequencies + degree (for Coutinho 2013 model)
+    if include_degree:
+        from src.models.predictors.utils import get_node_features_with_degree
+        x = get_node_features_with_degree(w, a_lower, a_upper, device=device)  # [N, 2]
+    else:
+        x = torch.from_numpy(w.astype(np.float32)).unsqueeze(-1)  # [N, 1]
     
     # Edge indices: fully connected graph
     edge_index = []

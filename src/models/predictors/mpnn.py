@@ -29,18 +29,21 @@ class MPNNPredictor(nn.Module):
     This is the baseline MPNN architecture before adding ranking constraint.
     """
     
-    def __init__(self, dim=32, num_message_passing=3):
+    def __init__(self, dim=32, num_message_passing=3, node_feature_dim=1):
         """
         Args:
             dim: Hidden dimension
             num_message_passing: Number of message passing layers
+            node_feature_dim: Dimension of node features (1 = frequency only, 2 = frequency + degree)
         """
         super(MPNNPredictor, self).__init__()
         self.dim = dim
         self.num_mp = num_message_passing
+        self.node_feature_dim = node_feature_dim
         
         # Node feature projection
-        self.lin0 = nn.Linear(1, dim)  # w: [N, 1] → [N, dim]
+        # Supports both original (1 feature) and Coutinho 2013 (2 features: frequency + degree)
+        self.lin0 = nn.Linear(node_feature_dim, dim)  # [N, node_feature_dim] → [N, dim]
         
         # Edge network for message passing
         edge_nn = Sequential(

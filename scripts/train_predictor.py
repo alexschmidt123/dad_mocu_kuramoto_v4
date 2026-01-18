@@ -24,10 +24,14 @@ import os
 
 
 class Net(torch.nn.Module):
-    def __init__(self):
+    def __init__(self, node_feature_dim=2):
+        """
+        Args:
+            node_feature_dim: 1 for original (frequency only), 2 for Coutinho 2013 (frequency + degree)
+        """
         super(Net, self).__init__()
         dim = 32
-        self.lin0 = torch.nn.Linear(1, dim)
+        self.lin0 = torch.nn.Linear(node_feature_dim, dim)  # Support Coutinho 2013 model
 
         nn = Sequential(Linear(2, 128), ReLU(), Linear(128, dim * dim))
         self.conv = NNConv(dim, dim, nn, aggr='mean')
@@ -211,14 +215,14 @@ def main():
     train_loader, test_loader, [std, mean] = loadData(args.test_only, args.data_path, args.pretrain, load_data_name, load_data_output_dir)
     # print('Making Model...')  # Reduced verbosity
     with torch.backends.cudnn.flags(enabled=False):
-        model = Net().cuda()  # Create model FIRST
+        model = Net(node_feature_dim=2).cuda()  # Create model with Coutinho 2013 features (frequency + degree)
     
         if args.pretrain != '.':
             if args.multiple_model:
                 model_paths = args.pretrain.split('+')
                 models = []
                 for model_path in model_paths:
-                    m = Net().cuda()
+                    m = Net(node_feature_dim=2).cuda()  # Coutinho 2013 model
                     m.load_state_dict(torch.load(output_dir_str + model_path + '/model.pth'))
                     models.append(m)
             else:

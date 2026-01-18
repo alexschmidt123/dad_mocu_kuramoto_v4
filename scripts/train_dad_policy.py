@@ -217,7 +217,8 @@ def train_imitation(model, dataloader, optimizer, device, N):
 def train_reinforce(model, trajectories, optimizer, device, N, gamma=0.96, K_max=20480, 
                     use_baseline=True, mocu_model=None, mocu_mean=None, mocu_std=None, use_predicted_mocu=False,
                     epoch_num=None, entropy_coef=0.01, critic=None, critic_optimizer=None,
-                    use_per_step_reward=True, per_step_weight=0.3, K=None, use_time_weighting=True):
+                    use_per_step_reward=True, per_step_weight=0.3, K=None, use_time_weighting=True,
+                    use_rank_based_rewards=False):
     """
     Train using REINFORCE policy gradient with MOCU DIRECTLY as the loss.
     
@@ -248,6 +249,7 @@ def train_reinforce(model, trajectories, optimizer, device, N, gamma=0.96, K_max
     baseline_alpha = 0.99  # Slower baseline update to prevent premature convergence
     reward_list = []  # Track rewards for better baseline initialization
     all_rewards = []  # Track all rewards for batch baseline computation
+    rank_based_rewards = None  # Will store rank-based rewards after conversion
     
     # Initialize epoch-level metrics tracking
     if not hasattr(train_reinforce, '_epoch_metrics'):
@@ -474,8 +476,8 @@ def train_reinforce(model, trajectories, optimizer, device, N, gamma=0.96, K_max
         
         # Scale factor to normalize rewards to reasonable range (typically 0-1)
         # This prevents rewards from being too large/small and improves learning stability
-        # Increased from 10.0 to 50.0 to amplify reward signal and improve learning
-        reward_scale = 50.0  # Scale improvement to reasonable range (increased for better signal)
+        # Increased from 10.0 to 50.0 for better learning signal with small action spaces
+        reward_scale = 50.0  # Scale improvement to reasonable range (increased for small N)
         
         if initial_MOCU is not None:
             # Improvement-based terminal reward: reward = (initial_MOCU - terminal_MOCU) * scale
@@ -579,18 +581,9 @@ def train_reinforce(model, trajectories, optimizer, device, N, gamma=0.96, K_max
             # Use critic as baseline (iDAD approach - reduces variance)
             advantage = float(reward - critic_baseline)
             
-            # CRITICAL: If advantage is too small, the learning signal is lost
-            # Add minimum advantage magnitude to maintain gradient signal
-            min_advantage_magnitude = 0.1
-            if abs(advantage) < min_advantage_magnitude:
-                # Scale advantage to maintain learning signal
-                if advantage >= 0:
-                    advantage = min_advantage_magnitude
-                else:
-                    advantage = -min_advantage_magnitude
-            
-            # Clip to prevent extreme values
-            advantage = np.clip(advantage, -5.0, 5.0)
+            # Normalize advantage to prevent extreme values
+            # Clip to smaller range for more stable learning
+            advantage = np.clip(advantage, -2.0, 2.0)
         elif len(all_rewards) >= 50:
             # Fallback to z-score normalization if no critic
             reward_mean = np.mean(all_rewards) if len(all_rewards) > 0 else 0.0
@@ -608,14 +601,14 @@ def train_reinforce(model, trajectories, optimizer, device, N, gamma=0.96, K_max
                     advantage = advantage * (0.1 / abs(advantage)) if abs(advantage) > 1e-6 else (0.1 if advantage >= 0 else -0.1)
                 
                 # Clip to prevent extreme values that could cause gradient explosion
-                advantage = np.clip(advantage, -5.0, 5.0)
+                advantage = np.clip(advantage, -2.0, 2.0)
             elif reward_std > 1e-6:  # Very low but non-zero variance
                 # Use aggressive scaling to maintain learning signal
                 advantage = float((reward - reward_mean) / max(reward_std, 1e-4)) * 10.0
                 # Ensure minimum magnitude
                 if abs(advantage) < 0.1:
                     advantage = 0.1 if advantage >= 0 else -0.1
-                advantage = np.clip(advantage, -5.0, 5.0)
+                advantage = np.clip(advantage, -2.0, 2.0)
             else:
                 # Extremely low variance (all rewards nearly identical): use constant advantage
                 # This encourages exploration when all trajectories have similar outcomes
@@ -643,7 +636,7 @@ def train_reinforce(model, trajectories, optimizer, device, N, gamma=0.96, K_max
             else:
                 # Low variance or no baseline: use raw reward with scaling
                 advantage = float(reward) * 10.0  # Scale to maintain signal
-                advantage = np.clip(advantage, -5.0, 5.0)
+                advantage = np.clip(advantage, -2.0, 2.0)
         
         # === STEP-WISE ADVANTAGES (for per-step rewards) ===
         # If using per-step rewards, compute step-wise advantages
@@ -656,7 +649,7 @@ def train_reinforce(model, trajectories, optimizer, device, N, gamma=0.96, K_max
                 step_reward_std = np.std(step_rewards_list) if len(step_rewards_list) > 1 else 1.0
                 if step_reward_std > 1e-6:
                     returns = [(sr - step_reward_mean) / step_reward_std for sr in step_rewards_list]
-                    returns = [np.clip(r, -5.0, 5.0) for r in returns]
+                    returns = [np.clip(r, -2.0, 2.0) for r in returns]
                 else:
                     # Low variance: use constant advantage
                     returns = [advantage] * len(log_probs)
@@ -667,7 +660,7 @@ def train_reinforce(model, trajectories, optimizer, device, N, gamma=0.96, K_max
                     step_reward_std = np.std(step_rewards_list) if len(step_rewards_list) > 1 else 1.0
                     if step_reward_std > 1e-6:
                         returns = [(sr - step_reward_mean) / step_reward_std for sr in step_rewards_list]
-                        returns = [np.clip(r, -5.0, 5.0) for r in returns]
+                        returns = [np.clip(r, -2.0, 2.0) for r in returns]
                     else:
                         returns = [advantage] * len(log_probs)
                 else:
@@ -886,9 +879,9 @@ def train_reinforce(model, trajectories, optimizer, device, N, gamma=0.96, K_max
                     print("[REINFORCE] Could not query CUDA state")
             raise
         
-        # Gradient clipping: prevent exploding gradients (reduced to 1.0 for more stable training)
-        # Lower max_norm helps prevent divergence when learning rate is high
-        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+        # Gradient clipping: prevent exploding gradients
+        # Use 0.5 for more aggressive clipping to prevent divergence
+        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=0.5)
         optimizer.step()
         
         # === TRAIN CRITIC (iDAD-inspired) ===
@@ -912,8 +905,8 @@ def train_reinforce(model, trajectories, optimizer, device, N, gamma=0.96, K_max
             critic_loss = F.mse_loss(mocu_estimate, target_mocu)
             critic_loss.backward()
             
-            # Gradient clipping for critic (reduced to 1.0 for stability)
-            torch.nn.utils.clip_grad_norm_(critic.parameters(), max_norm=1.0)
+            # Gradient clipping for critic (aggressive clipping for stability)
+            torch.nn.utils.clip_grad_norm_(critic.parameters(), max_norm=0.5)
             critic_optimizer.step()
         
         # REMOVED: torch.cuda.synchronize() after optimizer step
@@ -1046,7 +1039,7 @@ def main():
                        help='Training method: "dad_mocu" (no critic, simple baseline), "idad_mocu" (with critic from scratch), "reinforce" (legacy), or "imitation" (behavior cloning)')
     parser.add_argument('--epochs', type=int, default=100, help='Number of epochs')
     parser.add_argument('--batch-size', type=int, default=32, help='Batch size')
-    parser.add_argument('--lr', type=float, default=0.0001, help='Learning rate (default: 1e-4, increased from 1e-5 for better learning)')
+    parser.add_argument('--lr', type=float, default=0.00005, help='Learning rate (default: 5e-5, reduced from 1e-4 for stability)')
     parser.add_argument('--hidden-dim', type=int, default=256, help='Hidden dimension (default: 256, matching original DAD)')
     parser.add_argument('--encoding-dim', type=int, default=16, help='Encoding dimension (default: 16, matching original DAD)')
     parser.add_argument('--device', type=str, default='cuda', help='Device (cuda/cpu)')
@@ -1398,7 +1391,7 @@ def main():
                             
                             # Test model with a dummy forward pass to catch any initialization issues early
                             try:
-                                from src.models.predictors.utils import get_edge_index, get_edge_attr_from_bounds
+                                from src.models.predictors.utils import get_edge_index, get_edge_attr_from_bounds, get_node_features_with_degree
                                 import numpy as np
                                 # Create a test input
                                 test_w = np.zeros(N)
@@ -1406,7 +1399,8 @@ def main():
                                 test_a_upper = np.ones((N, N))
                                 
                                 from torch_geometric.data import Data
-                                test_x = torch.from_numpy(test_w.astype(np.float32)).unsqueeze(-1).to(device)
+                                # Use get_node_features_with_degree to create 2D features [frequency, degree]
+                                test_x = get_node_features_with_degree(test_w, test_a_lower, test_a_upper, device=device)
                                 test_edge_index = get_edge_index(N).to(device)
                                 test_edge_attr = get_edge_attr_from_bounds(test_a_lower, test_a_upper, N).to(device)
                                 test_data = Data(x=test_x, edge_index=test_edge_index, edge_attr=test_edge_attr).to(device)
@@ -1459,15 +1453,14 @@ def main():
                             f"Please check model path and train MPNN first."
                         ) from e
             
-            # Entropy scheduling: start high, decay very slowly to maintain exploration
-            # Start at 2.0, decay to 1.0 over 95% of training (even slower decay to prevent early collapse)
-            # This keeps exploration high longer, preventing policy from becoming deterministic too early
-            # Increased initial entropy and slower decay to fix increasing loss problem and improve diversity
-            initial_entropy = 2.0  # Higher initial entropy for more exploration (increased from 1.5)
-            final_entropy = 1.0  # Final entropy (higher minimum to prevent collapse, increased from 0.7)
-            decay_epochs = args.epochs * 0.95  # Decay over 95% of training (even slower decay)
+            # Entropy scheduling: start moderate, decay slowly to maintain exploration
+            # Start at 0.5, decay to 0.3 over 90% of training
+            # Lower initial entropy prevents entropy term from dominating loss and causing divergence
+            initial_entropy = 0.5  # Moderate initial entropy for balanced exploration
+            final_entropy = 0.3  # Final entropy (maintains some exploration)
+            decay_epochs = args.epochs * 0.9  # Decay over 90% of training
             if epoch < decay_epochs:
-                # Linear decay: slower than before
+                # Linear decay
                 current_entropy = initial_entropy - (initial_entropy - final_entropy) * (epoch / decay_epochs)
             else:
                 current_entropy = final_entropy
@@ -1480,7 +1473,7 @@ def main():
                 mocu_std=mocu_std,
                 use_predicted_mocu=use_predicted_mocu,
                 epoch_num=epoch,
-                entropy_coef=current_entropy,  # Scheduled entropy: starts at 1.0, decays to 0.6 over 90% of epochs
+                entropy_coef=current_entropy,  # Scheduled entropy: starts at 0.5, decays to 0.3 over 90% of epochs
                 critic=critic,
                 critic_optimizer=critic_optimizer,
                 use_per_step_reward=True,  # Enable per-step rewards to fix "wasting first steps"

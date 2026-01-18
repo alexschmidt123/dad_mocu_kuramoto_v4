@@ -6,8 +6,26 @@
 # ⚠️ NOT for actual experiments - only for testing!
 
 # System parameters
-N: 5
-N_global: 6  # N + 1 for CUDA kernel
+N: 14  # IEEE-14 bus system
+N_global: 15  # N + 1 for CUDA kernel
+
+# Model type: 'second_order' (swing equation with active probing)
+model_type: 'second_order'  # Use second-order Kuramoto (swing equation) with active probing
+
+# Second-order model parameters (swing equation for IEEE-14)
+swing_equation:
+  topology: 'ieee14'          # IEEE-14 bus network topology
+  coupling_strength: 1.0       # Base coupling strength for B matrix
+  damping: 0.1                # Damping coefficient D
+  base_power: 1.0              # Base mechanical power P_m
+  M_lower: 0.5                 # Inertia lower bound
+  M_upper: 2.0                 # Inertia upper bound
+  K_lower: 0.1                 # Control gain lower bound
+  K_upper: 1.0                 # Control gain upper bound
+  r_max: 0.5                   # Maximum ROCOF constraint (Hz/s)
+  f_min: 49.5                  # Minimum frequency constraint (Hz)
+  probe_duration: 2.0          # Probe duration T (seconds)
+  probe_amplitudes: [0.5, 1.0, 2.0]  # Probe amplitude options A
 
 # Dataset generation (MINIMAL for quick verification - matches original fast_config)
 dataset:
@@ -32,7 +50,7 @@ training:
 # Experiment parameters (MINIMAL for quick verification)
 experiment:
   num_simulations: 1       # Single run only
-  update_count: 4          # 4 iterations = 5 steps total (0,1,2,3,4)
+  update_count: 4          # 4 iterations = 5 steps total (0,1,2,3,4) - OPTIMAL: leaves room for method differences
   it_idx: 3                # Minimal iterations (matches original fast_config)
   K_max: 1024              # Match dataset K_max (matches original fast_config)
   methods:
@@ -48,7 +66,7 @@ experiment:
 # DAD policy training data generation
 dad_data:
   num_episodes: 1000       # Number of trajectories to generate (increased for better training)
-  K: 4                     # Number of sequential experiments per trajectory (4 design steps, aligns with experiment.update_count)
+  K: 4                     # Number of sequential experiments per trajectory (4 design steps, OPTIMAL: 40% of pairs, leaves room for differences)
   use_precomputed_mocu: true  # Pre-compute terminal MOCU using MPNN predictor (recommended)
 
 # Paths (relative to project root)

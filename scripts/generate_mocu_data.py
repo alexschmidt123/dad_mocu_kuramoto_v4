@@ -103,10 +103,16 @@ def generate_single_sample(args_tuple):
         random.seed(worker_id * 12345 + int(time.time()) % 10000)
         np.random.seed(worker_id * 12345 + int(time.time()) % 10000)
     
-    # Generate random natural frequencies
-    w = np.zeros(N)
-    for i in range(N):
-        w[i] = 12 * (0.5 - random.random())
+    # Generate natural frequencies using Coutinho 2013 Frequency-Degree Correlation model
+    # ω_i = ω_0 + α * k_i (frequency depends on degree)
+    try:
+        from scripts.generate_dad_data import generate_frequencies_coutinho_2013
+        w, degrees = generate_frequencies_coutinho_2013(N, w0=0.0, alpha=2.0)
+    except ImportError:
+        # Fallback to original independent generation if import fails
+        w = np.zeros(N)
+        for i in range(N):
+            w[i] = 12 * (0.5 - random.random())
     
     # Generate coupling bounds based on type
     if coupling_type == 'type1':
@@ -185,11 +191,15 @@ def convert_to_pytorch_geometric(data_list):
     pyg_data_list = []
     
     for data_item in data_list:
-        # Node features: natural frequencies
-        x = np.asarray(data_item['w'])
-        x = torch.from_numpy(x.astype(np.float32))
-        n = x.size()[0]
-        x = x.unsqueeze(dim=1)
+        # Node features: frequencies + degree (for Coutinho 2013 model)
+        w = np.asarray(data_item['w']).astype(np.float32)
+        a_lower = np.asarray(data_item['a_lower']).astype(np.float32)
+        a_upper = np.asarray(data_item['a_upper']).astype(np.float32)
+        n = len(w)
+        
+        # Use helper function to create node features with degree
+        from src.models.predictors.utils import get_node_features_with_degree
+        x = get_node_features_with_degree(w, a_lower, a_upper, device='cpu')  # [N, 2]
         
         # Edge indices (fully connected graph)
         edge_index = getEdgeAtt(
@@ -200,8 +210,8 @@ def convert_to_pytorch_geometric(data_list):
         
         # Edge features: [a_lower, a_upper]
         edge_attr = getEdgeAtt(
-            torch.from_numpy(np.asarray(data_item['a_lower']).astype(np.float32)),
-            torch.from_numpy(np.asarray(data_item['a_upper']).astype(np.float32)),
+            torch.from_numpy(a_lower),
+            torch.from_numpy(a_upper),
             n
         )
         

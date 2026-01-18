@@ -17,7 +17,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent
 sys.path.append(str(PROJECT_ROOT))
 
 from src.models.predictors.mpnn_plus import MPNNPlusPredictor
-from src.models.predictors.utils import get_edge_index, get_edge_attr_from_bounds
+from src.models.predictors.utils import get_edge_index, get_edge_attr_from_bounds, get_node_features_with_degree
 
 
 def load_mpnn_predictor(model_name, device='cuda'):
@@ -90,7 +90,14 @@ def load_mpnn_predictor(model_name, device='cuda'):
     else:
         saved_dim = model_config.get('dim', 32)  # Use config dim if available, else default
     
-    model = MPNNPlusPredictor(dim=saved_dim).to(device)
+    # Infer node_feature_dim from saved model
+    # Check if model was trained with degree features (Coutinho 2013) or without
+    if 'lin0.weight' in state_dict:
+        node_feature_dim = state_dict['lin0.weight'].shape[1]  # Input dimension
+    else:
+        node_feature_dim = model_config.get('node_feature_dim', 1)  # Default to 1 (original)
+    
+    model = MPNNPlusPredictor(dim=saved_dim, node_feature_dim=node_feature_dim).to(device)
     model.load_state_dict(state_dict, strict=True)
     model.eval()
     
@@ -152,8 +159,8 @@ def predict_mocu(model, mean, std, w, a_lower, a_upper, device='cuda'):
         torch.cuda.empty_cache()
     
     # Create PyG Data object (same format as iNN/NN methods)
-    # Use pin_memory=False to avoid potential memory issues
-    x = torch.from_numpy(w.astype(np.float32)).unsqueeze(-1)  # [N, 1]
+    # Use node features with degree (for Coutinho 2013 model)
+    x = get_node_features_with_degree(w, a_lower, a_upper, device=device_obj)  # [N, 2]
     edge_index = get_edge_index(N).to(device_obj, non_blocking=False)
     edge_attr = get_edge_attr_from_bounds(a_lower, a_upper, N).to(device_obj, non_blocking=False)
     

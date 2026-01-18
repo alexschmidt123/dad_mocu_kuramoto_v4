@@ -47,9 +47,9 @@ def get_edge_attr_from_bounds(a_lower, a_upper, N):
     return torch.tensor(edge_attr, dtype=torch.float32)  # [num_edges, 2]
 
 
-def create_graph_data(w, a_lower, a_upper, device='cpu'):
+def get_node_features_with_degree(w, a_lower, a_upper, device='cpu'):
     """
-    Create PyTorch Geometric Data object from state.
+    Create node features including frequency and degree (for Coutinho 2013 model).
     
     Args:
         w: Natural frequencies [N]
@@ -58,12 +58,58 @@ def create_graph_data(w, a_lower, a_upper, device='cpu'):
         device: torch device
     
     Returns:
+        x: Node features [N, 2] with [frequency, normalized_degree]
+    """
+    N = len(w)
+    
+    # Compute degree from coupling bounds (effective degree)
+    avg_coupling = (a_lower + a_upper) / 2.0
+    degrees = np.sum(avg_coupling > 0, axis=1)  # Count non-zero connections
+    # Normalize degrees
+    degrees = degrees.astype(np.float32) / (N - 1) if N > 1 else degrees.astype(np.float32)
+    
+    # Stack frequency and degree
+    x = torch.from_numpy(np.column_stack([
+        w.astype(np.float32),
+        degrees
+    ])).to(device)  # [N, 2]: [frequency, normalized_degree]
+    
+    return x
+
+
+def create_graph_data(w, a_lower, a_upper, device='cpu', include_degree=True):
+    """
+    Create PyTorch Geometric Data object from state.
+    
+    Args:
+        w: Natural frequencies [N]
+        a_lower: Lower bounds [N, N]
+        a_upper: Upper bounds [N, N]
+        device: torch device
+        include_degree: If True, include degree features (for Coutinho 2013 model)
+    
+    Returns:
         data: PyG Data object for MPNN predictors
     """
     N = len(w)
     
-    # Node features
-    x = torch.from_numpy(w.astype(np.float32)).unsqueeze(-1)  # [N, 1]
+    # Node features: [frequency, degree, ...]
+    if include_degree:
+        # Compute degree from coupling bounds (effective degree)
+        # For Coutinho 2013: degree affects frequency, so we can infer it
+        # Use average coupling strength as proxy for degree
+        avg_coupling = (a_lower + a_upper) / 2.0
+        degrees = np.sum(avg_coupling > 0, axis=1)  # Count non-zero connections
+        # Normalize degrees
+        degrees = degrees.astype(np.float32) / (N - 1) if N > 1 else degrees.astype(np.float32)
+        
+        x = torch.from_numpy(np.column_stack([
+            w.astype(np.float32),
+            degrees
+        ]))  # [N, 2]: [frequency, normalized_degree]
+    else:
+        # Original: only frequency
+        x = torch.from_numpy(w.astype(np.float32)).unsqueeze(-1)  # [N, 1]
     
     # Edge indices and attributes
     edge_index = get_edge_index(N)
