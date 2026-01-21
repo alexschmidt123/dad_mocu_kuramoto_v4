@@ -93,15 +93,16 @@ if __name__ == '__main__':
     aInitialLower = np.loadtxt(aInitialLower_file)
     
     # ========== Choose MOCU backend for initial computation ==========
-    # Use PyCUDA only (required, no fallback to torchdiffeq)
-    # This ensures fair comparison - each simulation computes its own initial MOCU using PyCUDA
+    # Use torchdiffeq for all MOCU computation
+    import torch
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
     try:
-        from src.core.mocu_pycuda import MOCU_pycuda as MOCU_initial
-        mocu_backend = "PyCUDA (required, matches baseline evaluation)"
-    except (ImportError, RuntimeError) as e:
-        raise RuntimeError(
-            f"PyCUDA is REQUIRED for DAD/iDAD evaluation. PyCUDA not available: {e}\n"
-            f"Please ensure PyCUDA is properly installed and configured."
+        from src.core.mocu_torchdiffeq import MOCU_torchdiffeq as MOCU_initial
+        mocu_backend = f"torchdiffeq (device: {device})"
+    except ImportError as e:
+        raise ImportError(
+            f"torchdiffeq not available. Install with: pip install torchdiffeq\n"
+            f"Error: {e}"
         ) from e
     
     print(f"Using MOCU backend: {mocu_backend}")
@@ -204,9 +205,9 @@ if __name__ == '__main__':
             
             with tqdm(total=it_idx, desc="  Initial MOCU", leave=False, unit="iter", ncols=80, mininterval=0.5) as pbar:
                 for l in range(it_idx):
-                    # PyCUDA only (no torchdiffeq fallback)
+                    # Use torchdiffeq for MOCU computation
                     it_temp_val[l] = MOCU_initial(K_max, w, N, deltaT, MReal, TReal,
-                                                  aInitialLower.copy(), aInitialUpper.copy(), 0)
+                                                  aInitialLower.copy(), aInitialUpper.copy(), 0, device=device)
                     pbar.update(1)
             
             MOCUInitial = np.mean(it_temp_val)

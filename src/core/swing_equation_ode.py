@@ -173,7 +173,7 @@ class SwingEquationODE(torch.nn.Module):
 
 def solve_swing_equation_ode(B, P_m, D, M, K, g, gamma=None, 
                              probe_bus=None, probe_amplitude=None, probe_duration=2.0,
-                             h=1.0/160.0, M_steps=None, T=5.0, 
+                             h=1.0/160.0, M_steps=None, T=10.0, 
                              theta0=None, omega0=None, device='cuda', 
                              method='rk4', timeout=5.0):
     """
@@ -192,7 +192,7 @@ def solve_swing_equation_ode(B, P_m, D, M, K, g, gamma=None,
         probe_duration: Probe duration T (float, default 2.0s)
         h: Time step (float, default 1/160)
         M_steps: Number of time steps (int, optional, computed from T/h if not provided)
-        T: Time horizon (float, default 5.0s)
+        T: Time horizon (float, default 10.0s, matches new_plan.tex: t∈[0,10]s)
         theta0: Initial phases [N] (numpy array, optional, default zeros)
         omega0: Initial frequencies [N] (numpy array, optional, default zeros)
         device: 'cuda' or 'cpu'
@@ -295,12 +295,16 @@ def extract_frequency_features(omega_trajectory, h, fs=12.0):
     
     Based on new_plan.tex:
     - Δf_i(t) = ω_i(t) / (2π)
+    - Observations at fs = 12 Hz, t ∈ [0, 10] s
     - Features: [ROCOF_max, f_min, t_settle, ...]
     
+    Note: ODE solving uses fine time step h (e.g., 1/160 s) for numerical accuracy.
+    Observations are downsampled to fs = 12 Hz (1/12 ≈ 0.0833 s) to match PMU-like sampling.
+    
     Args:
-        omega_trajectory: [M, N] frequency trajectory (numpy array)
-        h: Time step (float)
-        fs: Sampling frequency (float, default 12.0 Hz)
+        omega_trajectory: [M, N] frequency trajectory from ODE (numpy array)
+        h: ODE time step (float, e.g., 1/160 s)
+        fs: Observation sampling frequency (float, default 12.0 Hz, matches new_plan.tex)
     
     Returns:
         features: Dictionary with extracted features
@@ -310,23 +314,38 @@ def extract_frequency_features(omega_trajectory, h, fs=12.0):
     # Convert ω to frequency: Δf = ω / (2π)
     freq_trajectory = omega_trajectory / (2.0 * np.pi)  # [M, N]
     
-    # Time array
-    t = np.arange(M) * h
+    # Downsample to observation sampling frequency fs (PMU-like, matches new_plan.tex)
+    # ODE uses fine time step h, but observations should be at fs = 12 Hz
+    h_obs = 1.0 / fs  # Observation time step (1/12 ≈ 0.0833 s)
+    downsample_factor = int(h_obs / h)  # How many ODE steps per observation step
     
-    # Compute ROCOF (Rate of Change of Frequency): d(Δf)/dt
-    rocof = np.gradient(freq_trajectory, axis=0) / h  # [M, N]
+    if downsample_factor > 1:
+        # Downsample: take every downsample_factor-th sample
+        indices = np.arange(0, M, downsample_factor)
+        freq_trajectory_obs = freq_trajectory[indices, :]  # [M_obs, N]
+        t_obs = np.arange(len(indices)) * h_obs  # Time array at observation rate
+    else:
+        # ODE time step is already coarser than observation rate (shouldn't happen)
+        # Use all samples
+        freq_trajectory_obs = freq_trajectory
+        t_obs = np.arange(M) * h
+    
+    M_obs = freq_trajectory_obs.shape[0]
+    
+    # Compute ROCOF (Rate of Change of Frequency): d(Δf)/dt at observation rate
+    rocof = np.gradient(freq_trajectory_obs, axis=0) / h_obs  # [M_obs, N]
     rocof_max = np.max(np.abs(rocof))  # Maximum ROCOF across all buses and time
     
-    # Minimum frequency
-    f_min = np.min(freq_trajectory)
+    # Minimum frequency (from downsampled observations)
+    f_min = np.min(freq_trajectory_obs)
     
     # Settling time (time when frequency deviation is within 1% of final value)
     # Use last 10% of trajectory to estimate final value
-    final_window = int(0.1 * M)
-    final_freq = np.mean(freq_trajectory[-final_window:, :])
+    final_window = max(1, int(0.1 * M_obs))
+    final_freq = np.mean(freq_trajectory_obs[-final_window:, :])
     
     # Find when frequency settles (within 1% of final)
-    freq_deviation = np.abs(freq_trajectory - final_freq)
+    freq_deviation = np.abs(freq_trajectory_obs - final_freq)
     threshold = 0.01 * np.abs(final_freq) if final_freq != 0 else 0.01
     settled_mask = freq_deviation < threshold
     
@@ -334,15 +353,17 @@ def extract_frequency_features(omega_trajectory, h, fs=12.0):
     all_settled = np.all(settled_mask, axis=1)
     if np.any(all_settled):
         settle_idx = np.where(all_settled)[0][0]
-        t_settle = t[settle_idx]
+        t_settle = t_obs[settle_idx]
     else:
-        t_settle = t[-1]  # Never settled
+        t_settle = t_obs[-1]  # Never settled
     
     features = {
         'ROCOF_max': rocof_max,
         'f_min': f_min,
         't_settle': t_settle,
-        'freq_trajectory': freq_trajectory,  # Full trajectory for additional analysis
+        'freq_trajectory': freq_trajectory_obs,  # Downsampled trajectory at fs Hz
+        'fs': fs,  # Observation sampling frequency
+        'h_obs': h_obs,  # Observation time step
     }
     
     return features

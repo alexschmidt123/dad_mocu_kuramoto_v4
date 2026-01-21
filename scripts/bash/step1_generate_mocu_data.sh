@@ -1,5 +1,5 @@
 #!/bin/bash
-# Step 1: Generate MPNN training data (uses PyCUDA - original paper workflow)
+# Step 1: Generate MOCU training data for Swing MLP predictor
 
 set -e
 
@@ -35,7 +35,7 @@ mkdir -p "$DATA_FOLDER"
 TRAIN_FILE=$(find "$DATA_FOLDER" -name "*_${N}o_train.pth" -type f 2>/dev/null | head -1)
 
 if [ -n "$TRAIN_FILE" ]; then
-    echo "✓ Found existing MPNN training data: $TRAIN_FILE"
+    echo "✓ Found existing MOCU training data: $TRAIN_FILE"
     echo "✓ Skipping data generation (data already exists)"
     echo "  Note: MOCU data doesn't depend on K, so same data is used for all K values"
     # Save train file path for next steps (use CONFIG_NAME for tmp file to match other scripts)
@@ -43,20 +43,31 @@ if [ -n "$TRAIN_FILE" ]; then
     exit 0
 fi
 
-echo "Generating MPNN training data (Step 1/6)..."
+echo "Generating MOCU training data (Step 1/6)..."
 echo "  N=$N, Samples per type=$SAMPLES, Train size=$TRAIN_SIZE, K_max=$K_MAX"
 echo "  Note: This data will be reused for all K values (MOCU data doesn't depend on K)"
 
 cd "${PROJECT_ROOT}/scripts"
 # Python scripts remain in scripts/ directory
 ABS_DATA_FOLDER=$(cd "$DATA_FOLDER" && pwd)
+# Resolve config file path relative to PROJECT_ROOT (not scripts directory)
+if [[ "$CONFIG_FILE" = /* ]]; then
+    # Already absolute path
+    ABS_CONFIG_FILE="$CONFIG_FILE"
+else
+    # Relative path - resolve from PROJECT_ROOT
+    ABS_CONFIG_FILE="${PROJECT_ROOT}/${CONFIG_FILE}"
+fi
 
-CMD="python3 generate_mocu_data.py --N $N --samples_per_type $SAMPLES --train_size $TRAIN_SIZE --K_max $K_MAX --output_dir $ABS_DATA_FOLDER"
+CMD="python3 generate_mocu_data.py --config $ABS_CONFIG_FILE"
 
-# MOCU is always computed twice (always enabled for stability)
+# Add optional arguments if specified in config
+if [ -n "$SAMPLES" ]; then
+    CMD="$CMD --samples $SAMPLES"
+fi
 
-if [ "$SAVE_JSON" = "true" ]; then
-    CMD="$CMD --save_json"
+if [ -n "$ABS_DATA_FOLDER" ]; then
+    CMD="$CMD --output_dir $ABS_DATA_FOLDER"
 fi
 
 # Add multiprocessing settings if specified in config
@@ -76,6 +87,6 @@ if [ -z "$TRAIN_FILE" ]; then
     exit 1
 fi
 
-echo "✓ MPNN data generated: $TRAIN_FILE"
+echo "✓ MOCU training data generated: $TRAIN_FILE"
 echo "$TRAIN_FILE" > /tmp/mocu_train_file_${CONFIG_NAME}.txt
 

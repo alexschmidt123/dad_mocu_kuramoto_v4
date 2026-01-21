@@ -25,11 +25,10 @@ if not resultFolder.endswith(os.sep):
 
 # Keep iODE in list for index consistency, even though it's not used in experiments
 # DAD: Deep Adaptive Design (new method)
-# REGRESSION_SCORER: Regression Scorer (baseline method)
 if args.baseline_only:
-    listMethods = ['iNN', 'NN', 'iODE', 'ODE', 'ENTROPY', 'RANDOM', 'REGRESSION_SCORER']
+    listMethods = ['iNN', 'NN', 'iODE', 'ODE', 'ENTROPY', 'RANDOM']
 else:
-    listMethods = ['iNN', 'NN', 'iODE', 'ODE', 'ENTROPY', 'RANDOM', 'REGRESSION_SCORER', 'DAD', 'DAD_MOCU', 'IDAD_MOCU']
+    listMethods = ['iNN', 'NN', 'iODE', 'ODE', 'ENTROPY', 'RANDOM', 'DAD', 'DAD_MOCU', 'IDAD_MOCU']
 
 # Detect which methods have results by checking which files exist
 available_methods = []
@@ -136,9 +135,6 @@ if 'ENTROPY' in available_methods:
 if 'RANDOM' in available_methods:
     plot_args.extend([x_ax, method_data['RANDOM']['mocu'], 'b,:'])
     legend_labels.append('Random')
-if 'REGRESSION_SCORER' in available_methods:
-    plot_args.extend([x_ax, method_data['REGRESSION_SCORER']['mocu'], 'c^--'])
-    legend_labels.append('Regression Scorer')
 if 'DAD_MOCU' in available_methods:
     plot_args.extend([x_ax, method_data['DAD_MOCU']['mocu'], 'm^-'])
     legend_labels.append('DAD-MOCU')
@@ -187,9 +183,6 @@ if 'ENTROPY' in available_methods:
 if 'RANDOM' in available_methods:
     plot_args.extend([x_ax, np.insert(np.cumsum(method_data['RANDOM']['time']), 0, 0.0000000001), 'b,:'])
     legend_labels.append('Random')
-if 'REGRESSION_SCORER' in available_methods:
-    plot_args.extend([x_ax, np.insert(np.cumsum(method_data['REGRESSION_SCORER']['time']), 0, 0.0000000001), 'c^--'])
-    legend_labels.append('Regression Scorer')
 if 'DAD_MOCU' in available_methods:
     plot_args.extend([x_ax, np.insert(np.cumsum(method_data['DAD_MOCU']['time']), 0, 0.0000000001), 'm^-'])
     legend_labels.append('DAD-MOCU')

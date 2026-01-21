@@ -43,21 +43,19 @@ class OEDMethod(ABC):
         self.name = self.__class__.__name__
     
     @abstractmethod
-    def select_experiment(self, state: Dict[str, Any], available_pairs: List[Tuple[int, int]]) -> Tuple[Tuple[int, int], Dict]:
+    def select_experiment(self, M_lower, M_upper, K_lower, K_upper, history,
+                         probe_amplitudes=None, probe_duration=None):
         """
-        Select next experiment to perform.
+        Select next probe action to perform.
         
         Args:
-            state: Current state dictionary containing:
-                - 'w': Natural frequencies [N]
-                - 'a_lower': Lower bounds [N, N]
-                - 'a_upper': Upper bounds [N, N]
-                - 'history': List of (i, j, observation) tuples
-            available_pairs: List of (i, j) pairs not yet observed
+            M_lower, M_upper, K_lower, K_upper: Current uncertainty bounds (scalars)
+            history: List of (probe_action, observation) tuples
+            probe_amplitudes: List of probe amplitude options (optional)
+            probe_duration: Probe duration T (optional)
         
         Returns:
-            action: Selected (i, j) pair
-            info: Dict with auxiliary information (computation time, values, etc.)
+            (probe_bus, probe_amplitude, probe_duration): Selected probe action
         """
         pass
     
@@ -148,32 +146,39 @@ class OEDMethod(ABC):
         
         return mocu_curve, sequence, times
     
-    def run_episode(self, w_init, a_lower_init, a_upper_init, criticalK_init, 
-                    isSynchronized_init, update_cnt, initial_mocu=None):
+    def run_episode(self, M_lower_init, M_upper_init, K_lower_init, K_upper_init,
+                    M_true, K_true, B, P_m, D, g, probe_amplitudes, probe_duration,
+                    r_max=0.5, f_min=49.5, update_cnt=10, initial_mocu=None):
         """
-        Run a complete OED episode.
+        Run a complete OED episode for swing equation model.
         
         This is the main entry point for evaluation. It runs the sequential
         experimental design process and tracks:
         - MOCU curve over iterations
-        - Selected experiment sequence  
+        - Selected probe action sequence  
         - Time complexity per iteration
         
         Args:
-            w_init: Natural frequencies [N]
-            a_lower_init: Initial lower bounds [N, N]
-            a_upper_init: Initial upper bounds [N, N]
-            criticalK_init: Ground truth critical couplings [N, N]
-            isSynchronized_init: Ground truth synchronization status [N, N]
+            M_lower_init, M_upper_init, K_lower_init, K_upper_init: Initial uncertainty bounds (scalars)
+            M_true, K_true: True parameters (unknown to agent, used for simulation)
+            B: Coupling matrix [N, N] (fixed, known)
+            P_m: Mechanical power [N] (fixed, known)
+            D: Damping coefficient (fixed, known)
+            g: Control allocation [N] (fixed, known)
+            probe_amplitudes: List of probe amplitude options
+            probe_duration: Probe duration T (seconds)
+            r_max: Maximum ROCOF constraint (Hz/s, default 0.5)
+            f_min: Minimum frequency constraint (Hz, default 49.5)
             update_cnt: Number of experiments to perform
+            initial_mocu: Pre-computed initial MOCU (optional)
         
         Returns:
             MOCUCurve: MOCU values at each step [update_cnt+1]
-            experimentSequence: List of (i, j) tuples
+            experimentSequence: List of (probe_bus, probe_amplitude, probe_duration) tuples
             timeComplexity: Time per iteration [update_cnt]
         """
         
-        N = len(w_init)
+        N = len(P_m)
         # Initialize MOCUCurve - will be filled by computation
         MOCUCurve = np.zeros(update_cnt + 1)
         experimentSequence = []
@@ -181,365 +186,194 @@ class OEDMethod(ABC):
         history = []
         
         # Compute initial MOCU
-        # initial_mocu is passed from evaluate.py (computed with torchdiffeq)
+        # initial_mocu is passed from evaluate.py (computed with swing equation MOCU)
         # Use it to avoid redundant computation
-        it_temp_val = np.zeros(self.it_idx)
-        
-        # Check method type
-        method_name = self.__class__.__name__
-        is_mpnn_method = method_name in ['iNN_Method', 'NN_Method']
-        is_dad_method = method_name == 'DAD_MOCU_Method'
-        
-        if is_mpnn_method:
-            # For MPNN methods, use initial MOCU from evaluate.py
-            # They compute their own MOCU values iteratively via predictor
-            if initial_mocu is not None:
-                it_temp_val.fill(initial_mocu)
-            else:
-                it_temp_val.fill(0.0)
-        elif is_dad_method:
-            # For DAD method, use initial MOCU from evaluate.py
-            # It uses policy network, doesn't compute MOCU directly
-            if initial_mocu is not None:
-                it_temp_val.fill(initial_mocu)
-            else:
-                it_temp_val.fill(0.0)
+        if initial_mocu is not None:
+            MOCUCurve[0] = initial_mocu
+            self._last_valid_mocu = initial_mocu
         else:
-            # For ODE/RANDOM/ENTROPY methods, use initial MOCU from evaluate.py
-            # Avoid redundant recomputation - evaluate.py already computed initial MOCU
-            if initial_mocu is not None:
-                # Use the pre-computed initial MOCU from evaluate.py (avoids redundant computation)
-                it_temp_val.fill(initial_mocu)
-                self._last_valid_mocu = initial_mocu  # Store for iterative fallback
-            else:
-                # Fallback: Only recompute if initial_mocu was not provided (shouldn't happen in normal flow)
-                # Use PyCUDA for steps 1-3, torchdiffeq for DAD (steps 4-5)
-                use_pycuda = os.getenv('USE_PYCUDA_FOR_BASELINES', '0') == '1'
+            # Fallback: Compute initial MOCU if not provided
+            try:
+                global torch
+                if torch is None:
+                    try:
+                        import torch as _torch
+                        torch = _torch
+                    except ImportError:
+                        torch = None
                 
-                if use_pycuda:
-                    # Steps 1-3: Use PyCUDA (original paper workflow)
-                    try:
-                        from ..core.mocu_pycuda import MOCU_pycuda
-                        for l in range(self.it_idx):
-                            it_temp_val[l] = MOCU_pycuda(
-                                self.K_max, w_init, N, self.deltaT,
-                                self.MReal, self.TReal,
-                                a_lower_init, a_upper_init, 0
-                            )
-                        self._last_valid_mocu = np.mean(it_temp_val)
-                    except (ImportError, RuntimeError) as e:
-                        # PyCUDA failed - use zero as last resort
-                        if not hasattr(self, '_pycuda_warned'):
-                            print(f"[WARNING] PyCUDA unavailable and no initial_mocu provided: {e}")
-                            print(f"[WARNING] Using zero for initial MOCU (this may affect results)")
-                            self._pycuda_warned = True
-                        it_temp_val.fill(0.0)
-                        self._last_valid_mocu = 0.0
-                else:
-                    # Steps 4-5: Use torchdiffeq (DAD-specific)
-                    try:
-                        # Lazy import torch if needed
-                        global torch
-                        if torch is None:
-                            try:
-                                import torch as _torch
-                                torch = _torch
-                            except ImportError:
-                                torch = None
-                        
-                        # Determine device
-                        device = 'cuda' if (torch is not None and torch.cuda.is_available()) else 'cpu'
-                        
-                        from ..core.mocu_torchdiffeq import MOCU_torchdiffeq
-                        for l in range(self.it_idx):
-                            it_temp_val[l] = MOCU_torchdiffeq(
-                                self.K_max, w_init, N, self.deltaT,
-                                self.MReal, self.TReal,
-                                a_lower_init, a_upper_init, 0, device=device
-                            )
-                        self._last_valid_mocu = np.mean(it_temp_val)
-                    except (ImportError, RuntimeError) as e:
-                        # torchdiffeq failed - use zero as last resort
-                        if not hasattr(self, '_torchdiffeq_warned'):
-                            print(f"[WARNING] torchdiffeq unavailable and no initial_mocu provided: {e}")
-                            print(f"[WARNING] Using zero for initial MOCU (this may affect results)")
-                            self._torchdiffeq_warned = True
-                        it_temp_val.fill(0.0)
-                        self._last_valid_mocu = 0.0
-
-
-        MOCUCurve[0] = np.mean(it_temp_val)
+                device = 'cuda' if (torch is not None and torch.cuda.is_available()) else 'cpu'
+                
+                from ..core.swing_equation_mocu import MOCU_swing_equation
+                it_temp_val = np.zeros(self.it_idx)
+                for l in range(self.it_idx):
+                    it_temp_val[l] = MOCU_swing_equation(
+                        K_max=self.K_max,
+                        B=B,
+                        P_m=P_m,
+                        D=D,
+                        M_lower=M_lower_init,
+                        M_upper=M_upper_init,
+                        K_lower=K_lower_init,
+                        K_upper=K_upper_init,
+                        g=g,
+                        r_max=r_max,
+                        f_min=f_min,
+                        h=self.deltaT,
+                        T=self.TReal,
+                        M_steps=self.MReal,
+                        seed=l,
+                        device=device
+                    )
+                MOCUCurve[0] = np.mean(it_temp_val)
+                self._last_valid_mocu = MOCUCurve[0]
+            except Exception as e:
+                if not hasattr(self, '_mocu_warned'):
+                    print(f"[WARNING] Failed to compute initial MOCU: {e}")
+                    self._mocu_warned = True
+                MOCUCurve[0] = 0.0
+                self._last_valid_mocu = 0.0
         
         # Sequential experimental design
-        # Get method name early for debug prints
         method_name = self.__class__.__name__
-        is_mpnn_method = method_name in ['iNN_Method', 'NN_Method']
-        is_dad_method = method_name == 'DAD_MOCU_Method'
         
-        # Import torch for PyTorch-based methods (iNN, NN, DAD)
-        # All methods now use torchdiffeq, so torch is safe to import
-        if is_mpnn_method or is_dad_method:
-            # Ensure all CUDA operations are complete before MPNN usage
-            # Lazy import torch only when needed
+        # Import torch for PyTorch-based methods
+        global torch
+        if torch is None:
             try:
-                if torch is None:
-                    import torch as _torch
-                    globals()['torch'] = _torch
-                if torch.cuda.is_available():
-                    torch.cuda.synchronize()  # Wait for CUDA kernels to finish
-            except:
-                pass
+                import torch as _torch
+                globals()['torch'] = _torch
+            except ImportError:
+                torch = None
         
-        a_lower_current = a_lower_init.copy()
-        a_upper_current = a_upper_init.copy()
+        device = 'cuda' if (torch is not None and torch.cuda.is_available()) else 'cpu'
+        
+        # Import swing equation functions
+        try:
+            from scripts.generate_dad_data import (
+                perform_probe_experiment,
+                update_bounds as update_bounds_swing
+            )
+        except ImportError as e:
+            raise ImportError(f"Failed to import swing equation functions: {e}")
+        
+        # Get base bounds from config (for update_bounds)
+        # These are the maximum possible bounds
+        M_lower_base = M_lower_init  # Use initial as base (could be from config)
+        M_upper_base = M_upper_init
+        K_lower_base = K_lower_init
+        K_upper_base = K_upper_init
+        
+        # Current uncertainty bounds
+        M_lower_current = M_lower_init
+        M_upper_current = M_upper_init
+        K_lower_current = K_lower_init
+        K_upper_current = K_upper_init
+        
+        # Time parameters for probe experiments
+        h = self.deltaT
+        T = self.TReal
+        M_steps = self.MReal
         
         for iteration in range(update_cnt):
             iterationStartTime = time.time()
             
-            # Synchronize CUDA for PyTorch-based methods
-            # All methods now use torchdiffeq, so torch is safe to import
-            if is_mpnn_method or is_dad_method:
-                # Ensure all CUDA operations are complete before MPNN usage
-                try:
-                    if torch is None:
-                        import torch as _torch
-                        globals()['torch'] = _torch
-                    if torch.cuda.is_available():
-                        torch.cuda.synchronize()  # Wait for any pending CUDA operations
-                except:
-                    pass
-            
-            # Select experiment using the method's specific logic
-            # For iNN/NN: This uses MPNN predictor
-            selected_i, selected_j = self.select_experiment(
-                w_init, a_lower_current, a_upper_current, 
-                criticalK_init, isSynchronized_init, history
+            # Select probe action using the method's specific logic
+            probe_action = self.select_experiment(
+                M_lower_current, M_upper_current, K_lower_current, K_upper_current,
+                history,
+                probe_amplitudes=probe_amplitudes,
+                probe_duration=probe_duration
             )
             
-            # Synchronize CUDA for PyTorch-based methods
-            if is_mpnn_method or is_dad_method:
-                # Ensure MPNN operations are complete before next iteration
-                # Lazy import torch only when needed
-                try:
-                    if torch is None:
-                        import torch as _torch
-                        globals()['torch'] = _torch
-                    if torch.cuda.is_available():
-                        torch.cuda.synchronize()  # Wait for MPNN forward passes to complete
-                except:
-                    pass
+            if not isinstance(probe_action, tuple) or len(probe_action) < 2:
+                print(f"[WARNING] Invalid probe action: {probe_action}, using default")
+                probe_bus = 0
+                probe_amplitude = probe_amplitudes[0] if probe_amplitudes else 1.0
+            else:
+                probe_bus, probe_amplitude = probe_action[0], probe_action[1]
+                if len(probe_action) >= 3:
+                    probe_duration = probe_action[2]
+            
+            # Ensure valid probe bus
+            if probe_bus < 0 or probe_bus >= N:
+                probe_bus = 0
+            
+            # Perform probe experiment (simulate observation using true parameters)
+            observation = perform_probe_experiment(
+                B, P_m, D, M_true, K_true, g,
+                probe_bus, probe_amplitude, probe_duration,
+                h, T, M_steps, device=device
+            )
             
             iterationTime = time.time() - iterationStartTime
             timeComplexity[iteration] = iterationTime
             
-            experimentSequence.append((selected_i, selected_j))
+            experimentSequence.append((probe_bus, probe_amplitude, probe_duration))
             
-            # Update bounds based on ground truth observation
-            # Use dependency-aware update_bounds to break iid independence
-            f_inv = criticalK_init[selected_i, selected_j]
-            observation_sync = isSynchronized_init[selected_i, selected_j]
-            
-            # Import update_bounds with dependency support
-            try:
-                from scripts.generate_dad_data import update_bounds
-                # Use dependency_strength=0.3 to create dependencies between edges
-                # This makes sequential planning valuable (DAD/iDAD can outperform greedy)
-                a_lower_current, a_upper_current = update_bounds(
-                    a_lower_current, a_upper_current,
-                    selected_i, selected_j,
-                    int(observation_sync),
-                    w_init,
-                    dependency_strength=0.3  # Break iid: measuring (i,j) affects (i,k) and (j,k)
+            # Update bounds based on observation
+            (M_lower_current, M_upper_current, K_lower_current, K_upper_current) = \
+                update_bounds_swing(
+                    M_lower_current, M_upper_current, K_lower_current, K_upper_current,
+                    observation, probe_bus, probe_amplitude,
+                    M_lower_base, M_upper_base, K_lower_base, K_upper_base
                 )
-            except ImportError:
-                # Fallback to original independent updates if import fails
-                if observation_sync == 0.0:  # Not synchronized
-                    a_upper_current[selected_i, selected_j] = min(
-                        a_upper_current[selected_i, selected_j], f_inv
-                    )
-                    a_upper_current[selected_j, selected_i] = a_upper_current[selected_i, selected_j]
-                else:  # Synchronized
-                    a_lower_current[selected_i, selected_j] = max(
-                        a_lower_current[selected_i, selected_j], f_inv
-                    )
-                    a_lower_current[selected_j, selected_i] = a_lower_current[selected_i, selected_j]
             
-            history.append(((selected_i, selected_j), observation_sync))
+            history.append(((probe_bus, probe_amplitude, probe_duration), observation))
             
-            # Debug: Print bound update for DAD method
-            if is_dad_method and iteration < 2:
-                print(f"[DAD] After bounds update at iteration {iteration+1}: selected=({selected_i},{selected_j}), sync={observation_sync}")
-                print(f"[DAD] Updated bounds[{selected_i},{selected_j}]=({a_lower_current[selected_i,selected_j]:.4f},{a_upper_current[selected_i,selected_j]:.4f})")
-                print(f"[DAD] bounds[0,1]={a_lower_current[0,1]:.4f},{a_upper_current[0,1]:.4f} (should change if (0,1) was selected)")
-            
-            # Re-compute MOCU for the updated bounds
-            # CRITICAL: Match original paper code - ALL methods use actual MOCU computation (not predictor)
-            # Original code uses PyCUDA's MOCU() for actual MOCU tracking after each experiment
-            # We use torchdiffeq as replacement (same logic, different backend)
-            
-            if is_mpnn_method:
-                # For MPNN methods (iNN/NN): Match original paper code's findMPSequence()
-                # Original uses PyCUDA MOCU() for actual MOCU computation (not MPNN predictor)
-                # MPNN predictor is ONLY used for R-matrix computation (selection), not for tracking
-                try:
-                    # Use PyCUDA for steps 1-3 (original paper), torchdiffeq for DAD (steps 4-5)
-                    use_pycuda = os.getenv('USE_PYCUDA_FOR_BASELINES', '0') == '1'
-                    
-                    if use_pycuda:
-                        # Steps 1-3: Use PyCUDA (original paper workflow)
-                        from ..core.mocu_pycuda import MOCU_pycuda
-                        it_temp_val = np.zeros(self.it_idx)
-                        for l in range(self.it_idx):
-                            it_temp_val[l] = MOCU_pycuda(
-                                self.K_max, w_init, self.N, self.deltaT,
-                                self.MReal, self.TReal,  # Use MReal/TReal for actual MOCU (matching original)
-                                a_lower_current, a_upper_current, 0
-                            )
-                        MOCUCurve[iteration + 1] = np.mean(it_temp_val)
-                    else:
-                        # Steps 4-5: Use torchdiffeq (DAD-specific, runs in separate process)
-                        from ..core.mocu_torchdiffeq import MOCU_torchdiffeq
-                        device = 'cuda' if (torch is not None and torch.cuda.is_available()) else 'cpu'
-                        it_temp_val = np.zeros(self.it_idx)
-                        for l in range(self.it_idx):
-                            it_temp_val[l] = MOCU_torchdiffeq(
-                                self.K_max, w_init, self.N, self.deltaT,
-                                self.MReal, self.TReal,  # Use MReal/TReal for actual MOCU (matching original)
-                                a_lower_current, a_upper_current, 0, device=device
-                            )
-                        MOCUCurve[iteration + 1] = np.mean(it_temp_val)
-                    
-                    # Apply monotonicity constraint (matching original)
-                    if MOCUCurve[iteration + 1] > MOCUCurve[iteration]:
-                        MOCUCurve[iteration + 1] = MOCUCurve[iteration]
-                except Exception as e:
-                    # If computation fails, keep previous value
-                    if not hasattr(self, '_mpnn_mocu_warned'):
-                        print(f"[{method_name}] Warning: Failed to compute MOCU after bounds update: {e}")
-                        self._mpnn_mocu_warned = True
-                    MOCUCurve[iteration + 1] = MOCUCurve[iteration]
-            elif is_dad_method:
-                # For DAD method: PyCUDA only (required, no fallback to torchdiffeq)
-                # DAD uses policy network for selection, real MOCU for tracking (same as baselines)
-                # This ensures fair comparison: all methods use same MOCU computation backend (PyCUDA)
+            # Re-compute MOCU for the updated bounds using swing equation MOCU
+            try:
+                from ..core.swing_equation_mocu import MOCU_swing_equation
+                
                 it_temp_val = np.zeros(self.it_idx)
-                mocu_computed = False
+                for l in range(self.it_idx):
+                    it_temp_val[l] = MOCU_swing_equation(
+                        K_max=self.K_max,
+                        B=B,
+                        P_m=P_m,
+                        D=D,
+                        M_lower=M_lower_current,
+                        M_upper=M_upper_current,
+                        K_lower=K_lower_current,
+                        K_upper=K_upper_current,
+                        g=g,
+                        r_max=r_max,
+                        f_min=f_min,
+                        h=self.deltaT,
+                        T=self.TReal,
+                        M_steps=self.MReal,
+                        seed=l,
+                        device=device
+                    )
+                MOCUCurve[iteration + 1] = np.mean(it_temp_val)
                 
-                # PyCUDA only (required, no fallback)
-                try:
-                    from ..core.mocu_pycuda import MOCU_pycuda
-                    for l in range(self.it_idx):
-                        it_temp_val[l] = MOCU_pycuda(
-                            self.K_max, w_init, self.N, self.deltaT,
-                            self.MReal, self.TReal,
-                            a_lower_current, a_upper_current, 0
-                        )
-                    MOCUCurve[iteration + 1] = np.mean(it_temp_val)
-                    mocu_computed = True
-                    # Log successful PyCUDA usage (only once per run)
-                    if not hasattr(self, '_dad_pycuda_success_logged'):
-                        print(f"[DAD] Using PyCUDA for MOCU tracking (required, matches baselines)")
-                        self._dad_pycuda_success_logged = True
-                except Exception as e:
-                    # PyCUDA is required - raise error instead of falling back
-                    raise RuntimeError(
-                        f"PyCUDA is REQUIRED for DAD/iDAD MOCU computation. "
-                        f"PyCUDA failed at iteration {iteration + 1}: {e}\n"
-                        f"Please ensure PyCUDA is properly installed and configured."
-                    ) from e
+                # Update last valid MOCU for future fallbacks
+                self._last_valid_mocu = MOCUCurve[iteration + 1]
                 
-                # Apply monotonicity constraint (matching original paper)
-                if mocu_computed and MOCUCurve[iteration + 1] > MOCUCurve[iteration]:
-                    MOCUCurve[iteration + 1] = MOCUCurve[iteration]
-            else:
-                # For ODE/RANDOM/ENTROPY methods: Use PyCUDA for steps 1-3 (original paper), torchdiffeq for DAD
-                it_temp_val = np.zeros(self.it_idx)
-                
-                # Use PyCUDA for steps 1-3 (original paper workflow)
-                use_pycuda = os.getenv('USE_PYCUDA_FOR_BASELINES', '0') == '1'
-                
-                if use_pycuda:
-                    # Steps 1-3: Use PyCUDA (original paper workflow)
-                    try:
-                        from ..core.mocu_pycuda import MOCU_pycuda
-                        for l in range(self.it_idx):
-                            it_temp_val[l] = MOCU_pycuda(
-                                self.K_max, w_init, self.N, self.deltaT,
-                                self.MReal, self.TReal,
-                                a_lower_current, a_upper_current, 
-                                seed=0
-                            )
-                        MOCUCurve[iteration + 1] = np.mean(it_temp_val)
-                        self._last_valid_mocu = MOCUCurve[iteration + 1]
-                    except Exception as e:
-                        # PyCUDA failed
-                        if not hasattr(self, '_pycuda_iter_warned'):
-                            print(f"[{method_name}] ERROR: PyCUDA failed for iterative MOCU (iteration {iteration+1}): {type(e).__name__}: {e}")
-                            print(f"[{method_name}] Using fallback MOCU computation")
-                            self._pycuda_iter_warned = True
-                        if hasattr(self, '_last_valid_mocu') and self._last_valid_mocu is not None:
-                            MOCUCurve[iteration + 1] = self._last_valid_mocu
-                        else:
-                            MOCUCurve[iteration + 1] = MOCUCurve[iteration]
-                else:
-                    # Steps 4-5: Use torchdiffeq (DAD-specific, runs in separate process)
-                    # Lazy import torch if needed
-                    if torch is None:
-                        try:
-                            import torch as _torch
-                            globals()['torch'] = _torch
-                        except ImportError:
-                            pass
-                    
-                    # Determine device
-                    device = 'cuda' if (torch is not None and torch.cuda.is_available()) else 'cpu'
-                    
-                    try:
-                        from ..core.mocu_torchdiffeq import MOCU_torchdiffeq
-                        
-                        # Compute MOCU using torchdiffeq
-                        for l in range(self.it_idx):
-                            it_temp_val[l] = MOCU_torchdiffeq(
-                                self.K_max, w_init, self.N, self.deltaT,
-                                self.MReal, self.TReal,
-                                a_lower_current, a_upper_current, 
-                                seed=0, device=device
-                            )
-                        MOCUCurve[iteration + 1] = np.mean(it_temp_val)
-                        
-                        # Update last valid MOCU for future fallbacks
-                        self._last_valid_mocu = MOCUCurve[iteration + 1]
-                            
-                    except ImportError:
-                        # torchdiffeq not available
-                        if not hasattr(self, '_torchdiffeq_import_warned'):
-                            print(f"[{method_name}] Warning: torchdiffeq not available (ImportError)")
-                            print(f"[{method_name}] Install with: pip install torchdiffeq")
-                            print(f"[{method_name}] Using fallback MOCU computation")
-                            self._torchdiffeq_import_warned = True
-                        # Use last valid MOCU or previous value
-                        if hasattr(self, '_last_valid_mocu') and self._last_valid_mocu is not None:
-                            MOCUCurve[iteration + 1] = self._last_valid_mocu
-                        else:
-                            MOCUCurve[iteration + 1] = MOCUCurve[iteration]
-                            
-                    except Exception as e:
-                        # torchdiffeq computation failed
-                        if not hasattr(self, '_torchdiffeq_iter_warned'):
-                            print(f"[{method_name}] ERROR: torchdiffeq failed for iterative MOCU (iteration {iteration+1}): {type(e).__name__}: {e}")
-                            print(f"[{method_name}] Using fallback MOCU computation")
-                            self._torchdiffeq_iter_warned = True
-                        # Use last valid MOCU or previous value
-                        if hasattr(self, '_last_valid_mocu') and self._last_valid_mocu is not None:
-                            MOCUCurve[iteration + 1] = self._last_valid_mocu
-                        else:
-                            MOCUCurve[iteration + 1] = MOCUCurve[iteration]
-            
-            # Ensure MOCU is non-increasing (monotonicity constraint)
-            # Note: This is already applied in MPNN methods (line 359) and DAD (line 400)
-            # Only apply for ODE/RANDOM/ENTROPY if not already applied
-            if not (is_mpnn_method or is_dad_method):
+                # Apply monotonicity constraint (MOCU should not increase)
                 if MOCUCurve[iteration + 1] > MOCUCurve[iteration]:
+                    MOCUCurve[iteration + 1] = MOCUCurve[iteration]
+                    
+            except ImportError:
+                # MOCU computation not available
+                if not hasattr(self, '_mocu_import_warned'):
+                    print(f"[{method_name}] Warning: Swing equation MOCU not available (ImportError)")
+                    self._mocu_import_warned = True
+                # Use last valid MOCU or previous value
+                if hasattr(self, '_last_valid_mocu') and self._last_valid_mocu is not None:
+                    MOCUCurve[iteration + 1] = self._last_valid_mocu
+                else:
+                    MOCUCurve[iteration + 1] = MOCUCurve[iteration]
+                    
+            except Exception as e:
+                # MOCU computation failed
+                if not hasattr(self, '_mocu_iter_warned'):
+                    print(f"[{method_name}] ERROR: MOCU computation failed (iteration {iteration+1}): {type(e).__name__}: {e}")
+                    self._mocu_iter_warned = True
+                # Use last valid MOCU or previous value
+                if hasattr(self, '_last_valid_mocu') and self._last_valid_mocu is not None:
+                    MOCUCurve[iteration + 1] = self._last_valid_mocu
+                else:
                     MOCUCurve[iteration + 1] = MOCUCurve[iteration]
         
         return MOCUCurve, experimentSequence, timeComplexity

@@ -1,7 +1,8 @@
 #!/bin/bash
 # Step 5: Train DAD/IDAD policies (uses existing trajectories)
+# NOTE: DAD/iDAD not yet updated for swing equation - this step will skip gracefully
 
-set -e
+set +e  # Don't exit on error - allow graceful skip
 
 CONFIG_FILE=$1
 if [ -z "$CONFIG_FILE" ]; then
@@ -25,16 +26,26 @@ CONFIG_NAME=$(basename "$CONFIG_FILE" .yaml)
 BASE_CONFIG_NAME=$(echo "$CONFIG_NAME" | sed 's/_K[0-9]*$//')
 N=$(grep "^N:" "$CONFIG_FILE" | awk '{print $2}')
 
-DAD_TRAJ_FILE=$(cat /tmp/dad_traj_file_${CONFIG_NAME}.txt 2>/dev/null || echo "")
-if [ -z "$DAD_TRAJ_FILE" ] || [ ! -f "$DAD_TRAJ_FILE" ]; then
-    echo "Error: DAD trajectory file not found. Run step4_generate_dad_data.sh first."
-    exit 1
+# Check if DAD is enabled (skip if not)
+SKIP_DAD="${SKIP_DAD:-true}"
+if [ "$SKIP_DAD" = "true" ]; then
+    echo "⚠️  DAD/iDAD not yet updated for swing equation model."
+    echo "⚠️  Skipping DAD policy training. Use baselines only."
+    echo "✓ Step 5 skipped gracefully"
+    exit 0
 fi
 
-MPNN_MODEL_FOLDER=$(cat /tmp/mocu_model_folder_${CONFIG_NAME}.txt 2>/dev/null || echo "")
+DAD_TRAJ_FILE=$(cat /tmp/dad_traj_file_${CONFIG_NAME}.txt 2>/dev/null || echo "")
+if [ -z "$DAD_TRAJ_FILE" ] || [ ! -f "$DAD_TRAJ_FILE" ]; then
+    echo "⚠️  DAD trajectory file not found. Skipping DAD policy training."
+    echo "✓ Step 5 skipped gracefully"
+    exit 0
+fi
+
+SWING_MLP_MODEL_FOLDER=$(cat /tmp/mocu_model_folder_${CONFIG_NAME}.txt 2>/dev/null || echo "")
 MOCU_MODEL_NAME=$(cat /tmp/mocu_model_name_${CONFIG_NAME}.txt 2>/dev/null || echo "")
 
-if [ -z "$MPNN_MODEL_FOLDER" ] || [ ! -d "$MPNN_MODEL_FOLDER" ]; then
+if [ -z "$SWING_MLP_MODEL_FOLDER" ] || [ ! -d "$SWING_MLP_MODEL_FOLDER" ]; then
     echo "Error: Swing MLP model folder not found. Run step2_train_swing_mlp.sh first."
     exit 1
 fi
@@ -130,7 +141,7 @@ PYEOF
 )
 
 USE_PREDICTED_MOCU=""
-if [ -f "${MPNN_MODEL_FOLDER}model.pth" ]; then
+if [ -f "${SWING_MLP_MODEL_FOLDER}model.pth" ]; then
     USE_PREDICTED_MOCU="--use-predicted-mocu"
 fi
 

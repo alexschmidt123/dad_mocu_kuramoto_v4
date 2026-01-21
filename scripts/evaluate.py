@@ -1,11 +1,8 @@
 """
-Evaluation Script for Baseline Methods (Steps 1-3 - Original Paper Workflow)
+Evaluation Script for Baseline Methods (Swing Equation Model)
 
-This script evaluates baseline OED methods (iNN, NN, ODE, ENTROPY, RANDOM) using PyCUDA
-for MOCU computation, matching the original paper 2023 implementation exactly.
-
-Steps 1-3 use PyCUDA (original paper workflow)
-Steps 4-5 use torchdiffeq (DAD-specific, runs in separate process)
+This script evaluates baseline OED methods (iNN, NN, ODE, ENTROPY, RANDOM) using torchdiffeq
+for MOCU computation with the swing equation model.
 
 Usage:
     python scripts/evaluate.py
@@ -20,6 +17,7 @@ import numpy as np
 from pathlib import Path
 from tqdm import tqdm
 import warnings
+import yaml
 
 # Suppress verbose warnings
 warnings.filterwarnings('ignore', category=UserWarning, message='.*DataLoader.*deprecated.*')
@@ -29,17 +27,36 @@ warnings.filterwarnings('ignore', category=UserWarning, module='torch_geometric'
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.append(str(PROJECT_ROOT))
 
-# Import sync detection (CPU-based, always available)
-from src.core.sync_detection import determineSyncN, determineSyncTwo
+# Import swing equation modules
+try:
+    from src.core.swing_equation_mocu import MOCU_swing_equation
+    from src.core.swing_equation_params import (
+        get_default_swing_equation_params,
+        sample_uncertain_parameters
+    )
+    from src.core.swing_equation_ode import (
+        solve_swing_equation_ode,
+        check_frequency_synchronization
+    )
+    from scripts.generate_dad_data import (
+        generate_random_system,
+        perform_probe_experiment,
+        update_bounds
+    )
+    SWING_EQUATION_AVAILABLE = True
+except ImportError as e:
+    SWING_EQUATION_AVAILABLE = False
+    print(f"[ERROR] Swing equation modules not available: {e}")
+    sys.exit(1)
 
 
 if __name__ == '__main__':
     # Parse command line arguments
-    parser = argparse.ArgumentParser(description='Evaluate OED methods with smart ordering')
+    parser = argparse.ArgumentParser(description='Evaluate OED methods with swing equation')
     parser.add_argument('--methods', type=str, default=None,
                         help='Comma-separated list of methods to evaluate (e.g., "ODE,iNN,NN")')
-    parser.add_argument('--force-pytorch', action='store_true',
-                        help='Force PyTorch CUDA for all methods (slower but simpler)')
+    parser.add_argument('--config', type=str, default=None,
+                        help='Path to config YAML file (optional, uses env vars if not provided)')
     args = parser.parse_args()
     
     # ========== Configuration ==========
@@ -48,11 +65,58 @@ if __name__ == '__main__':
         val = os.getenv(key, default)
         return int(val) if val else int(default)
     
-    it_idx = safe_getenv_int('EVAL_IT_IDX', '10')
-    update_cnt = safe_getenv_int('EVAL_UPDATE_CNT', '10')
-    N = safe_getenv_int('EVAL_N', '5')
-    K_max = safe_getenv_int('EVAL_K_MAX', '20480')
-    numberOfSimulationsPerMethod = safe_getenv_int('EVAL_NUM_SIMULATIONS', '10')
+    # Load config if provided
+    config = None
+    if args.config:
+        config_path = Path(args.config)
+        if config_path.exists():
+            with open(config_path, 'r') as f:
+                config = yaml.safe_load(f)
+    
+    # Get parameters from config or environment
+    if config:
+        N = config.get('N', 14)
+        swing_params = config.get('swing_equation', {})
+        experiment_params = config.get('experiment', {})
+        it_idx = experiment_params.get('it_idx', 10)
+        update_cnt = experiment_params.get('update_count', 10)
+        K_max = experiment_params.get('K_max', 20480)
+        numberOfSimulationsPerMethod = experiment_params.get('num_simulations', 10)
+        
+        # Swing equation parameters
+        topology = swing_params.get('topology', 'ieee14')
+        coupling_strength = swing_params.get('coupling_strength', 1.0)
+        damping = swing_params.get('damping', 0.1)
+        base_power = swing_params.get('base_power', 1.0)
+        M_lower_base = swing_params.get('M_lower', 0.3)
+        M_upper_base = swing_params.get('M_upper', 2.0)
+        K_lower_base = swing_params.get('K_lower', 0.05)
+        K_upper_base = swing_params.get('K_upper', 0.50)
+        r_max = swing_params.get('r_max', 0.5)
+        f_min = swing_params.get('f_min', 49.5)
+        probe_duration = swing_params.get('probe_duration', 2.0)
+        probe_amplitudes = swing_params.get('probe_amplitudes', [0.5, 1.0, 2.0])
+    else:
+        # Fallback to environment variables
+        it_idx = safe_getenv_int('EVAL_IT_IDX', '10')
+        update_cnt = safe_getenv_int('EVAL_UPDATE_CNT', '10')
+        N = safe_getenv_int('EVAL_N', '14')
+        K_max = safe_getenv_int('EVAL_K_MAX', '20480')
+        numberOfSimulationsPerMethod = safe_getenv_int('EVAL_NUM_SIMULATIONS', '10')
+        
+        # Default swing equation parameters
+        topology = 'ieee14'
+        coupling_strength = 1.0
+        damping = 0.1
+        base_power = 1.0
+        M_lower_base = 0.3
+        M_upper_base = 2.0
+        K_lower_base = 0.05
+        K_upper_base = 0.50
+        r_max = 0.5
+        f_min = 49.5
+        probe_duration = 2.0
+        probe_amplitudes = [0.5, 1.0, 2.0]
     
     result_folder = os.getenv('RESULT_FOLDER', str(PROJECT_ROOT / 'results' / 'default'))
     os.makedirs(result_folder, exist_ok=True)
@@ -61,103 +125,59 @@ if __name__ == '__main__':
     deltaT = 1.0 / 160.0
     TVirtual = 5
     MVirtual = int(TVirtual / deltaT)
-    TReal = 5
+    TReal = 10.0  # Swing equation uses longer time horizon
     MReal = int(TReal / deltaT)
-    
-    # Natural frequencies - Use Coutinho 2013 Frequency-Degree Correlation model
-    # This ensures all methods are evaluated on the same model used for training
-    try:
-        from scripts.generate_dad_data import generate_frequencies_coutinho_2013
-        # Generate frequencies using Coutinho 2013 model (same as training data)
-        # Use seed 44 which gives sufficient spread (7.75) to avoid immediate synchronization
-        # Original hardcoded frequencies had spread ~8.3, we need at least ~4-5
-        np.random.seed(44)  # Fixed seed that ensures sufficient frequency spread
-        w, degrees = generate_frequencies_coutinho_2013(N, w0=0.0, alpha=2.0)
-        
-        print(f"Generated frequencies using Coutinho 2013 model: {w}")
-        print(f"Node degrees: {degrees}")
-        print(f"Frequency spread: {np.max(w) - np.min(w):.2f}")
-    except ImportError:
-        # Fallback to original hardcoded values if import fails (for backward compatibility)
-        print("⚠️  Warning: Could not import Coutinho 2013 model, using hardcoded frequencies")
-        w = np.array([-2.5000, -0.6667, 1.1667, 2.0000, 5.8333])
+    h = deltaT
+    T = TReal
     
     # ========== Method Selection ==========
-    # Steps 1-3: Use PyCUDA for baseline methods (original paper workflow)
-    # Steps 4-5: Use torchdiffeq for DAD (runs in separate process via dad_eval.py)
-    
     if args.methods:
         method_names = [m.strip() for m in args.methods.split(',')]
     else:
+        # Default: baseline methods only (DAD/iDAD not yet updated for swing equation)
         method_names = ['iNN', 'NN', 'ODE', 'ENTROPY', 'RANDOM']
     
-    # Print configuration (after method_names is defined)
+    # Print configuration
     print(f"\n{'='*80}")
-    print(f"Evaluation Configuration (matches original paper 2023)")
+    print(f"Evaluation Configuration (Swing Equation)")
     print(f"{'='*80}")
     print(f"  N={N}, update_cnt={update_cnt}, it_idx={it_idx}, K_max={K_max}")
     print(f"  num_simulations={numberOfSimulationsPerMethod}")
     print(f"  methods={method_names}")
     print(f"  result_folder={result_folder}")
+    print(f"  M bounds: [{M_lower_base}, {M_upper_base}]")
+    print(f"  K bounds: [{K_lower_base}, {K_upper_base}]")
     print(f"{'='*80}\n")
     
-    # Note: --force-pytorch flag is deprecated (baselines use PyCUDA, DAD uses torchdiffeq)
-    if args.force_pytorch:
-        print(f"\n🔧 Note: Baseline methods use PyCUDA (original paper)")
-        print(f"   (--force-pytorch flag is deprecated but kept for compatibility)")
+    # ========== Generate system parameters (fixed, known) ==========
+    system_params = get_default_swing_equation_params(
+        N=N,
+        topology=topology,
+        coupling_strength=coupling_strength,
+        damping=damping,
+        base_power=base_power,
+        M_lower=M_lower_base,
+        M_upper=M_upper_base,
+        K_lower=K_lower_base,
+        K_upper=K_upper_base
+    )
     
-    # ========== Choose MOCU backend for initial computation ==========
-    # Use PyCUDA for steps 1-3 (original paper workflow) - matches original paper exactly
-    # PyCUDA runs in separate process via bash scripts, so no conflicts with PyTorch
-    device = None  # Only set if using torchdiffeq
-    try:
-        from src.core.mocu_pycuda import MOCU_pycuda as MOCU_initial
-        use_pycuda = True
-    except (ImportError, RuntimeError) as e:
-        print(f"⚠️  Warning: PyCUDA not available: {e}")
-        print(f"   Falling back to torchdiffeq...")
-        import torch
-        device = 'cuda' if torch.cuda.is_available() else 'cpu'
-        from src.core.mocu_torchdiffeq import MOCU_torchdiffeq as MOCU_initial
-        use_pycuda = False
+    B = system_params['B']
+    P_m = system_params['P_m']
+    D = system_params['D']
+    g = system_params['g']
     
-    # Set environment variable so methods know to use PyCUDA
-    if use_pycuda:
-        os.environ['USE_PYCUDA_FOR_BASELINES'] = '1'
-    else:
-        # Ensure env var is not set if using torchdiffeq
-        if 'USE_PYCUDA_FOR_BASELINES' in os.environ:
-            del os.environ['USE_PYCUDA_FOR_BASELINES']
+    # ========== Choose MOCU backend ==========
+    import torch
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    print(f"Using torchdiffeq for MOCU computation (device: {device})")
+    
+    # Clean up any old environment variables
+    if 'USE_PYCUDA_FOR_BASELINES' in os.environ:
+        del os.environ['USE_PYCUDA_FOR_BASELINES']
     
     numberOfVaildSimulations = 0
     numberOfSimulations = 0
-    
-    # ========== Initial bounds ==========
-    aInitialUpper = np.zeros((N, N))
-    aInitialLower = np.zeros((N, N))
-    
-    for i in range(N):
-        for j in range(i + 1, N):
-            syncThreshold = np.abs(w[i] - w[j]) / 2.0
-            aInitialUpper[i, j] = syncThreshold * 1.15
-            aInitialLower[i, j] = syncThreshold * 0.85
-            aInitialUpper[j, i] = aInitialUpper[i, j]
-            aInitialLower[j, i] = aInitialLower[i, j]
-    
-    aInitialUpper[0, 2:5] = aInitialUpper[0, 2:5] * 0.3
-    aInitialLower[0, 2:5] = aInitialLower[0, 2:5] * 0.3
-    aInitialUpper[1, 3:5] = aInitialUpper[1, 3:5] * 0.45
-    aInitialLower[1, 3:5] = aInitialLower[1, 3:5] * 0.45
-    
-    for i in range(N):
-        for j in range(i + 1, N):
-            aInitialUpper[j, i] = aInitialUpper[i, j]
-            aInitialLower[j, i] = aInitialLower[i, j]
-    
-    # Save parameters
-    np.savetxt(os.path.join(result_folder, 'paramNaturalFrequencies.txt'), w, fmt='%.64e')
-    np.savetxt(os.path.join(result_folder, 'paramInitialUpper.txt'), aInitialUpper, fmt='%.64e')
-    np.savetxt(os.path.join(result_folder, 'paramInitialLower.txt'), aInitialLower, fmt='%.64e')
     
     # ========== Results storage ==========
     save_MOCU_matrix = np.zeros([update_cnt + 1, len(method_names), numberOfSimulationsPerMethod])
@@ -168,62 +188,71 @@ if __name__ == '__main__':
     while numberOfVaildSimulations < numberOfSimulationsPerMethod:
         sim_pbar.set_description(f"Simulation {numberOfVaildSimulations + 1}/{numberOfSimulationsPerMethod}")
         
-        # Generate random coupling strengths
-        randomState = np.random.RandomState(int(numberOfSimulations))
-        a = np.zeros((N, N))
-        for i in range(N):
-            for j in range(i + 1, N):
-                randomNumber = randomState.uniform()
-                a[i, j] = aInitialLower[i, j] + randomNumber * (aInitialUpper[i, j] - aInitialLower[i, j])
-                a[j, i] = a[i, j]
+        # Generate random system with initial uncertainty bounds and true parameters
+        random_seed = int(numberOfSimulations)
+        (M_lower_init, M_upper_init, K_lower_init, K_upper_init, M_true, K_true, init_sync) = \
+            generate_random_system(
+                N, B, P_m, D, g,
+                M_lower_base, M_upper_base, K_lower_base, K_upper_base,
+                seed=random_seed
+            )
         
         numberOfSimulations += 1
         
-        # Check if system is already synchronized
-        # "Unstable" = not fully synchronized - this is the interesting case where OED can help
-        #   The system has some oscillators that are not synchronized, so we can learn about
-        #   coupling parameters through experiments. This is what we want to evaluate.
-        # "Stable" = already synchronized - skip this simulation (no learning needed)
-        #   All oscillators are synchronized from the start, so no experiments can help.
-        init_sync_check = determineSyncN(w, deltaT, N, MReal, a)
-        if init_sync_check == 1:
-            sim_pbar.write(f'  ⚠️  System {numberOfSimulations}: Already synchronized (skipping - no learning needed)')
-            continue
-        else:
-            sim_pbar.write(f'  ✓ System {numberOfSimulations}: Not synchronized (good for OED evaluation)')
+        # Check if system is already synchronized (optional - can skip for speed)
+        # For swing equation, we check frequency synchronization
+        try:
+            state_traj = solve_swing_equation_ode(
+                B, P_m, D, M_true, K_true, g,
+                h=h, M_steps=MReal, T=T,
+                device=device, timeout=5.0
+            )
+            N_buses = len(P_m)
+            omega_traj = state_traj[:, N_buses:]  # Extract frequency part
+            is_synced = check_frequency_synchronization(omega_traj, MReal)
+            
+            if is_synced:
+                sim_pbar.write(f'  ⚠️  System {numberOfSimulations}: Already synchronized (skipping - no learning needed)')
+                continue
+            else:
+                sim_pbar.write(f'  ✓ System {numberOfSimulations}: Not synchronized (good for OED evaluation)')
+        except Exception as e:
+            # If sync check fails, continue anyway
+            sim_pbar.write(f'  ⚠️  System {numberOfSimulations}: Sync check failed ({e}), continuing...')
         
-        # Determine synchronization status and critical couplings
-        isSynchronized = np.zeros((N, N))
-        criticalK = np.zeros((N, N))
+        # Save true parameters
+        true_params_file = os.path.join(result_folder, f'paramTrue_M_K_{numberOfVaildSimulations}.txt')
+        np.savetxt(true_params_file, [M_true, K_true], fmt='%.64e')
         
-        for i in range(N):
-            for j in range(i + 1, N):
-                w_i = w[i]
-                w_j = w[j]
-                a_ij = a[i, j]
-                syncThreshold = 0.5 * np.abs(w_i - w_j)
-                criticalK[i, j] = syncThreshold
-                criticalK[j, i] = syncThreshold
-                isSynchronized[i, j] = determineSyncTwo(w_i, w_j, deltaT, 2, MReal, a_ij)
-                isSynchronized[j, i] = isSynchronized[i, j]
-        
-        # Save coupling strengths
-        coupling_file = os.path.join(result_folder, f'paramCouplingStrength{numberOfVaildSimulations}.txt')
-        np.savetxt(coupling_file, a, fmt='%.64e')
+        # Save initial bounds
+        init_bounds_file = os.path.join(result_folder, f'paramInitialBounds_{numberOfVaildSimulations}.txt')
+        np.savetxt(init_bounds_file, [M_lower_init, M_upper_init, K_lower_init, K_upper_init], fmt='%.64e')
         
         # ========== Compute initial MOCU ==========
         timeMOCU = time.time()
         it_temp_val = np.zeros(it_idx)
         
-        # Initial MOCU computation (matches original paper)
+        # Initial MOCU computation using swing equation MOCU
         with tqdm(total=it_idx, desc="  Initial MOCU", leave=False, unit="iter", ncols=80, mininterval=0.5) as pbar:
             for l in range(it_idx):
-                if use_pycuda:
-                    it_temp_val[l] = MOCU_initial(K_max, w, N, deltaT, MReal, TReal,
-                                                  aInitialLower.copy(), aInitialUpper.copy(), 0)
-                else:
-                    it_temp_val[l] = MOCU_initial(K_max, w, N, deltaT, MReal, TReal,
-                                                  aInitialLower.copy(), aInitialUpper.copy(), 0, device=device)
+                it_temp_val[l] = MOCU_swing_equation(
+                    K_max=K_max,
+                    B=B,
+                    P_m=P_m,
+                    D=D,
+                    M_lower=M_lower_init,
+                    M_upper=M_upper_init,
+                    K_lower=K_lower_init,
+                    K_upper=K_upper_init,
+                    g=g,
+                    r_max=r_max,
+                    f_min=f_min,
+                    h=h,
+                    T=T,
+                    M_steps=MReal,
+                    seed=l,
+                    device=device
+                )
                 pbar.update(1)
         
         MOCUInitial = np.mean(it_temp_val)
@@ -231,7 +260,6 @@ if __name__ == '__main__':
         sim_pbar.write(f'  Initial MOCU: {MOCUInitial:.6f} ({elapsed:.1f}s)')
         
         # Save initial MOCU for this simulation (for DAD/iDAD to use same value)
-        # This ensures fair comparison - all methods use exact same initial MOCU
         initial_mocu_file = os.path.join(result_folder, f'initial_MOCU_{numberOfVaildSimulations}.txt')
         np.savetxt(initial_mocu_file, [MOCUInitial], fmt='%.64e')
         
@@ -239,19 +267,14 @@ if __name__ == '__main__':
         method_pbar = tqdm(method_names, desc="  Methods", leave=False, unit="method", ncols=80, mininterval=1.0)
         
         # Monkey-patch print() to redirect to tqdm.write() during method execution
-        # This prevents method prints from interfering with progress bars
         original_print = print
         def redirect_print(*args, **kwargs):
             """Redirect print to tqdm.write() to avoid interfering with progress bars."""
-            # Filter out verbose method initialization messages
             msg = ' '.join(str(arg) for arg in args)
             if any(marker in msg for marker in ['[iNN]', '[NN]', '[ODE]', '[iODE]', '[ENTROPY]', '[RANDOM]']):
-                # Only show important messages, suppress verbose ones
                 if any(important in msg for important in ['Warning:', 'Error:', 'ERROR']):
                     method_pbar.write(f'  {msg}')
-                # Suppress: "Loaded MPNN...", "Computing expected MOCU...", "Initialized..."
             else:
-                # Non-method prints go through normally
                 original_print(*args, **kwargs)
         
         for method_idx, method_name in enumerate(method_pbar):
@@ -268,46 +291,44 @@ if __name__ == '__main__':
                 if method_name == 'iNN':
                     from src.methods.inn import iNN_Method
                     method = iNN_Method(N, K_max, deltaT, MReal, TReal, it_idx, 
-                                       model_name=os.getenv('MOCU_MODEL_NAME', f'cons{N}'))
+                                       model_name=os.getenv('MOCU_MODEL_NAME', f'cons{N}'),
+                                       probe_amplitudes=probe_amplitudes,
+                                       probe_duration=probe_duration)
                 
                 elif method_name == 'NN':
                     from src.methods.nn import NN_Method
                     method = NN_Method(N, K_max, deltaT, MReal, TReal, it_idx,
-                                      model_name=os.getenv('MOCU_MODEL_NAME', f'cons{N}'))
+                                      model_name=os.getenv('MOCU_MODEL_NAME', f'cons{N}'),
+                                      probe_amplitudes=probe_amplitudes,
+                                      probe_duration=probe_duration)
                 
                 elif method_name == 'ODE':
                     from src.methods.ode import ODE_Method
                     method = ODE_Method(N, K_max, deltaT, MReal, TReal, it_idx,
-                                       MVirtual=MVirtual, TVirtual=TVirtual)
-                
-                elif method_name == 'iODE':
-                    from src.methods.ode import iODE_Method
-                    method = iODE_Method(N, K_max, deltaT, MReal, TReal, it_idx,
-                                        MVirtual=MVirtual, TVirtual=TVirtual)
+                                       B=B, P_m=P_m, D=D, g=g,
+                                       probe_amplitudes=probe_amplitudes,
+                                       probe_duration=probe_duration,
+                                       r_max=r_max, f_min=f_min)
                 
                 elif method_name == 'ENTROPY':
                     from src.methods.entropy import ENTROPY_Method
-                    method = ENTROPY_Method(N, K_max, deltaT, MReal, TReal, it_idx)
+                    method = ENTROPY_Method(N, K_max, deltaT, MReal, TReal, it_idx,
+                                           probe_amplitudes=probe_amplitudes,
+                                           probe_duration=probe_duration,
+                                           B=B)
                 
                 elif method_name == 'RANDOM':
                     from src.methods.random import RANDOM_Method
                     method = RANDOM_Method(N, K_max, deltaT, MReal, TReal, it_idx,
+                                          probe_amplitudes=probe_amplitudes,
+                                          probe_duration=probe_duration,
                                           seed=numberOfVaildSimulations)
                 
-                elif method_name == 'REGRESSION_SCORER' or method_name == 'REGRESSION':
-                    from src.methods.regression_scorer import RegressionScorer_Method
-                    method = RegressionScorer_Method(N, K_max, deltaT, MReal, TReal, it_idx,
-                                                     model_name=os.getenv('MOCU_MODEL_NAME', f'cons{N}'))
-                
-                elif method_name == 'DAD':
-                    from src.methods.dad_mocu import DAD_MOCU_Method
-                    policy_path = None
-                    if 'DAD_POLICY_PATH' in os.environ:
-                        policy_path = Path(os.environ['DAD_POLICY_PATH'])
-                        if not policy_path.exists():
-                            policy_path = None
-                    method = DAD_MOCU_Method(N, K_max, deltaT, MReal, TReal, it_idx, 
-                                            policy_model_path=policy_path)
+                elif method_name in ['DAD', 'DAD_MOCU', 'IDAD_MOCU']:
+                    # DAD/iDAD methods not yet updated for swing equation
+                    method_pbar.write(f'  ⚠️  Skipping {method_name}: Not yet updated for swing equation model')
+                    method_pbar.write(f'  ⚠️  DAD/iDAD requires train_dad_policy.py and dad_eval.py updates')
+                    continue
                 
                 else:
                     print(f"Unknown method: {method_name}")
@@ -315,11 +336,20 @@ if __name__ == '__main__':
                 
                 # Run the method (with print redirection active)
                 MOCUCurve, experimentSequence, timeComplexity = method.run_episode(
-                    w_init=w,
-                    a_lower_init=aInitialLower.copy(),
-                    a_upper_init=aInitialUpper.copy(),
-                    criticalK_init=criticalK,
-                    isSynchronized_init=isSynchronized,
+                    M_lower_init=M_lower_init,
+                    M_upper_init=M_upper_init,
+                    K_lower_init=K_lower_init,
+                    K_upper_init=K_upper_init,
+                    M_true=M_true,
+                    K_true=K_true,
+                    B=B,
+                    P_m=P_m,
+                    D=D,
+                    g=g,
+                    probe_amplitudes=probe_amplitudes,
+                    probe_duration=probe_duration,
+                    r_max=r_max,
+                    f_min=f_min,
                     update_cnt=update_cnt,
                     initial_mocu=MOCUInitial
                 )
@@ -356,12 +386,6 @@ if __name__ == '__main__':
                 method_pbar.write(f'  ✗ Error running {method_name}: {e}')
                 import traceback
                 traceback.print_exc()
-                # Print more details for debugging
-                if method_name == 'REGRESSION_SCORER':
-                    print(f"\n[ERROR] REGRESSION_SCORER failed. Common causes:")
-                    print(f"  1. MPNN model not found at: models/{os.getenv('MOCU_MODEL_NAME', f'cons{N}')}/model.pth")
-                    print(f"  2. Statistics file not found at: models/{os.getenv('MOCU_MODEL_NAME', f'cons{N}')}/statistics.pth")
-                    print(f"  3. Please ensure MPNN training (Step 2) completed successfully")
                 continue
         
         numberOfVaildSimulations += 1

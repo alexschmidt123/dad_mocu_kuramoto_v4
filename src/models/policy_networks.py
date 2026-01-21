@@ -504,3 +504,250 @@ def create_state_data(w, a_lower, a_upper, device='cpu', include_degree=True):
     
     return data
 
+
+class DADPolicyNetworkSwing(nn.Module):
+    """
+    Policy network for swing equation model.
+    
+    Architecture:
+    1. State encoder: Encodes current state (M_lower, M_upper, K_lower, K_upper) using MLP
+    2. History encoder: Encodes past (probe_action, observation) pairs using LSTM
+    3. Action decoder: Outputs logits for each possible (bus, amplitude) combination
+    """
+    
+    def __init__(self, N, num_probe_amplitudes=3, hidden_dim=64, encoding_dim=32, 
+                 num_message_passing=3, history_encoder_type='lstm', max_history_len=10):
+        """
+        Args:
+            N: Number of buses
+            num_probe_amplitudes: Number of probe amplitude options
+            hidden_dim: Hidden dimension for LSTM and MLPs
+            encoding_dim: Dimension for state embeddings
+            num_message_passing: Not used for swing equation (kept for compatibility)
+            history_encoder_type: 'lstm' (order-dependent) or 'sum' (order-independent)
+            max_history_len: Maximum history length
+        """
+        super(DADPolicyNetworkSwing, self).__init__()
+        self.N = N
+        self.num_probe_amplitudes = num_probe_amplitudes
+        self.hidden_dim = hidden_dim
+        self.encoding_dim = encoding_dim
+        self.num_actions = N * num_probe_amplitudes  # Number of (bus, amplitude) combinations
+        self.history_encoder_type = history_encoder_type
+        self.max_history_len = max_history_len
+        
+        # ========== State Encoder (MLP for M, K bounds) ==========
+        # Input: [M_lower, M_upper, K_lower, K_upper] (4 scalars)
+        self.state_encoder = nn.Sequential(
+            nn.Linear(4, encoding_dim),
+            nn.ReLU(),
+            nn.Linear(encoding_dim, encoding_dim),
+            nn.ReLU(),
+            nn.Linear(encoding_dim, hidden_dim)
+        )
+        
+        # ========== History Encoder ==========
+        # Each history item: (bus, amplitude, observation) → embedding
+        self.history_bus_embed = nn.Embedding(N, hidden_dim // 4)  # Bus index
+        self.history_amp_embed = nn.Embedding(num_probe_amplitudes, hidden_dim // 4)  # Amplitude index
+        self.obs_linear = nn.Linear(1, hidden_dim // 2)  # Observation (ROCOF_max, etc.)
+        
+        if history_encoder_type == 'lstm':
+            self.history_lstm = nn.LSTM(
+                input_size=hidden_dim,
+                hidden_size=hidden_dim,
+                num_layers=2,
+                batch_first=True,
+                dropout=0.1
+            )
+        elif history_encoder_type == 'sum':
+            self.pair_encoder = nn.Sequential(
+                Linear(hidden_dim, encoding_dim),
+                ReLU(),
+                Linear(encoding_dim, encoding_dim)
+            )
+        elif history_encoder_type == 'cat':
+            self.pair_encoder = nn.Sequential(
+                Linear(hidden_dim, encoding_dim),
+                ReLU(),
+                Linear(encoding_dim, encoding_dim)
+            )
+        
+        # ========== Action Decoder ==========
+        # Combines state and history to output action logits
+        if history_encoder_type == 'sum':
+            combined_dim = hidden_dim + encoding_dim
+        elif history_encoder_type == 'cat':
+            combined_dim = hidden_dim + max_history_len * encoding_dim
+        else:  # lstm
+            combined_dim = hidden_dim + hidden_dim
+        
+        self.decoder = nn.Sequential(
+            nn.Linear(combined_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, self.num_actions)
+        )
+        
+        # Optional: Enhanced decoder with expected MOCU features
+        self.use_expected_mocu = True
+        if self.use_expected_mocu:
+            self.enhanced_decoder = nn.Sequential(
+                nn.Linear(combined_dim + self.num_actions, hidden_dim),
+                nn.ReLU(),
+                nn.Linear(hidden_dim, hidden_dim),
+                nn.ReLU(),
+                nn.Linear(hidden_dim, self.num_actions)
+            )
+    
+    def encode_state(self, state_data):
+        """Encode current state (M, K bounds)."""
+        if isinstance(state_data, dict):
+            # Extract bounds from dict
+            M_lower = state_data['M_lower']
+            M_upper = state_data['M_upper']
+            K_lower = state_data['K_lower']
+            K_upper = state_data['K_upper']
+            state_vec = torch.cat([M_lower, M_upper, K_lower, K_upper], dim=-1)
+        else:
+            # Assume state_data is already a tensor [batch, 4]
+            state_vec = state_data
+        
+        state_emb = self.state_encoder(state_vec)  # [batch, hidden_dim]
+        return state_emb
+    
+    def encode_history(self, history_data):
+        """Encode history of (bus, amplitude, observation) tuples."""
+        if history_data is None or history_data.shape[1] == 0:
+            # No history
+            if self.history_encoder_type == 'lstm':
+                batch_size = 1
+                return torch.zeros(batch_size, self.hidden_dim, device=history_data.device if history_data is not None else 'cpu')
+            elif self.history_encoder_type == 'sum':
+                return torch.zeros(1, self.encoding_dim, device=history_data.device if history_data is not None else 'cpu')
+            else:  # cat
+                return torch.zeros(1, self.max_history_len * self.encoding_dim, device=history_data.device if history_data is not None else 'cpu')
+        
+        batch_size, seq_len, _ = history_data.shape
+        device = history_data.device
+        
+        # Encode each history item: (bus, amplitude, observation)
+        history_embeddings = []
+        for t in range(seq_len):
+            bus_idx = history_data[:, t, 0].long()  # [batch]
+            amp_idx = history_data[:, t, 1].long()  # [batch]
+            obs = history_data[:, t, 2:3]  # [batch, 1] - observation value
+            
+            bus_emb = self.history_bus_embed(bus_idx)  # [batch, hidden_dim//4]
+            amp_emb = self.history_amp_embed(amp_idx)  # [batch, hidden_dim//4]
+            obs_emb = self.obs_linear(obs)  # [batch, hidden_dim//2]
+            
+            pair_emb = torch.cat([bus_emb, amp_emb, obs_emb], dim=-1)  # [batch, hidden_dim]
+            history_embeddings.append(pair_emb)
+        
+        if self.history_encoder_type == 'lstm':
+            # LSTM: Order-dependent
+            history_seq = torch.stack(history_embeddings, dim=1)  # [batch, seq_len, hidden_dim]
+            h_n, (h_n, c_n) = self.history_lstm(history_seq)
+            return h_n[-1]  # [batch, hidden_dim]
+        elif self.history_encoder_type == 'sum':
+            # Set-equivariant sum: Order-independent
+            history_seq = torch.stack(history_embeddings, dim=1)  # [batch, seq_len, hidden_dim]
+            pair_encodings = self.pair_encoder(history_seq)  # [batch, seq_len, encoding_dim]
+            return torch.sum(pair_encodings, dim=1)  # [batch, encoding_dim]
+        else:  # cat
+            # Concatenation: Fixed-size
+            history_seq = torch.stack(history_embeddings, dim=1)  # [batch, seq_len, hidden_dim]
+            pair_encodings = self.pair_encoder(history_seq)  # [batch, seq_len, encoding_dim]
+            
+            # Pad or truncate to max_history_len
+            if seq_len < self.max_history_len:
+                padding = torch.zeros(batch_size, self.max_history_len - seq_len, self.encoding_dim, device=device)
+                pair_encodings = torch.cat([pair_encodings, padding], dim=1)
+            elif seq_len > self.max_history_len:
+                pair_encodings = pair_encodings[:, :self.max_history_len, :]
+            
+            return pair_encodings.reshape(batch_size, -1)  # [batch, max_history_len * encoding_dim]
+    
+    def forward(self, state_data, history_data=None, available_actions_mask=None,
+                expected_mocu_features=None):
+        """
+        Forward pass: compute action logits.
+        
+        Args:
+            state_data: Dict with M_lower, M_upper, K_lower, K_upper or tensor [batch, 4]
+            history_data: History of (bus, amp, obs) tuples [batch_size, seq_len, 3]
+            available_actions_mask: Binary mask for available actions [batch_size, num_actions]
+            expected_mocu_features: Optional [batch_size, num_actions] tensor with expected MOCU
+        
+        Returns:
+            action_logits: [batch_size, num_actions]
+            action_probs: [batch_size, num_actions] (softmax over available actions)
+        """
+        # Encode state
+        state_emb = self.encode_state(state_data)  # [batch, hidden_dim]
+        
+        # Encode history
+        history_emb = self.encode_history(history_data)  # [batch, hidden_dim or encoding_dim or ...]
+        
+        # Project history to hidden_dim if needed
+        if self.history_encoder_type == 'sum':
+            if not hasattr(self, 'history_proj'):
+                self.history_proj = nn.Linear(self.encoding_dim, self.hidden_dim).to(history_emb.device)
+            history_emb = self.history_proj(history_emb)
+        elif self.history_encoder_type == 'cat':
+            if not hasattr(self, 'history_proj'):
+                self.history_proj = nn.Linear(self.max_history_len * self.encoding_dim, self.hidden_dim).to(history_emb.device)
+            history_emb = self.history_proj(history_emb)
+        
+        # Combine state and history
+        combined = torch.cat([state_emb, history_emb], dim=-1)  # [batch, hidden_dim * 2]
+        
+        # Decode to action logits
+        if expected_mocu_features is not None and self.use_expected_mocu:
+            # Enhanced decoder with expected MOCU features
+            combined_with_mocu = torch.cat([combined, expected_mocu_features], dim=-1)
+            action_logits = self.enhanced_decoder(combined_with_mocu)  # [batch, num_actions]
+        else:
+            action_logits = self.decoder(combined)  # [batch, num_actions]
+        
+        # Apply available actions mask
+        if available_actions_mask is not None:
+            action_logits = action_logits + (1.0 - available_actions_mask) * (-1e9)
+        
+        # Softmax over available actions
+        action_probs = F.softmax(action_logits, dim=-1)
+        
+        return action_logits, action_probs
+    
+    def idx_to_action(self, action_idx):
+        """Convert action index to (bus, amplitude)."""
+        bus_idx = action_idx // self.num_probe_amplitudes
+        amp_idx = action_idx % self.num_probe_amplitudes
+        return (bus_idx, amp_idx)
+    
+    def action_to_idx(self, bus_idx, amp_idx):
+        """Convert (bus, amplitude) to action index."""
+        return bus_idx * self.num_probe_amplitudes + amp_idx
+
+
+def create_swing_state_data(M_lower, M_upper, K_lower, K_upper, N, device='cpu'):
+    """
+    Create state data for swing equation policy network.
+    
+    Args:
+        M_lower, M_upper, K_lower, K_upper: Uncertainty bounds (scalars)
+        N: Number of buses
+        device: torch device
+    
+    Returns:
+        Dict with state tensors
+    """
+    return {
+        'M_lower': torch.tensor([M_lower], dtype=torch.float32, device=device),
+        'M_upper': torch.tensor([M_upper], dtype=torch.float32, device=device),
+        'K_lower': torch.tensor([K_lower], dtype=torch.float32, device=device),
+        'K_upper': torch.tensor([K_upper], dtype=torch.float32, device=device),
+    }
+

@@ -69,7 +69,7 @@ echo "Experiment Configuration:"
 echo "  System size (N): $N"
 echo "  N_global: $((N + 1))"
 echo "  K: $UPDATE_CNT"
-echo "  Methods to evaluate: RANDOM,ENTROPY,ODE,iNN,NN,REGRESSION_SCORER,DAD_MOCU,IDAD_MOCU"
+echo "  Methods to evaluate: RANDOM,ENTROPY,ODE,iNN,NN (DAD/iDAD skipped - not yet updated)"
 echo ""
 
 # Export environment variables for scripts
@@ -86,8 +86,8 @@ fi
 echo "✓ Configuration loaded: N=$N"
 echo ""
 
-# Step 1: Generate MPNN training data
-echo "[Step 1/6] Generating MPNN training data..."
+# Step 1: Generate MOCU training data
+echo "[Step 1/6] Generating MOCU training data..."
 bash "${PROJECT_ROOT}/scripts/bash/step1_generate_mocu_data.sh" "$CONFIG_FILE"
 echo ""
 
@@ -101,19 +101,24 @@ echo "[Step 3/6] Running baseline evaluation and visualization..."
 bash "${PROJECT_ROOT}/scripts/bash/step3_evaluate_baselines.sh" "$CONFIG_FILE"
 echo ""
 
-# Step 4: Generate DAD training data
-echo "[Step 4/6] Generating DAD training data..."
-bash "${PROJECT_ROOT}/scripts/bash/step4_generate_dad_data.sh" "$CONFIG_FILE"
+# Step 4: Generate DAD training data (SKIPPED - DAD/iDAD not yet updated for swing equation)
+echo "[Step 4/6] Generating DAD training data... (SKIPPED)"
+echo "  ⚠️  DAD/iDAD methods are not yet updated for swing equation model."
+echo "  ⚠️  Skipping DAD steps. Focus on baseline methods only."
+echo "  ⚠️  To enable DAD/iDAD, update train_dad_policy.py and dad_eval.py first."
+bash "${PROJECT_ROOT}/scripts/bash/step4_generate_dad_data.sh" "$CONFIG_FILE" || echo "  ✓ Step 4 skipped (expected)"
 echo ""
 
-# Step 5: Train DAD policy
-echo "[Step 5/6] Training DAD policy..."
-bash "${PROJECT_ROOT}/scripts/bash/step5_train_dad_policy.sh" "$CONFIG_FILE"
+# Step 5: Train DAD policy (SKIPPED)
+echo "[Step 5/6] Training DAD policy... (SKIPPED)"
+echo "  ⚠️  DAD policy training requires train_dad_policy.py to be updated for swing equation."
+bash "${PROJECT_ROOT}/scripts/bash/step5_train_dad_policy.sh" "$CONFIG_FILE" || echo "  ✓ Step 5 skipped (expected)"
 echo ""
 
-# Step 6: Evaluate DAD methods
-echo "[Step 6/6] Evaluating DAD methods..."
-bash "${PROJECT_ROOT}/scripts/bash/step6_evaluate_dad.sh" "$CONFIG_FILE"
+# Step 6: Evaluate DAD methods (SKIPPED)
+echo "[Step 6/6] Evaluating DAD methods... (SKIPPED)"
+echo "  ⚠️  DAD evaluation requires trained policies and updated dad_eval.py."
+bash "${PROJECT_ROOT}/scripts/bash/step6_evaluate_dad.sh" "$CONFIG_FILE" || echo "  ✓ Step 6 skipped (expected)"
 echo ""
 
 # Restore config if modified
@@ -122,12 +127,14 @@ if [ -n "$K_OVERRIDE" ] && [ -f "${CONFIG_FILE}.bak" ]; then
 fi
 
 echo "=========================================="
-echo "✓ Experiment completed successfully!"
+echo "✓ Baseline experiment completed successfully!"
 echo "=========================================="
 echo "Results saved to: $EXP_DIR"
 echo ""
 echo "To view results:"
-echo "  - Evaluation plots: $EXP_DIR/eval/"
-echo "  - DAD training curves: $EXP_DIR/dad_models/"
+echo "  - Baseline evaluation plots: $EXP_DIR/eval/"
 echo "  - Final results: $EXP_DIR/results/"
+echo ""
+echo "Note: DAD/iDAD methods were skipped (not yet updated for swing equation)"
+echo "      Only baseline methods (RANDOM, ENTROPY, ODE, iNN, NN) were evaluated."
 echo ""

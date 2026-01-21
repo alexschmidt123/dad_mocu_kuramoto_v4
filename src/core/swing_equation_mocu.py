@@ -70,55 +70,91 @@ def binary_search_gamma_star(B, P_m, D, M, K, g,
     gamma_lower = gamma_min
     gamma_upper = gamma_max
     
-    # First, check if gamma_max satisfies constraints
-    state_traj = solve_swing_equation_ode(
-        B, P_m, D, M, K, g, gamma=gamma_max,
-        h=h, M_steps=M_steps, T=T, device=device
-    )
-    
-    # Extract frequency trajectory (last N columns are ω)
     N = len(P_m)
-    omega_traj = state_traj[:, N:]  # [M_steps, N]
     
-    # Check constraints
-    features = extract_frequency_features(omega_traj, h)
-    rocof_max = features['ROCOF_max']
-    f_min_actual = features['f_min']
+    # First, check if gamma_max satisfies constraints
+    try:
+        state_traj = solve_swing_equation_ode(
+            B, P_m, D, M, K, g, gamma=gamma_max,
+            h=h, M_steps=M_steps, T=T, device=device
+        )
+        
+        # Extract frequency trajectory (last N columns are ω)
+        omega_traj = state_traj[:, N:]  # [M_steps, N]
+        
+        # Check constraints
+        features = extract_frequency_features(omega_traj, h, fs=12.0)
+        rocof_max = features['ROCOF_max']
+        f_min_actual = features['f_min']
+        
+        # Validate features
+        if np.isnan(rocof_max) or np.isinf(rocof_max) or np.isnan(f_min_actual) or np.isinf(f_min_actual):
+            # If NaN/Inf, assume system cannot be stabilized
+            return gamma_max * 2.0
+    except (RuntimeError, ValueError) as e:
+        # If ODE solving fails (NaN/Inf/timeout), assume system cannot be stabilized
+        if "NaN" in str(e) or "Inf" in str(e) or "timeout" in str(e).lower():
+            return gamma_max * 2.0
+        else:
+            raise  # Re-raise other errors
     
     # If gamma_max doesn't satisfy, return a large value
     if rocof_max > r_max or f_min_actual < f_min:
         return gamma_max * 2.0  # System cannot be stabilized
     
     # Check if gamma_min satisfies constraints
-    state_traj = solve_swing_equation_ode(
-        B, P_m, D, M, K, g, gamma=gamma_min,
-        h=h, M_steps=M_steps, T=T, device=device
-    )
-    omega_traj = state_traj[:, N:]
-    features = extract_frequency_features(omega_traj, h)
-    rocof_max = features['ROCOF_max']
-    f_min_actual = features['f_min']
-    
-    if rocof_max <= r_max and f_min_actual >= f_min:
-        # gamma_min already satisfies, return it
-        return gamma_min
+    try:
+        state_traj = solve_swing_equation_ode(
+            B, P_m, D, M, K, g, gamma=gamma_min,
+            h=h, M_steps=M_steps, T=T, device=device
+        )
+        omega_traj = state_traj[:, N:]
+        features = extract_frequency_features(omega_traj, h, fs=12.0)
+        rocof_max = features['ROCOF_max']
+        f_min_actual = features['f_min']
+        
+        # Validate features
+        if np.isnan(rocof_max) or np.isinf(rocof_max) or np.isnan(f_min_actual) or np.isinf(f_min_actual):
+            # If NaN/Inf, continue to binary search
+            pass
+        elif rocof_max <= r_max and f_min_actual >= f_min:
+            # gamma_min already satisfies, return it
+            return gamma_min
+    except (RuntimeError, ValueError) as e:
+        # If ODE solving fails, continue to binary search
+        if "NaN" in str(e) or "Inf" in str(e) or "timeout" in str(e).lower():
+            pass  # Continue to binary search
+        else:
+            raise  # Re-raise other errors
     
     # Binary search
     for iteration in range(max_iterations):
         gamma_mid = (gamma_lower + gamma_upper) / 2.0
         
         # Solve ODE with gamma_mid
-        state_traj = solve_swing_equation_ode(
-            B, P_m, D, M, K, g, gamma=gamma_mid,
-            h=h, M_steps=M_steps, T=T, device=device
-        )
-        omega_traj = state_traj[:, N:]
-        features = extract_frequency_features(omega_traj, h)
-        rocof_max = features['ROCOF_max']
-        f_min_actual = features['f_min']
-        
-        # Check if constraints are satisfied
-        constraints_satisfied = (rocof_max <= r_max) and (f_min_actual >= f_min)
+        try:
+            state_traj = solve_swing_equation_ode(
+                B, P_m, D, M, K, g, gamma=gamma_mid,
+                h=h, M_steps=M_steps, T=T, device=device
+            )
+            omega_traj = state_traj[:, N:]
+            features = extract_frequency_features(omega_traj, h, fs=12.0)  # PMU-like sampling at 12 Hz
+            rocof_max = features['ROCOF_max']
+            f_min_actual = features['f_min']
+            
+            # Validate features
+            if np.isnan(rocof_max) or np.isinf(rocof_max) or np.isnan(f_min_actual) or np.isinf(f_min_actual):
+                # If NaN/Inf, assume constraints not satisfied
+                constraints_satisfied = False
+            else:
+                # Check if constraints are satisfied
+                constraints_satisfied = (rocof_max <= r_max) and (f_min_actual >= f_min)
+        except (RuntimeError, ValueError) as e:
+            # If ODE solving fails (NaN/Inf/timeout), assume constraints not satisfied
+            if "NaN" in str(e) or "Inf" in str(e) or "timeout" in str(e).lower():
+                constraints_satisfied = False
+            else:
+                raise  # Re-raise other errors
         
         if constraints_satisfied:
             gamma_upper = gamma_mid
@@ -185,6 +221,11 @@ def MOCU_swing_equation(K_max: int, B: np.ndarray, P_m: np.ndarray, D: float,
     
     # Sample (M, K) from uniform distribution over bounds
     gamma_star_values = []
+    failed_samples = 0
+    max_failures = K_max  # Prevent infinite loop
+    
+    # Progress indicator for large K_max
+    progress_interval = max(1, K_max // 10)  # Print every 10%
     
     for k in range(K_max):
         # Sample M and K uniformly from bounds
@@ -192,13 +233,49 @@ def MOCU_swing_equation(K_max: int, B: np.ndarray, P_m: np.ndarray, D: float,
         K_sample = np.random.uniform(K_lower, K_upper)
         
         # Compute γ*(M, K) via binary search
-        gamma_star = binary_search_gamma_star(
-            B, P_m, D, M_sample, K_sample, g,
-            r_max=r_max, f_min=f_min,
-            h=h, T=T, M_steps=M_steps,
-            device=device
-        )
-        gamma_star_values.append(gamma_star)
+        try:
+            gamma_star = binary_search_gamma_star(
+                B, P_m, D, M_sample, K_sample, g,
+                r_max=r_max, f_min=f_min,
+                h=h, T=T, M_steps=M_steps,
+                device=device
+            )
+            
+            # Validate result
+            if np.isnan(gamma_star) or np.isinf(gamma_star) or gamma_star < 0:
+                failed_samples += 1
+                if failed_samples >= max_failures:
+                    raise RuntimeError(f"Too many failed samples ({failed_samples}/{K_max})")
+                continue
+            
+            gamma_star_values.append(gamma_star)
+            
+            # Progress indicator (only for first sample to avoid spam)
+            if k > 0 and (k + 1) % progress_interval == 0:
+                import sys
+                sys.stdout.write(f"\r[Progress] MOCU sample {k+1}/{K_max} (valid: {len(gamma_star_values)}, failed: {failed_samples})")
+                sys.stdout.flush()
+        except (RuntimeError, ValueError) as e:
+            # Skip samples that fail (e.g., numerical issues, unstable ODE)
+            failed_samples += 1
+            if failed_samples >= max_failures:
+                raise RuntimeError(f"Too many failed samples ({failed_samples}/{K_max}): {e}")
+            continue
+    
+    # Clear progress line
+    if K_max > progress_interval:
+        import sys
+        sys.stdout.write("\r" + " " * 80 + "\r")
+        sys.stdout.flush()
+    
+    # Check if we have enough valid samples
+    if len(gamma_star_values) == 0:
+        raise RuntimeError(f"All {K_max} samples failed. Check parameter bounds and system stability.")
+    
+    if len(gamma_star_values) < K_max * 0.5:
+        # Warning if more than 50% failed, but continue
+        import warnings
+        warnings.warn(f"Only {len(gamma_star_values)}/{K_max} samples succeeded. Some parameter combinations may be unstable.")
     
     gamma_star_values = np.array(gamma_star_values)
     

@@ -18,10 +18,10 @@ swing_equation:
   coupling_strength: 1.0       # Base coupling strength for B matrix
   damping: 0.1                # Damping coefficient D
   base_power: 1.0              # Base mechanical power P_m
-  M_lower: 0.5                 # Inertia lower bound
-  M_upper: 2.0                 # Inertia upper bound
-  K_lower: 0.1                 # Control gain lower bound
-  K_upper: 1.0                 # Control gain upper bound
+  M_lower: 0.3                 # Inertia lower bound (IBR systems have reduced inertia)
+  M_upper: 2.0                 # Inertia upper bound (mixed systems)
+  K_lower: 0.05                # Control gain lower bound (5% droop equivalent)
+  K_upper: 0.50                # Control gain upper bound (50% response)
   r_max: 0.5                   # Maximum ROCOF constraint (Hz/s)
   f_min: 49.5                  # Minimum frequency constraint (Hz)
   probe_duration: 2.0          # Probe duration T (seconds)
@@ -31,12 +31,12 @@ swing_equation:
 dataset:
   samples_per_type: 150    # Generate 300 total (expect ~150 valid after sync filtering)
   train_size: 100          # 100 train samples (matches original fast_config)
-  K_max: 1024              # Minimal: 1024 Monte Carlo samples (vs 20480 full)
+  K_max: 256               # Reduced for faster testing: 256 Monte Carlo samples (vs 1024/20480 full)
   save_json: false
   
 # Data generation optimization settings (for testing speed)
 data_generation:
-  num_workers: 4           # Use 4 parallel workers for faster generation (testing only)
+  num_workers: 1           # Use 1 worker (sequential) - CUDA multiprocessing can hang
   chunk_size: 10           # Samples per worker batch
 
 # Training parameters (MINIMAL for quick verification)
@@ -54,20 +54,20 @@ experiment:
   it_idx: 3                # Minimal iterations (matches original fast_config)
   K_max: 1024              # Match dataset K_max (matches original fast_config)
   methods:
-    - "RANDOM"             # PyCUDA methods FIRST
-    - "ENTROPY"
-    - "ODE"
-    - "iNN"                # PyTorch methods AFTER
-    - "NN"
-    - "REGRESSION_SCORER"  # Regression Scorer baseline
-    - "DAD_MOCU"           # DAD-MOCU (no critic, simple baseline, uses per-step rewards)
-    - "IDAD_MOCU"          # iDAD-MOCU (with critic from scratch, uses per-step rewards)
+    - "RANDOM"             # Random probe selection
+    - "ENTROPY"             # Entropy-based (degree-based) probe selection
+    - "ODE"                 # ODE-based expected MOCU computation
+    - "iNN"                 # Iterative Swing MLP predictor
+    - "NN"                  # Static Swing MLP predictor
+    # DAD/iDAD methods skipped - not yet updated for swing equation
+    # - "DAD_MOCU"            # DAD-MOCU (no critic, simple baseline, uses per-step rewards)
+    # - "IDAD_MOCU"           # iDAD-MOCU (with critic from scratch, uses per-step rewards)
 
 # DAD policy training data generation
 dad_data:
   num_episodes: 1000       # Number of trajectories to generate (increased for better training)
   K: 4                     # Number of sequential experiments per trajectory (4 design steps, OPTIMAL: 40% of pairs, leaves room for differences)
-  use_precomputed_mocu: true  # Pre-compute terminal MOCU using MPNN predictor (recommended)
+  use_precomputed_mocu: true  # Pre-compute terminal MOCU using Swing MLP predictor (recommended)
 
 # Paths (relative to project root)
 paths:
