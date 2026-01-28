@@ -138,7 +138,11 @@ else
     STEP_LOG="/dev/null"
 fi
 
-cd "${PROJECT_ROOT}/scripts"
+cd "${PROJECT_ROOT}/scripts/training"
+if [ ! -f "generate_dad_data.py" ]; then
+    echo "Error: generate_dad_data.py not found in ${PROJECT_ROOT}/scripts/training"
+    exit 1
+fi
 ABS_DAD_DATA_FOLDER=$(cd "$DATA_FOLDER" && pwd)
 CMD="python3 generate_dad_data.py --N $N --num-episodes $NUM_EPISODES --K $K --output-dir $ABS_DAD_DATA_FOLDER"
 if [ "$USE_PRECOMPUTED_MOCU" = "true" ] && [ -n "$MOCU_MODEL_NAME" ] && [ -f "${SWING_MLP_MODEL_FOLDER}model.pth" ]; then

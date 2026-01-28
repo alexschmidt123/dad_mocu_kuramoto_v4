@@ -178,6 +178,9 @@ class OEDMethod(ABC):
             timeComplexity: Time per iteration [update_cnt]
         """
         
+        # Declare torch as global at the start of the function
+        global torch
+        
         N = len(P_m)
         # Initialize MOCUCurve - will be filled by computation
         MOCUCurve = np.zeros(update_cnt + 1)
@@ -194,7 +197,6 @@ class OEDMethod(ABC):
         else:
             # Fallback: Compute initial MOCU if not provided
             try:
-                global torch
                 if torch is None:
                     try:
                         import torch as _torch
@@ -238,7 +240,6 @@ class OEDMethod(ABC):
         method_name = self.__class__.__name__
         
         # Import torch for PyTorch-based methods
-        global torch
         if torch is None:
             try:
                 import torch as _torch
@@ -250,7 +251,7 @@ class OEDMethod(ABC):
         
         # Import swing equation functions
         try:
-            from scripts.generate_dad_data import (
+            from scripts.training.generate_dad_data import (
                 perform_probe_experiment,
                 update_bounds as update_bounds_swing
             )

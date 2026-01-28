@@ -9,9 +9,9 @@ if [ $# -lt 1 ]; then
     echo "Usage: $0 <config_file> [K_value]"
     echo ""
     echo "Examples:"
-    echo "  $0 configs/fast_config.yaml        # Quick test (IEEE-14)"
-    echo "  $0 configs/ieee14_config.yaml      # Full IEEE-14 experiment"
-    echo "  $0 configs/ieee14_config.yaml 10   # Override K=10"
+    echo "  $0 config/fast_config.yaml         # Fast test (IEEE-14)"
+    echo "  $0 config/balanced_config.yaml     # Deeper testing (balanced)"
+    echo "  $0 config/full_config.yaml         # Full publication experiment"
     echo ""
     exit 1
 fi
@@ -19,9 +19,17 @@ fi
 CONFIG_FILE=$1
 K_OVERRIDE=$2
 
+# Support config/ directory
 if [ ! -f "$CONFIG_FILE" ]; then
-    echo "Error: Config file not found: $CONFIG_FILE"
-    exit 1
+    # Try config/ directory if not found
+    CONFIG_NAME=$(basename "$CONFIG_FILE")
+    if [ -f "config/$CONFIG_NAME" ]; then
+        CONFIG_FILE="config/$CONFIG_NAME"
+    else
+        echo "Error: Config file not found: $CONFIG_FILE"
+        echo "  Tried: $CONFIG_FILE and config/$CONFIG_NAME"
+        exit 1
+    fi
 fi
 
 # Get absolute paths

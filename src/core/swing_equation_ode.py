@@ -336,8 +336,12 @@ def extract_frequency_features(omega_trajectory, h, fs=12.0):
     rocof = np.gradient(freq_trajectory_obs, axis=0) / h_obs  # [M_obs, N]
     rocof_max = np.max(np.abs(rocof))  # Maximum ROCOF across all buses and time
     
-    # Minimum frequency (from downsampled observations)
-    f_min = np.min(freq_trajectory_obs)
+    # Minimum absolute frequency (from downsampled observations)
+    # freq_trajectory_obs is frequency deviation Δf, so absolute frequency = f_nominal + Δf
+    # For 50 Hz nominal system: f_absolute = 50.0 + Δf
+    f_nominal = 50.0  # Nominal frequency (Hz)
+    f_absolute_trajectory = f_nominal + freq_trajectory_obs  # [M_obs, N]
+    f_min = np.min(f_absolute_trajectory)  # Minimum absolute frequency
     
     # Settling time (time when frequency deviation is within 1% of final value)
     # Use last 10% of trajectory to estimate final value
@@ -359,9 +363,11 @@ def extract_frequency_features(omega_trajectory, h, fs=12.0):
     
     features = {
         'ROCOF_max': rocof_max,
-        'f_min': f_min,
+        'f_min': f_min,  # Minimum absolute frequency (Hz)
+        'f_min_deviation': np.min(freq_trajectory_obs),  # Minimum frequency deviation (Hz)
         't_settle': t_settle,
-        'freq_trajectory': freq_trajectory_obs,  # Downsampled trajectory at fs Hz
+        'freq_trajectory': freq_trajectory_obs,  # Downsampled trajectory (frequency deviation Δf) at fs Hz
+        'freq_absolute_trajectory': f_absolute_trajectory,  # Absolute frequency trajectory (f_nominal + Δf)
         'fs': fs,  # Observation sampling frequency
         'h_obs': h_obs,  # Observation time step
     }

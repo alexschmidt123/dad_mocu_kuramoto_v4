@@ -72,7 +72,28 @@ def binary_search_gamma_star(B, P_m, D, M, K, g,
     
     N = len(P_m)
     
-    # First, check if gamma_max satisfies constraints
+    # First, check if gamma_min satisfies constraints (early exit if it does)
+    try:
+        state_traj = solve_swing_equation_ode(
+            B, P_m, D, M, K, g, gamma=gamma_min,
+            h=h, M_steps=M_steps, T=T, device=device
+        )
+        omega_traj = state_traj[:, N:]
+        features = extract_frequency_features(omega_traj, h, fs=12.0)
+        rocof_max = features['ROCOF_max']
+        f_min_actual = features['f_min']
+        
+        # Validate features
+        if not (np.isnan(rocof_max) or np.isinf(rocof_max) or np.isnan(f_min_actual) or np.isinf(f_min_actual)):
+            if rocof_max <= r_max and f_min_actual >= f_min:
+                # gamma_min already satisfies, return it
+                return gamma_min
+    except (RuntimeError, ValueError) as e:
+        # If ODE solving fails, continue to binary search
+        if "NaN" not in str(e) and "Inf" not in str(e) and "timeout" not in str(e).lower():
+            raise  # Re-raise non-numerical errors
+    
+    # Check if gamma_max satisfies constraints
     try:
         state_traj = solve_swing_equation_ode(
             B, P_m, D, M, K, g, gamma=gamma_max,
@@ -89,41 +110,19 @@ def binary_search_gamma_star(B, P_m, D, M, K, g,
         
         # Validate features
         if np.isnan(rocof_max) or np.isinf(rocof_max) or np.isnan(f_min_actual) or np.isinf(f_min_actual):
-            # If NaN/Inf, assume system cannot be stabilized
-            return gamma_max * 2.0
-    except (RuntimeError, ValueError) as e:
-        # If ODE solving fails (NaN/Inf/timeout), assume system cannot be stabilized
-        if "NaN" in str(e) or "Inf" in str(e) or "timeout" in str(e).lower():
-            return gamma_max * 2.0
+            # If NaN/Inf, assume system cannot be stabilized with gamma_max
+            # But continue to binary search (gamma_min might work)
+            gamma_upper = gamma_max  # Keep original upper bound
+        elif rocof_max > r_max or f_min_actual < f_min:
+            # gamma_max doesn't satisfy, but continue to binary search
+            gamma_upper = gamma_max  # Keep original upper bound
         else:
-            raise  # Re-raise other errors
-    
-    # If gamma_max doesn't satisfy, return a large value
-    if rocof_max > r_max or f_min_actual < f_min:
-        return gamma_max * 2.0  # System cannot be stabilized
-    
-    # Check if gamma_min satisfies constraints
-    try:
-        state_traj = solve_swing_equation_ode(
-            B, P_m, D, M, K, g, gamma=gamma_min,
-            h=h, M_steps=M_steps, T=T, device=device
-        )
-        omega_traj = state_traj[:, N:]
-        features = extract_frequency_features(omega_traj, h, fs=12.0)
-        rocof_max = features['ROCOF_max']
-        f_min_actual = features['f_min']
-        
-        # Validate features
-        if np.isnan(rocof_max) or np.isinf(rocof_max) or np.isnan(f_min_actual) or np.isinf(f_min_actual):
-            # If NaN/Inf, continue to binary search
-            pass
-        elif rocof_max <= r_max and f_min_actual >= f_min:
-            # gamma_min already satisfies, return it
-            return gamma_min
+            # gamma_max satisfies, so we know solution is <= gamma_max
+            gamma_upper = gamma_max
     except (RuntimeError, ValueError) as e:
-        # If ODE solving fails, continue to binary search
+        # If ODE solving fails (NaN/Inf/timeout), continue to binary search
         if "NaN" in str(e) or "Inf" in str(e) or "timeout" in str(e).lower():
-            pass  # Continue to binary search
+            gamma_upper = gamma_max  # Keep original upper bound, continue search
         else:
             raise  # Re-raise other errors
     

@@ -1,0 +1,87 @@
+# Balanced Configuration for Deeper Testing
+# Based on documents/new_plan.tex: "Probing Signal-Based Inertia and Frequency Response Estimation"
+# 
+# Use this for deeper testing before publication (balanced quality and runtime)
+# Estimated Runtime: ~10 hours on RTX 4090
+#
+# Key differences from full_config.yaml:
+# - samples_per_type: 250 (vs 1200) - minimal for basic MLP training
+# - K_max: 512 (vs 1024) - acceptable accuracy for testing
+# - num_simulations: 5 (vs 12) - sufficient for basic statistical analysis
+
+# System parameters
+N: 14  # IEEE-14 bus system
+N_global: 15  # N + 1 for CUDA kernel
+
+# Model type: 'second_order' (swing equation with active probing)
+model_type: 'second_order'
+
+# Second-order model parameters (swing equation for IEEE-14)
+swing_equation:
+  topology: 'ieee14'
+  coupling_strength: 1.0
+  damping: 0.1
+  base_power: 1.0
+  M_lower: 0.3
+  M_upper: 2.0
+  K_lower: 0.05
+  K_upper: 0.50
+  r_max: 0.1                   # Maximum ROCOF constraint (Hz/s) - tightened for non-trivial control
+                                # Reference: ENTSO-E grid codes use 0.5-1.0 Hz/s for protection
+                                # We use 0.1 Hz/s (stricter) to ensure control is needed
+  f_min: 49.8                   # Minimum frequency constraint (Hz) - tightened for non-trivial control
+                                # Reference: ENTSO-E normal operating band is 49.8-50.2 Hz
+                                # We use 49.8 Hz (stricter than 49.5 Hz) to require control
+  probe_duration: 2.0
+  probe_amplitudes: [0.5, 1.0, 2.0]
+
+# Dataset generation (balanced for ~10 hour runtime)
+dataset:
+  samples_per_type: 250       # Reduced for ~10 hour runtime while maintaining basic MLP training
+                              # Rationale: 4D input space, 250 provides minimal coverage for testing
+                              # Runtime: ~250 samples × ~120s (K_max=512) ≈ 8.3 hours
+  train_size: 200             # 80% for training (250 * 0.8 = 200)
+  K_max: 512                  # Reduced for faster MOCU computation
+                              # Rationale: 512 samples provide ~4.4% relative error
+                              # Acceptable for deeper testing (standard: 512-2048)
+  save_json: false
+
+# Data generation optimization settings
+data_generation:
+  num_workers: 1
+  chunk_size: 10
+
+# Training parameters
+training:
+  model_name: "ieee14_balanced"
+  epochs: 400
+  constrain_weight: 0.0001
+  batch_size: 128
+  learning_rate: 0.001
+  train_split: 0.8
+
+# Experiment parameters (balanced for ~10 hour runtime)
+experiment:
+  num_simulations: 5          # Reduced for faster testing
+                              # Rationale: 5 runs sufficient for basic statistical analysis
+  update_count: 10            # K: Number of sequential experiments
+  it_idx: 5                   # Reduced MOCU averaging iterations (faster)
+  K_max: 512                  # Match dataset K_max
+  methods:
+    - "RANDOM"
+    - "ENTROPY"
+    - "ODE"
+    - "iNN"
+    - "NN"
+
+# DAD policy training data generation
+dad_data:
+  num_episodes: 5000
+  K: 10
+  use_precomputed_mocu: true
+
+# Paths
+paths:
+  data_dir: "data"
+  models_dir: "models"
+  results_dir: "results"

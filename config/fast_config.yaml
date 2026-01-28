@@ -1,0 +1,84 @@
+# Fast Configuration for Quick Testing
+# Based on documents/new_plan.tex: "Probing Signal-Based Inertia and Frequency Response Estimation"
+# 
+# Use this for quick testing and component verification
+# Estimated Runtime: ~1 hour on RTX 4090
+# ⚠️ NOT for actual experiments - only for quick testing!
+
+# System parameters
+N: 14  # IEEE-14 bus system
+N_global: 15  # N + 1 for CUDA kernel
+
+# Model type: 'second_order' (swing equation with active probing)
+model_type: 'second_order'  # Use second-order Kuramoto (swing equation) with active probing
+
+# Second-order model parameters (swing equation for IEEE-14)
+swing_equation:
+  topology: 'ieee14'          # IEEE-14 bus network topology
+  coupling_strength: 1.0       # Base coupling strength for B matrix
+  damping: 0.1                # Damping coefficient D
+  base_power: 1.0              # Base mechanical power P_m
+  M_lower: 0.3                 # Inertia lower bound (IBR systems have reduced inertia)
+  M_upper: 2.0                 # Inertia upper bound (mixed systems)
+  K_lower: 0.05                # Control gain lower bound (5% droop equivalent)
+  K_upper: 0.50                # Control gain upper bound (50% response)
+  r_max: 0.1                   # Maximum ROCOF constraint (Hz/s) - tightened for non-trivial control
+                                # Reference: ENTSO-E grid codes use 0.5-1.0 Hz/s for protection
+                                # We use 0.1 Hz/s (stricter) to ensure control is needed
+  f_min: 49.8                   # Minimum frequency constraint (Hz) - tightened for non-trivial control
+                                # Reference: ENTSO-E normal operating band is 49.8-50.2 Hz
+                                # We use 49.8 Hz (stricter than 49.5 Hz) to require control
+  probe_duration: 2.0          # Probe duration T (seconds)
+  probe_amplitudes: [0.5, 1.0, 2.0]  # Probe amplitude options A
+
+# Dataset generation (minimal for ~1 hour runtime)
+dataset:
+  samples_per_type: 30     # Minimal samples for quick testing
+  train_size: 24           # 80% for training (30 * 0.8 = 24)
+  K_max: 128               # Minimal Monte Carlo samples for quick MOCU computation
+                           # Rationale: 128 samples provide ~8.8% relative error (acceptable for testing)
+  save_json: false
+  
+# Data generation optimization settings (for testing speed)
+data_generation:
+  num_workers: 1           # Use 1 worker (sequential) - CUDA multiprocessing can hang
+  chunk_size: 10           # Samples per worker batch
+
+# Training parameters (minimal for quick testing)
+training:
+  model_name: "fast_test"  # Identifier for trained model directory (models/fast_test/)
+  epochs: 50              # Minimal epochs for quick testing
+  constrain_weight: 0.0001
+  batch_size: 16          # Small batch for small dataset
+  learning_rate: 0.001
+
+# Experiment parameters (minimal for ~1 hour runtime)
+experiment:
+  num_simulations: 1       # Single run only (for quick testing)
+  update_count: 4          # 4 iterations = 5 steps total (0,1,2,3,4)
+  it_idx: 3                # Minimal MOCU averaging iterations
+  K_max: 128               # Match dataset K_max
+  methods:
+    - "RANDOM"             # Random probe selection (fast)
+    - "ENTROPY"             # Entropy-based (degree-based) probe selection (fast)
+    # - "ODE"               # ODE method skipped - too slow for fast_config (~3+ hours per simulation)
+    #                        # ODE evaluates ALL actions (14×3=42) × it_idx(3) × K_max(128) ≈ 16K MOCU computations
+    #                        # Use balanced_config or full_config for ODE evaluation
+    - "iNN"                 # Iterative Swing MLP predictor (fast, ~15 min)
+    - "NN"                  # Static Swing MLP predictor (fast, ~15 min)
+    # DAD/iDAD methods skipped - not yet updated for swing equation
+    # - "DAD_MOCU"            # DAD-MOCU (no critic, simple baseline, uses per-step rewards)
+    # - "IDAD_MOCU"           # iDAD-MOCU (with critic from scratch, uses per-step rewards)
+
+# DAD policy training data generation
+dad_data:
+  num_episodes: 1000       # Number of trajectories to generate (increased for better training)
+  K: 4                     # Number of sequential experiments per trajectory (4 design steps, OPTIMAL: 40% of pairs, leaves room for differences)
+  use_precomputed_mocu: true  # Pre-compute terminal MOCU using Swing MLP predictor (recommended)
+
+# Paths (relative to project root)
+paths:
+  data_dir: "data"
+  models_dir: "models"
+  results_dir: "results"
+

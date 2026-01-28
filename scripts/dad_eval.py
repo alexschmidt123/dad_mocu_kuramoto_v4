@@ -109,7 +109,7 @@ if __name__ == '__main__':
     print(f"Note: Initial MOCU will be computed per simulation (matches baseline evaluation)")
     
     # ========== Initialize DAD method ==========
-    from src.methods.dad_mocu import DAD_MOCU_Method
+    from src.methods import DAD_MOCU_Method
     
     policy_path = None
     if 'DAD_POLICY_PATH' in os.environ:

@@ -38,7 +38,7 @@ try:
         solve_swing_equation_ode,
         check_frequency_synchronization
     )
-    from scripts.generate_dad_data import (
+    from scripts.training.generate_dad_data import (
         generate_random_system,
         perform_probe_experiment,
         update_bounds
@@ -287,23 +287,23 @@ if __name__ == '__main__':
                 import builtins
                 builtins.print = redirect_print
                 
-                # Lazy import methods
+                # Lazy import methods from src.methods
                 if method_name == 'iNN':
-                    from src.methods.inn import iNN_Method
+                    from src.methods import iNN_Method
                     method = iNN_Method(N, K_max, deltaT, MReal, TReal, it_idx, 
                                        model_name=os.getenv('MOCU_MODEL_NAME', f'cons{N}'),
                                        probe_amplitudes=probe_amplitudes,
                                        probe_duration=probe_duration)
                 
                 elif method_name == 'NN':
-                    from src.methods.nn import NN_Method
+                    from src.methods import NN_Method
                     method = NN_Method(N, K_max, deltaT, MReal, TReal, it_idx,
                                       model_name=os.getenv('MOCU_MODEL_NAME', f'cons{N}'),
                                       probe_amplitudes=probe_amplitudes,
                                       probe_duration=probe_duration)
                 
                 elif method_name == 'ODE':
-                    from src.methods.ode import ODE_Method
+                    from src.methods import ODE_Method
                     method = ODE_Method(N, K_max, deltaT, MReal, TReal, it_idx,
                                        B=B, P_m=P_m, D=D, g=g,
                                        probe_amplitudes=probe_amplitudes,
@@ -311,14 +311,14 @@ if __name__ == '__main__':
                                        r_max=r_max, f_min=f_min)
                 
                 elif method_name == 'ENTROPY':
-                    from src.methods.entropy import ENTROPY_Method
+                    from src.methods import ENTROPY_Method
                     method = ENTROPY_Method(N, K_max, deltaT, MReal, TReal, it_idx,
                                            probe_amplitudes=probe_amplitudes,
                                            probe_duration=probe_duration,
                                            B=B)
                 
                 elif method_name == 'RANDOM':
-                    from src.methods.random import RANDOM_Method
+                    from src.methods import RANDOM_Method
                     method = RANDOM_Method(N, K_max, deltaT, MReal, TReal, it_idx,
                                           probe_amplitudes=probe_amplitudes,
                                           probe_duration=probe_duration,

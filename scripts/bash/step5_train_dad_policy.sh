@@ -191,9 +191,12 @@ for METHOD in "${METHODS_TO_TRAIN_ARRAY[@]}"; do
         continue
     fi
 
-    cd "${PROJECT_ROOT}/scripts"
-    
-    TRAIN_CMD="python3 train_dad_policy.py \
+    cd "${PROJECT_ROOT}/scripts/training"
+    if [ ! -f "train_dad.py" ]; then
+        echo "Error: train_dad.py not found in ${PROJECT_ROOT}/scripts/training"
+        exit 1
+    fi
+    TRAIN_CMD="python3 train_dad.py \
         --data-path \"$ABS_DAD_TRAJ_FILE\" \
         --method \"$METHOD\" \
         --name \"$MODEL_NAME\" \

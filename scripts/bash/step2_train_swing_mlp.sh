@@ -19,8 +19,8 @@ EPOCHS=$(grep "epochs:" $CONFIG_FILE | awk '{print $2}')
 BATCH_SIZE=$(grep "batch_size:" $CONFIG_FILE | awk '{print $2}')
 LEARNING_RATE=$(grep "learning_rate:" $CONFIG_FILE | awk '{print $2}')
 
-# Get model name from config
-MODEL_NAME=$(grep -A 5 "^training:" $CONFIG_FILE | grep "model_name:" | awk '{print $2}' || echo "$BASE_CONFIG_NAME")
+# Get model name from config (remove quotes if present)
+MODEL_NAME=$(grep -A 5 "^training:" $CONFIG_FILE | grep "model_name:" | awk '{print $2}' | tr -d '"' | tr -d "'" || echo "$BASE_CONFIG_NAME")
 
 # Use model name for model folder
 MODEL_FOLDER="${PROJECT_ROOT}/models/${MODEL_NAME}/"
@@ -48,7 +48,9 @@ fi
 if [ -f "$MODEL_FILE" ] && [ -f "$STATS_FILE" ] && [ -f "$DATA_FILE" ]; then
     echo "✓ Swing MLP model already exists: $MODEL_FILE"
     echo "✓ Skipping training (model and data detected)"
-    echo "${MODEL_NAME}" > /tmp/mocu_model_name_${CONFIG_NAME}.txt
+    # Remove quotes from model name before saving
+    MODEL_NAME_CLEAN=$(echo "$MODEL_NAME" | tr -d '"' | tr -d "'")
+    echo "${MODEL_NAME_CLEAN}" > /tmp/mocu_model_name_${CONFIG_NAME}.txt
     echo "$MODEL_FOLDER" > /tmp/mocu_model_folder_${CONFIG_NAME}.txt
     exit 0
 fi
@@ -62,14 +64,25 @@ cd "${PROJECT_ROOT}/scripts"
 ABS_DATA_FILE=$(cd "$(dirname "$DATA_FILE")" && pwd)/$(basename "$DATA_FILE")
 ABS_MODEL_FOLDER=$(cd "$MODEL_FOLDER" && pwd)
 
+# Resolve config file path to absolute (before changing to scripts directory)
+if [[ "$CONFIG_FILE" = /* ]]; then
+    # Already absolute path
+    ABS_CONFIG_FILE="$CONFIG_FILE"
+else
+    # Relative path - resolve from PROJECT_ROOT
+    ABS_CONFIG_FILE="${PROJECT_ROOT}/${CONFIG_FILE}"
+fi
+
 python3 train_swing_mlp_predictor.py \
-    --config "$CONFIG_FILE" \
+    --config "$ABS_CONFIG_FILE" \
     --data_file "$ABS_DATA_FILE" \
     --epochs ${EPOCHS:-400} \
     --batch_size ${BATCH_SIZE:-128} \
     --learning_rate ${LEARNING_RATE:-0.001}
 
 echo "✓ Swing MLP predictor trained: ${MODEL_FILE}"
-echo "${MODEL_NAME}" > /tmp/mocu_model_name_${CONFIG_NAME}.txt
+# Remove quotes from model name before saving
+MODEL_NAME_CLEAN=$(echo "$MODEL_NAME" | tr -d '"' | tr -d "'")
+echo "${MODEL_NAME_CLEAN}" > /tmp/mocu_model_name_${CONFIG_NAME}.txt
 echo "$MODEL_FOLDER" > /tmp/mocu_model_folder_${CONFIG_NAME}.txt
 

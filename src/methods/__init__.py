@@ -1,35 +1,33 @@
 """
-Unified OED Methods Package
+OED Methods Package
 
 All experimental design methods follow the OEDMethod base class interface.
 
-Available methods:
-- iNN: Iterative Neural Network (MPNN-based, re-computes at each step)
-- NN: Static Neural Network (MPNN-based, computes once)
-- iODE: Iterative ODE (sampling-based, re-computes at each step)
-- ODE: Static ODE (sampling-based, computes once)
-- ENTROPY: Greedy uncertainty-based selection
-- RANDOM: Random baseline
-- DAD_MOCU: Deep Adaptive Design with MOCU objective
+Baseline methods:
+- RANDOM_Method: Random probe selection
+- ENTROPY_Method: Variance/entropy-based heuristic
+- ODE_Method: Myopic MOCU optimization
+- NN_Method: Static neural network predictor
+- iNN_Method: Iterative neural network predictor
 
-NOTE: Methods are lazy-imported to avoid unnecessary PyTorch CUDA initialization.
-Import methods directly from their modules:
-    from src.methods.random import RANDOM_Method
-    from src.methods.inn import iNN_Method
+Policy methods:
+- DAD_MOCU_Method: Deep Adaptive Design with MOCU objective
 """
 
 from .base import OEDMethod
-# NOTE: DO NOT import methods here - they trigger PyTorch import!
-# Import methods lazily from their modules when needed.
+from .random_probe import RANDOM_Method
+from .variance_heuristic import ENTROPY_Method
+from .myopic_mocu import ODE_Method
+from .static_nn import NN_Method
+from .iterative_nn import iNN_Method
+from .dad_policy import DAD_MOCU_Method
 
 __all__ = [
     'OEDMethod',
-    # Methods should be imported directly from their modules
-    # 'iNN_Method',  # from src.methods.inn import iNN_Method
-    # 'NN_Method',   # from src.methods.nn import NN_Method
-    # 'ODE_Method',  # from src.methods.ode import ODE_Method
-    # 'iODE_Method', # from src.methods.ode import iODE_Method
-    # 'ENTROPY_Method', # from src.methods.entropy import ENTROPY_Method
-    # 'RANDOM_Method',  # from src.methods.random import RANDOM_Method
-    # 'DAD_MOCU_Method', # from src.methods.dad_mocu import DAD_MOCU_Method
+    'RANDOM_Method',
+    'ENTROPY_Method',
+    'ODE_Method',
+    'NN_Method',
+    'iNN_Method',
+    'DAD_MOCU_Method',
 ]

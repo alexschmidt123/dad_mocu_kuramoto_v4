@@ -47,7 +47,13 @@ echo "Generating MOCU training data (Step 1/6)..."
 echo "  N=$N, Samples per type=$SAMPLES, Train size=$TRAIN_SIZE, K_max=$K_MAX"
 echo "  Note: This data will be reused for all K values (MOCU data doesn't depend on K)"
 
-cd "${PROJECT_ROOT}/scripts"
+# Use scripts/training/ location
+SCRIPT_DIR="${PROJECT_ROOT}/scripts/training"
+if [ ! -f "${SCRIPT_DIR}/generate_mocu_data.py" ]; then
+    echo "Error: generate_mocu_data.py not found in ${SCRIPT_DIR}"
+    exit 1
+fi
+cd "$SCRIPT_DIR"
 # Python scripts remain in scripts/ directory
 ABS_DATA_FOLDER=$(cd "$DATA_FOLDER" && pwd)
 # Resolve config file path relative to PROJECT_ROOT (not scripts directory)
@@ -81,9 +87,12 @@ fi
 
 eval $CMD
 
-TRAIN_FILE=$(find "$DATA_FOLDER" -name "*_${N}o_train.pth" -type f 2>/dev/null | head -1)
+# Look for .npz file (swing equation uses .npz format)
+TRAIN_FILE=$(find "$DATA_FOLDER" -name "swing_mocu_data_${N}o.npz" -type f 2>/dev/null | head -1)
 if [ -z "$TRAIN_FILE" ]; then
-    echo "Error: No training file found"
+    echo "Error: No training file found: swing_mocu_data_${N}o.npz in $DATA_FOLDER"
+    echo "  Generated files in $DATA_FOLDER:"
+    ls -la "$DATA_FOLDER" 2>/dev/null || echo "  (directory not found or empty)"
     exit 1
 fi
 
