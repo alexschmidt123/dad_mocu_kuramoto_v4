@@ -65,7 +65,15 @@ if [ ! -f "compare_methods.py" ]; then
     echo "Error: compare_methods.py not found in ${PROJECT_ROOT}/scripts/evaluation"
     exit 1
 fi
-python3 compare_methods.py --methods "$BASELINE_METHODS"
+
+# Resolve config file to absolute path before changing directory
+if [[ "$CONFIG_FILE" = /* ]]; then
+    ABS_CONFIG_FILE="$CONFIG_FILE"
+else
+    ABS_CONFIG_FILE="${PROJECT_ROOT}/${CONFIG_FILE}"
+fi
+
+python3 compare_methods.py --methods "$BASELINE_METHODS" --config "$ABS_CONFIG_FILE"
 
 echo "✓ Baseline evaluation complete: $RESULT_RUN_FOLDER"
 echo "$RESULT_RUN_FOLDER" > /tmp/baseline_results_folder_${CONFIG_NAME}.txt

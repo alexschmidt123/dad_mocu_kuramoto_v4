@@ -35,8 +35,9 @@ swing_equation:
 dataset:
   samples_per_type: 30     # Minimal samples for quick testing
   train_size: 24           # 80% for training (30 * 0.8 = 24)
-  K_max: 128               # Minimal Monte Carlo samples for quick MOCU computation
-                           # Rationale: 128 samples provide ~8.8% relative error (acceptable for testing)
+  K_max: 64                # Reduced for speed with tighter constraints (was 128)
+                           # Rationale: 64 samples provide ~12.5% relative error (acceptable for fast testing)
+                           # With tighter constraints (r_max=0.1), binary search is slower, so reduce K_max
   save_json: false
   
 # Data generation optimization settings (for testing speed)
@@ -57,7 +58,7 @@ experiment:
   num_simulations: 1       # Single run only (for quick testing)
   update_count: 4          # 4 iterations = 5 steps total (0,1,2,3,4)
   it_idx: 3                # Minimal MOCU averaging iterations
-  K_max: 128               # Match dataset K_max
+  K_max: 64                # Match dataset K_max (reduced for speed with tighter constraints)
   methods:
     - "RANDOM"             # Random probe selection (fast)
     - "ENTROPY"             # Entropy-based (degree-based) probe selection (fast)
