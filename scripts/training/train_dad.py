@@ -25,7 +25,7 @@ from tqdm import tqdm
 # Project imports
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.append(str(PROJECT_ROOT))
-from src.models.policy_networks import DADPolicyNetwork, create_state_data
+from src.models.policy_networks import DADPolicyNetwork, DADPolicyNetworkSwing, create_state_data, create_swing_state_data
 
 # Optional imports (for visualization only)
 try:
@@ -130,6 +130,106 @@ def collate_fn(batch):
         'action_j': action_j_list,
         'available_mask': available_mask_list,
         'terminal_MOCU': terminal_MOCU_list
+    }
+
+
+class SwingDADTrajectoryDataset(Dataset):
+    """Dataset for DAD policy training (swing equation: state = (M,K) bounds, action = (bus, amplitude))."""
+    
+    def __init__(self, trajectories, probe_amplitudes=None):
+        self.trajectories = trajectories
+        self.probe_amplitudes = probe_amplitudes if probe_amplitudes is not None else [0.5, 1.0, 2.0]
+        max_bus = max((a[0] for t in trajectories for a in t['actions']), default=0)
+        self.N = max_bus + 1
+    
+    def __len__(self):
+        return sum(len(traj['actions']) for traj in self.trajectories)
+    
+    def _amp_to_idx(self, amp):
+        """Map amplitude value to index (closest match)."""
+        amp = float(amp)
+        best = 0
+        best_dist = abs(amp - self.probe_amplitudes[0])
+        for i, a in enumerate(self.probe_amplitudes):
+            d = abs(amp - a)
+            if d < best_dist:
+                best_dist = d
+                best = i
+        return min(best, len(self.probe_amplitudes) - 1)
+    
+    def _obs_to_scalar(self, obs):
+        if isinstance(obs, dict):
+            return float(obs.get('ROCOF_max', 0.0))
+        return float(obs) if isinstance(obs, (int, float)) else 0.0
+    
+    def __getitem__(self, idx):
+        count = 0
+        for traj in self.trajectories:
+            k = len(traj['actions'])
+            if count + k > idx:
+                step = idx - count
+                M_lower, M_upper, K_lower, K_upper = traj['states'][step]
+                history = []
+                for s in range(step):
+                    bus, amp, _ = traj['actions'][s]
+                    amp_idx = self._amp_to_idx(amp)
+                    rocof = self._obs_to_scalar(traj['observations'][s])
+                    history.append([bus, amp_idx, rocof])
+                bus, amp, _ = traj['actions'][step]
+                amp_idx = self._amp_to_idx(amp)
+                num_buses = int(np.sqrt(len(traj['states'][0])) * 2) if isinstance(traj['states'][0], (list, tuple)) else 14
+                try:
+                    num_buses = len(traj['states'][0]) if isinstance(traj['states'][0], (list, tuple)) and len(traj['states'][0]) == 4 else 14
+                except Exception:
+                    num_buses = 14
+                num_actions = num_buses * len(self.probe_amplitudes)
+                available_mask = np.ones(num_actions, dtype=np.float32)
+                terminal_MOCU = traj.get('terminal_MOCU')
+                if terminal_MOCU is None:
+                    terminal_MOCU = 0.0
+                return {
+                    'M_lower': M_lower, 'M_upper': M_upper, 'K_lower': K_lower, 'K_upper': K_upper,
+                    'history': history,
+                    'action_bus': bus, 'action_amp_idx': amp_idx,
+                    'available_mask': available_mask,
+                    'terminal_MOCU': terminal_MOCU,
+                    'num_buses': num_buses,
+                    'num_probe_amplitudes': len(self.probe_amplitudes),
+                }
+            count += k
+        raise IndexError(idx)
+
+
+def collate_fn_swing(batch):
+    """Collate for swing equation DAD batches."""
+    M_lower = torch.tensor([b['M_lower'] for b in batch], dtype=torch.float32)
+    M_upper = torch.tensor([b['M_upper'] for b in batch], dtype=torch.float32)
+    K_lower = torch.tensor([b['K_lower'] for b in batch], dtype=torch.float32)
+    K_upper = torch.tensor([b['K_upper'] for b in batch], dtype=torch.float32)
+    max_hist = max(len(b['history']) for b in batch)
+    hist_list = []
+    for b in batch:
+        h = b['history']
+        if len(h) == 0:
+            hist_list.append(torch.zeros(max_hist, 3, dtype=torch.float32))
+        else:
+            pad = torch.zeros(max_hist - len(h), 3, dtype=torch.float32)
+            hist_list.append(torch.cat([torch.tensor(h, dtype=torch.float32), pad], dim=0))
+    history_batch = torch.stack(hist_list)
+    action_bus = torch.tensor([b['action_bus'] for b in batch], dtype=torch.long)
+    action_amp_idx = torch.tensor([b['action_amp_idx'] for b in batch], dtype=torch.long)
+    available_mask = torch.tensor(np.array([b['available_mask'] for b in batch]), dtype=torch.float32)
+    terminal_MOCU = torch.tensor([b['terminal_MOCU'] for b in batch], dtype=torch.float32)
+    N = batch[0]['num_buses']
+    num_probe_amplitudes = batch[0]['num_probe_amplitudes']
+    return {
+        'M_lower': M_lower, 'M_upper': M_upper, 'K_lower': K_lower, 'K_upper': K_upper,
+        'history': history_batch,
+        'action_bus': action_bus, 'action_amp_idx': action_amp_idx,
+        'available_mask': available_mask,
+        'terminal_MOCU': terminal_MOCU,
+        'N': N,
+        'num_probe_amplitudes': num_probe_amplitudes,
     }
 
 
@@ -1031,6 +1131,63 @@ def train_reinforce(model, trajectories, optimizer, device, N, gamma=0.96, K_max
     return avg_loss, avg_reward
 
 
+def _run_swing_training(args, trajectories, config, N, K, device):
+    """Train DAD policy for swing equation (imitation / behavior cloning)."""
+    probe_amplitudes = config.get('probe_amplitudes', [0.5, 1.0, 2.0])
+    num_probe_amplitudes = len(probe_amplitudes)
+    dataset = SwingDADTrajectoryDataset(trajectories, N=N, probe_amplitudes=probe_amplitudes)
+    dataloader = DataLoader(
+        dataset,
+        batch_size=args.batch_size,
+        shuffle=True,
+        collate_fn=collate_fn_swing
+    )
+    print(f"Dataset: {len(dataset)} samples (swing equation)")
+    model = DADPolicyNetworkSwing(
+        N=N,
+        num_probe_amplitudes=num_probe_amplitudes,
+        hidden_dim=args.hidden_dim,
+        encoding_dim=args.encoding_dim,
+        history_encoder_type='lstm',
+    )
+    model = model.to(device)
+    optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
+    output_dir = Path(args.output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    best_loss = float('inf')
+    for epoch in range(args.epochs):
+        avg_loss, accuracy = train_swing_imitation(
+            model, dataloader, optimizer, device, N, num_probe_amplitudes
+        )
+        if (epoch + 1) % 10 == 0 or epoch == 0:
+            print(f"  Epoch {epoch+1}/{args.epochs}  loss={avg_loss:.4f}  acc={accuracy:.4f}")
+        if avg_loss < best_loss:
+            best_loss = avg_loss
+            torch.save({
+                'model_state_dict': model.state_dict(),
+                'config': {
+                    'N': N, 'K': K,
+                    'model_type': 'swing_equation',
+                    'hidden_dim': args.hidden_dim,
+                    'encoding_dim': args.encoding_dim,
+                    'num_probe_amplitudes': num_probe_amplitudes,
+                    'probe_amplitudes': probe_amplitudes,
+                },
+            }, output_dir / f'{args.name}_best.pth')
+    torch.save({
+        'model_state_dict': model.state_dict(),
+        'config': {
+            'N': N, 'K': K,
+            'model_type': 'swing_equation',
+            'hidden_dim': args.hidden_dim,
+            'encoding_dim': args.encoding_dim,
+            'num_probe_amplitudes': num_probe_amplitudes,
+            'probe_amplitudes': probe_amplitudes,
+        },
+    }, output_dir / f'{args.name}.pth')
+    print(f"Saved swing DAD policy to {output_dir / args.name}.pth")
+
+
 def main():
     parser = argparse.ArgumentParser(description='Train DAD policy network')
     parser.add_argument('--data-path', type=str, required=True, help='Path to trajectory data')
@@ -1071,16 +1228,27 @@ def main():
     
     # Load data
     print("Loading trajectory data...")
-    data = torch.load(args.data_path, weights_only=False)
+    data = torch.load(args.data_path, map_location='cpu', weights_only=False)
     trajectories = data['trajectories']
     config = data['config']
     N = config['N']
     K = config['K']
+    is_swing = config.get('model_type') == 'swing_equation' or (trajectories and 'M_true' in trajectories[0])
     
     print(f"Loaded {len(trajectories)} trajectories")
     print(f"System: N={N}, K={K} design steps ({K+1} total steps: 0-{K})")
+    if is_swing:
+        print("Model type: swing_equation (DAD for swing equation)")
     
-    # Create dataset and dataloader
+    # Device (needed early for swing path)
+    device = torch.device(args.device if torch.cuda.is_available() else 'cpu')
+    print(f"Using device: {device}")
+    
+    if is_swing:
+        _run_swing_training(args, trajectories, config, N, K, device)
+        return
+    
+    # Create dataset and dataloader (first-order path)
     if args.method == 'imitation':
         dataset = DADTrajectoryDataset(trajectories)
         dataloader = DataLoader(
@@ -1090,10 +1258,6 @@ def main():
             collate_fn=collate_fn
         )
         print(f"Dataset: {len(dataset)} samples")
-    
-    # Device
-    device = torch.device(args.device if torch.cuda.is_available() else 'cpu')
-    print(f"Using device: {device}")
     
     # Create model
     model = DADPolicyNetwork(

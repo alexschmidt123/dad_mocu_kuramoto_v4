@@ -27,11 +27,10 @@ CONFIG_NAME=$(basename "$CONFIG_FILE" .yaml)
 BASE_CONFIG_NAME=$(echo "$CONFIG_NAME" | sed 's/_K[0-9]*$//')
 N=$(grep "^N:" "$CONFIG_FILE" | awk '{print $2}')
 
-# Check if DAD is enabled (skip if not)
-SKIP_DAD="${SKIP_DAD:-true}"
+# DAD is enabled for second_order (swing equation) model
+SKIP_DAD="${SKIP_DAD:-false}"
 if [ "$SKIP_DAD" = "true" ]; then
-    echo "⚠️  DAD/iDAD not yet updated for swing equation model."
-    echo "⚠️  Skipping DAD data generation. Use baselines only."
+    echo "⚠️  DAD skipped (SKIP_DAD=true). Use baselines only."
     echo "✓ Step 4 skipped gracefully"
     exit 0
 fi
@@ -63,12 +62,13 @@ USE_PRECOMPUTED_MOCU=$(grep -A 3 "^dad_data:" "$CONFIG_FILE" | grep "  use_preco
 [ -z "$K" ] && K=4
 [ -z "$USE_PRECOMPUTED_MOCU" ] && USE_PRECOMPUTED_MOCU=true
 
-DAD_TRAJECTORY_FILE="${DATA_FOLDER}/dad_trajectories_N${N}_K${K}_random.pth"
+# Swing equation DAD data uses swing_dad_trajectories_N*_K*.pth
+DAD_TRAJECTORY_FILE="${DATA_FOLDER}/swing_dad_trajectories_N${N}_K${K}.pth"
 
 check_data_k_n() {
     local data_file="$1"
-    local filename_n=$(echo "$data_file" | sed -n 's/.*dad_trajectories_N\([0-9]*\)_K\([0-9]*\).*/\1/p')
-    local filename_k=$(echo "$data_file" | sed -n 's/.*dad_trajectories_N\([0-9]*\)_K\([0-9]*\).*/\2/p')
+    local filename_n=$(echo "$data_file" | sed -n 's/.*_trajectories_N\([0-9]*\)_K\([0-9]*\).*/\1/p')
+    local filename_k=$(echo "$data_file" | sed -n 's/.*_trajectories_N\([0-9]*\)_K\([0-9]*\).*/\2/p')
     local file_k=$(python3 -c "
 import torch
 try:
@@ -144,7 +144,11 @@ if [ ! -f "generate_dad_data.py" ]; then
     exit 1
 fi
 ABS_DAD_DATA_FOLDER=$(cd "$DATA_FOLDER" && pwd)
-CMD="python3 generate_dad_data.py --N $N --num-episodes $NUM_EPISODES --K $K --output-dir $ABS_DAD_DATA_FOLDER"
+ABS_CONFIG_FILE="${PROJECT_ROOT}/${CONFIG_FILE}"
+if [[ "$CONFIG_FILE" = /* ]]; then
+    ABS_CONFIG_FILE="$CONFIG_FILE"
+fi
+CMD="python3 generate_dad_data.py --config \"$ABS_CONFIG_FILE\" --num-episodes $NUM_EPISODES --K $K --output-dir \"$ABS_DAD_DATA_FOLDER\""
 if [ "$USE_PRECOMPUTED_MOCU" = "true" ] && [ -n "$MOCU_MODEL_NAME" ] && [ -f "${SWING_MLP_MODEL_FOLDER}model.pth" ]; then
     CMD="$CMD --use-swing-mlp-predictor --swing-mlp-model-name $MOCU_MODEL_NAME"
     echo "  Using Swing MLP predictor ($MOCU_MODEL_NAME) to pre-compute MOCU values"

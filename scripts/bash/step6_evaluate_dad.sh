@@ -18,11 +18,10 @@ BASELINE_RESULTS=$(cat /tmp/baseline_results_folder_${CONFIG_NAME}.txt 2>/dev/nu
 DAD_MOCU_POLICY_PATH=$(cat /tmp/dad_mocu_policy_path_${CONFIG_NAME}.txt 2>/dev/null || echo "")
 IDAD_MOCU_POLICY_PATH=$(cat /tmp/idad_mocu_policy_path_${CONFIG_NAME}.txt 2>/dev/null || echo "")
 
-# Check if DAD is enabled (skip if not)
-SKIP_DAD="${SKIP_DAD:-true}"
+# DAD is enabled for second_order (swing equation) model
+SKIP_DAD="${SKIP_DAD:-false}"
 if [ "$SKIP_DAD" = "true" ]; then
-    echo "⚠️  DAD/iDAD not yet updated for swing equation model."
-    echo "⚠️  Skipping DAD evaluation. Use baselines only."
+    echo "⚠️  DAD skipped (SKIP_DAD=true)."
     echo "✓ Step 6 skipped gracefully"
     exit 0
 fi
@@ -70,11 +69,21 @@ echo "  Results: $RESULT_FOLDER"
 
 cd "${PROJECT_ROOT}/scripts"
 
+# Resolve config path for swing-equation DAD evaluation
+ABS_CONFIG_FILE="$CONFIG_FILE"
+if [ -n "$CONFIG_FILE" ] && [[ "$CONFIG_FILE" != /* ]]; then
+    ABS_CONFIG_FILE="${PROJECT_ROOT}/${CONFIG_FILE}"
+fi
+
 if [ "$HAS_DAD_MOCU" = true ]; then
     echo ""
     echo "Evaluating DAD_MOCU method..."
     export DAD_POLICY_PATH="$DAD_MOCU_POLICY_PATH"
-    python3 dad_eval.py --baseline_results "$BASELINE_RESULTS" --result_folder "$RESULT_FOLDER" --method_name "DAD_MOCU"
+    if [ -n "$ABS_CONFIG_FILE" ] && [ -f "$ABS_CONFIG_FILE" ]; then
+        python3 dad_eval.py --baseline_results "$BASELINE_RESULTS" --result_folder "$RESULT_FOLDER" --method_name "DAD_MOCU" --config "$ABS_CONFIG_FILE"
+    else
+        python3 dad_eval.py --baseline_results "$BASELINE_RESULTS" --result_folder "$RESULT_FOLDER" --method_name "DAD_MOCU"
+    fi
     echo "✓ DAD_MOCU evaluation complete"
 fi
 
@@ -82,7 +91,11 @@ if [ "$HAS_IDAD_MOCU" = true ]; then
     echo ""
     echo "Evaluating IDAD_MOCU method..."
     export DAD_POLICY_PATH="$IDAD_MOCU_POLICY_PATH"
-    python3 dad_eval.py --baseline_results "$BASELINE_RESULTS" --result_folder "$RESULT_FOLDER" --method_name "IDAD_MOCU"
+    if [ -n "$ABS_CONFIG_FILE" ] && [ -f "$ABS_CONFIG_FILE" ]; then
+        python3 dad_eval.py --baseline_results "$BASELINE_RESULTS" --result_folder "$RESULT_FOLDER" --method_name "IDAD_MOCU" --config "$ABS_CONFIG_FILE"
+    else
+        python3 dad_eval.py --baseline_results "$BASELINE_RESULTS" --result_folder "$RESULT_FOLDER" --method_name "IDAD_MOCU"
+    fi
     echo "✓ IDAD_MOCU evaluation complete"
 fi
 

@@ -26,11 +26,10 @@ CONFIG_NAME=$(basename "$CONFIG_FILE" .yaml)
 BASE_CONFIG_NAME=$(echo "$CONFIG_NAME" | sed 's/_K[0-9]*$//')
 N=$(grep "^N:" "$CONFIG_FILE" | awk '{print $2}')
 
-# Check if DAD is enabled (skip if not)
-SKIP_DAD="${SKIP_DAD:-true}"
+# DAD is enabled for second_order (swing equation) model
+SKIP_DAD="${SKIP_DAD:-false}"
 if [ "$SKIP_DAD" = "true" ]; then
-    echo "⚠️  DAD/iDAD not yet updated for swing equation model."
-    echo "⚠️  Skipping DAD policy training. Use baselines only."
+    echo "⚠️  DAD skipped (SKIP_DAD=true)."
     echo "✓ Step 5 skipped gracefully"
     exit 0
 fi

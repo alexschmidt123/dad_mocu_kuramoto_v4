@@ -477,7 +477,9 @@ def main():
             'K': K,
             'num_episodes': len(trajectories),
             'has_precomputed_mocu': has_mocu,
-            'swing_mlp_model_used': args.swing_mlp_model_name if args.use_swing_mlp_predictor else None
+            'swing_mlp_model_used': args.swing_mlp_model_name if args.use_swing_mlp_predictor else None,
+            'model_type': 'swing_equation',
+            'probe_amplitudes': probe_amplitudes,
         }
     }, output_file)
     
