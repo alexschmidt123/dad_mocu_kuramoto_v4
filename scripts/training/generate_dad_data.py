@@ -3,9 +3,9 @@ Generate trajectory data for training DAD (Deep Adaptive Design) policy network.
 
 For second-order Kuramoto (swing equation) with active probing.
 
-Based on new_plan.tex:
-- Actions: Probe signal ξ = (b, A, T) where b is bus, A is amplitude, T is duration
-- Observations: Frequency features y = [ROCOF_max, f_min, t_settle, ...]
+Based on documents/design_part1.tex:
+- Actions: Probe design ξ_t = (b_t, A_t, T_p) where b_t is bus, A_t is amplitude, T_p = 2 s fixed
+- Observations: ROCOF-only y_t = ROCOF_max (design Section 4); full features used for heuristics
 - State: Uncertainty bounds (M_lower, M_upper, K_lower, K_upper)
 - True parameters: (M_true, K_true)
 """
@@ -140,7 +140,7 @@ def perform_probe_experiment(B, P_m, D, M_true, K_true, g, probe_bus, probe_ampl
         N = len(P_m)
         omega_traj = state_traj[:, N:]  # [M_steps, N]
         
-        # Extract frequency features (downsampled to fs=12 Hz, matches new_plan.tex)
+        # Extract frequency features (downsampled to fs=12 Hz, design_part1.tex Section 4)
         features = extract_frequency_features(omega_traj, h, fs=12.0)
         
         return features

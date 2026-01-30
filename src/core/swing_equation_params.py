@@ -1,7 +1,7 @@
 """
 Helper functions to generate system parameters for second-order Kuramoto (swing equation).
 
-Based on new_plan.tex, we need:
+Based on documents/design_part1.tex, we need:
 - B: Coupling matrix [N, N] (known, fixed)
 - P_m: Mechanical power [N] (known, fixed)
 - D: Damping coefficient (scalar, known, fixed)
@@ -173,7 +173,7 @@ def generate_default_control_allocation(N: int, method: str = 'uniform') -> np.n
     """
     Generate control allocation g (spatial allocation of control across buses).
     
-    Based on new_plan.tex: sum_i g_i = 1, g_i >= 0
+    Based on design_part1.tex: sum_i g_i = 1, g_i >= 0
     
     Args:
         N: Number of buses

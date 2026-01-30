@@ -1,7 +1,7 @@
 """
 Probe signal generation (Hann window).
 
-Based on new_plan.tex Section 2:
+Based on documents/design_part1.tex Section 2:
 - Probe injection: u_probe_{ξ,i}(τ) = A_t * s(τ; T_p) if i = b_t, else 0
 - Hann window: s(τ; T_p) = 0.5 * (1 - cos(2πτ/T_p))
 """

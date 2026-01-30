@@ -16,7 +16,9 @@ Sequential optimal experimental design for power systems using second-order Kura
 
 **Methods**: RANDOM, ENTROPY, ODE, iNN, NN (baselines) and DAD (learned policy with explicit likelihood)
 
-**Note**: This project uses DAD (not iDAD) because an explicit measurement-level likelihood exists (see `new_plan.tex` Section 5).
+**Note**: This project uses DAD (not iDAD) because an explicit measurement-level likelihood exists (see `documents/design_part1.tex` Section 5).
+
+**Design docs**: System model, probing, observation, likelihood, and MOCU are defined in `documents/design_part1.tex`. Literature and parameter guidance are in `documents/design_part2.tex`. Probe/ROCOF pseudocode is in `documents/pseucocode _parameter_list.txt`.
 
 ## Project Structure
 

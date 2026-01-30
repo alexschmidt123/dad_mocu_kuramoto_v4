@@ -1,5 +1,5 @@
 # Fast Configuration for Quick Testing
-# Based on documents/new_plan.tex: "Probing Signal-Based Inertia and Frequency Response Estimation"
+# Based on documents/design_part1.tex and design_part2.tex
 # 
 # Use this for quick testing and component verification
 # Estimated Runtime: ~1 hour on RTX 4090
@@ -28,8 +28,12 @@ swing_equation:
   f_min: 49.8                   # Minimum frequency constraint (Hz) - tightened for non-trivial control
                                 # Reference: ENTSO-E normal operating band is 49.8-50.2 Hz
                                 # We use 49.8 Hz (stricter than 49.5 Hz) to require control
-  probe_duration: 2.0          # Probe duration T (seconds)
-  probe_amplitudes: [0.5, 1.0, 2.0]  # Probe amplitude options A
+  probe_duration: 2.0          # T_p = 2 s (design_part1.tex)
+  probe_amplitudes: [0.5, 1.0, 2.0]  # A_t in A
+  fs_hz: 12.0                  # Observation: design_part1.tex Section 4
+  rocof_window_sec: 0.5
+  rocof_eval_sec: 1.0
+  T_obs_sec: 10.0
 
 # Dataset generation (minimal for ~1 hour runtime)
 dataset:

@@ -1,7 +1,7 @@
 """
 Swing equation simulator.
 
-Based on new_plan.tex Section 1:
+Based on documents/design_part1.tex Section 1:
 - Second-order Kuramoto (swing equation) for IEEE-14 network
 - State: [θ, ω] where θ is phase and ω is frequency
 - Dynamics: M dω/dt = P_m - Σ B_ij sin(θ_i - θ_j) - D ω - K ω + u_probe + u_ctrl

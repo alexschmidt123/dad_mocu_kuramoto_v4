@@ -1,7 +1,7 @@
 """
 Explicit likelihood model for measurement-level uncertainty.
 
-Based on new_plan.tex Section 5:
+Based on documents/design_part1.tex Section 5:
 - Deterministic simulator mean: μ(θ, ξ_t) = ROCOF_max(Δf(·; θ, ξ_t))
 - Explicit likelihood: p(y_t | θ, ξ_t) = N(μ(θ, ξ_t), σ²)
 - Measurement noise and unmodeled effects enter via σ²
@@ -27,7 +27,7 @@ def mu_theta_xi(theta: Tuple[float, float], xi: Tuple[int, float, float],
     """
     Compute deterministic simulator mean μ(θ, ξ_t).
     
-    Based on new_plan.tex Section 5:
+    Based on documents/design_part1.tex Section 5:
     μ(θ, ξ_t) = ROCOF_max(Δf(·; θ, ξ_t))
     
     Args:
@@ -87,7 +87,7 @@ def log_likelihood(y: float, theta: Tuple[float, float], xi: Tuple[int, float, f
     """
     Compute log-likelihood log p(y_t | θ, ξ_t).
     
-    Based on new_plan.tex Section 5:
+    Based on documents/design_part1.tex Section 5:
     p(y_t | θ, ξ_t) = N(μ(θ, ξ_t), σ²)
     log p(y_t | θ, ξ_t) = -(y - μ)²/(2σ²) - 0.5*log(2πσ²)
     

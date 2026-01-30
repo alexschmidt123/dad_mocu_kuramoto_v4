@@ -1,7 +1,7 @@
 """
 Generate training data for Swing MLP predictor (second-order Kuramoto / swing equation).
 
-Based on new_plan.tex:
+Based on documents/design_part1.tex:
 - Uncertainty: (M, K) with bounds [M_lower, M_upper, K_lower, K_upper]
 - MOCU computation: E_{(M,K)~p_t}[γ*(A_t) - γ*(M,K)]
 - Output: (M_lower, M_upper, K_lower, K_upper, MOCU) for MLP training

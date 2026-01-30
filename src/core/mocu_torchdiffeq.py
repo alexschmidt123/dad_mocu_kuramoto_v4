@@ -1,7 +1,7 @@
 """
 torchdiffeq-based MOCU computation for swing equation (second-order Kuramoto).
 
-Second-order Kuramoto (swing equation) based on new_plan.tex:
+Second-order Kuramoto (swing equation) based on documents/design_part1.tex:
 - dθ/dt = ω
 - M dω/dt = P_m - Σ B_ij sin(θ_i - θ_j) - D ω - K ω + u_probe + u_ctrl
 
@@ -105,7 +105,7 @@ def MOCU_torchdiffeq(K_max: int, B: np.ndarray, P_m: np.ndarray, D: float,
     """
     Compute MOCU for swing equation using torchdiffeq.
     
-    Based on new_plan.tex: MOCU measures expected excess primary control.
+    Based on design_part1.tex: MOCU measures expected excess primary control.
     
     Args:
         K_max: Number of Monte Carlo samples

@@ -1,7 +1,7 @@
 """
 Particle-based posterior computation.
 
-Based on new_plan.tex Section 5:
+Based on documents/design_part1.tex Section 5:
 - Posterior: p(θ | h_T) ∝ p(θ) ∏_{t=1}^T p(y_t | θ, ξ_t)
 - Uses particle weights computed from likelihood
 """
@@ -45,8 +45,8 @@ def posterior_weights(particles_theta: np.ndarray, history: List[Tuple[Tuple, fl
     """
     Compute posterior weights for particles given history.
     
-    Based on new_plan.tex Section 5:
-    p(θ | h_T) ∝ p(θ) ∏_{t=1}^T p(y_t | θ, ξ_t)
+Based on design_part1.tex Section 5:
+p(θ | h_T) ∝ p(θ) ∏_{t=1}^T p(y_t | θ, ξ_t)
     
     Weights: w[n] ∝ p(θ_n) ∏_{t=1}^T p(y_t | θ_n, ξ_t)
     log w[n] = log p(θ_n) + Σ_{t=1}^T log p(y_t | θ_n, ξ_t)
@@ -96,7 +96,7 @@ def get_credible_set(particles_theta: np.ndarray, weights: np.ndarray,
     """
     Select credible set A_T from particles by cumulative weight.
     
-    Based on new_plan.tex Section 6:
+    Based on design_part1.tex Section 6:
     A_T = credible set of p(θ | h_T)
     
     Args:

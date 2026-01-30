@@ -1,7 +1,7 @@
 """
 Second-order Kuramoto model (swing equation) for power systems.
 
-Based on new_plan.tex:
+Based on documents/design_part1.tex:
 - State: [θ, ω] where θ is phase and ω is frequency
 - Dynamics:
   dθ/dt = ω
@@ -192,7 +192,7 @@ def solve_swing_equation_ode(B, P_m, D, M, K, g, gamma=None,
         probe_duration: Probe duration T (float, default 2.0s)
         h: Time step (float, default 1/160)
         M_steps: Number of time steps (int, optional, computed from T/h if not provided)
-        T: Time horizon (float, default 10.0s, matches new_plan.tex: t∈[0,10]s)
+        T: Time horizon (float, default 10.0s, matches design_part1.tex: t∈[0,10]s)
         theta0: Initial phases [N] (numpy array, optional, default zeros)
         omega0: Initial frequencies [N] (numpy array, optional, default zeros)
         device: 'cuda' or 'cpu'
@@ -293,8 +293,8 @@ def extract_frequency_features(omega_trajectory, h, fs=12.0):
     """
     Extract frequency features from ω trajectory.
     
-    Based on new_plan.tex:
-    - Δf_i(t) = ω_i(t) / (2π)
+Based on design_part1.tex Section 4:
+- Δf_i(t) = ω_i(t) / (2π)
     - Observations at fs = 12 Hz, t ∈ [0, 10] s
     - Features: [ROCOF_max, f_min, t_settle, ...]
     
@@ -304,7 +304,7 @@ def extract_frequency_features(omega_trajectory, h, fs=12.0):
     Args:
         omega_trajectory: [M, N] frequency trajectory from ODE (numpy array)
         h: ODE time step (float, e.g., 1/160 s)
-        fs: Observation sampling frequency (float, default 12.0 Hz, matches new_plan.tex)
+        fs: Observation sampling frequency (float, default 12.0 Hz, matches design_part1.tex)
     
     Returns:
         features: Dictionary with extracted features
@@ -314,7 +314,7 @@ def extract_frequency_features(omega_trajectory, h, fs=12.0):
     # Convert ω to frequency: Δf = ω / (2π)
     freq_trajectory = omega_trajectory / (2.0 * np.pi)  # [M, N]
     
-    # Downsample to observation sampling frequency fs (PMU-like, matches new_plan.tex)
+    # Downsample to observation sampling frequency fs (PMU-like, matches design_part1.tex)
     # ODE uses fine time step h, but observations should be at fs = 12 Hz
     h_obs = 1.0 / fs  # Observation time step (1/12 ≈ 0.0833 s)
     downsample_factor = int(h_obs / h)  # How many ODE steps per observation step

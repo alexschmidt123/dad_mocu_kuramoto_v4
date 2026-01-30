@@ -1,5 +1,5 @@
 # Balanced Configuration for Deeper Testing
-# Based on documents/new_plan.tex: "Probing Signal-Based Inertia and Frequency Response Estimation"
+# Based on documents/design_part1.tex and design_part2.tex (probing / MOCU sBOED)
 # 
 # Use this for deeper testing before publication (balanced quality and runtime)
 # Estimated Runtime: ~10 hours on RTX 4090
@@ -32,8 +32,13 @@ swing_equation:
   f_min: 49.8                   # Minimum frequency constraint (Hz) - tightened for non-trivial control
                                 # Reference: ENTSO-E normal operating band is 49.8-50.2 Hz
                                 # We use 49.8 Hz (stricter than 49.5 Hz) to require control
-  probe_duration: 2.0
+  probe_duration: 2.0         # T_p = 2 s (design_part1.tex Section 3, Hann window)
   probe_amplitudes: [0.5, 1.0, 2.0]
+  # Observation (design_part1.tex Section 4 & table; documents/pseucocode _parameter_list.txt)
+  fs_hz: 12.0                # Sampling rate (PMU-like), ENTSO-E/NASPI
+  rocof_window_sec: 0.5      # Sliding window for ROCOF (linear fit)
+  rocof_eval_sec: 1.0       # Evaluate ROCOF_max over first 1 s only
+  T_obs_sec: 10.0           # Observation window [0, 10] s for simulation
 
 # Dataset generation (balanced for ~10 hour runtime)
 dataset:

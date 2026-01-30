@@ -1,0 +1,271 @@
+\documentclass[12pt]{article}
+\usepackage[utf8]{inputenc}
+\usepackage{graphicx}
+\usepackage[numbers]{natbib}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{mathrsfs}
+\usepackage{hyperref}
+\usepackage{natbib}
+\usepackage{listings}
+\usepackage{enumitem}
+\usepackage{pgfplots}
+\pgfplotsset{compat=1.18}
+\usepackage{multirow}
+\usepackage{booktabs}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{tikz}
+\usepackage{tabularx}
+\usepackage{verbatim}
+\usetikzlibrary{positioning,fit,backgrounds,arrows.meta,calc}
+
+% Load packages that style.sty uses but doesn't load
+\usepackage{geometry}
+\usepackage{xcolor}
+\usepackage{fancyhdr}
+\usepackage{lastpage}
+
+% Load style file (uses: geometry, xcolor, titlesec, titling, fancyhdr commands)
+\usepackage{style}
+
+% --- explicit layers so backgrounds never cover content ---
+\pgfdeclarelayer{bg}
+\pgfdeclarelayer{fg}
+\pgfsetlayers{bg,main,fg}
+
+% Define firstpage style (style.sty references it but Overleaf needs it defined explicitly)
+\fancypagestyle{firstpage}{
+  \fancyhf{}
+  \fancyfoot[R]{\thepage/\pageref*{LastPage}}
+}
+
+% Math operators
+\DeclareMathOperator*{\argmin}{arg\,min}
+\DeclareMathOperator*{\argmax}{arg\,max}
+
+% Code style
+\lstset{
+    basicstyle=\ttfamily\small,
+    keywordstyle=\color{blue},
+    commentstyle=\color{green!60!black},
+    stringstyle=\color{red},
+    numbers=left,
+    numberstyle=\tiny,
+    frame=single,
+    breaklines=true,
+    backgroundcolor=\color{gray!10}
+}
+
+% Slide-optimized settings
+\titleformat{\section}
+  {\Large\bfseries\color{TAMUmaroon}}
+  {}{0pt}{}
+
+\setlength{\parskip}{0.5em}
+\setlength{\itemsep}{0.2em}
+\pagestyle{fancy}
+
+\title{\Large Research Update}
+\author{Gaoming Lin \\
+\vspace{10pt} Advisor: Dr. Byung-Jun Yoon}
+\date{01/30/2026}
+
+\begin{document}
+
+\maketitle
+\thispagestyle{firstpage}
+
+% =========================================================
+% Parameter-Driven Literature Slides (Paper 1–5)
+% =========================================================
+
+\newpage
+\section*{Paper 1: NREL 2024 — Probing Signal-Based Inertia \& Frequency Response Estimation \cite{peng2024nrel}}
+
+\textbf{What the paper did}
+\begin{itemize}
+  \item Injects active-power probing signals through inverter-based resources (IBRs).
+  \item Shapes probing signals in the frequency domain to isolate inertial dynamics.
+  \item Estimates inertia and droop using swing-equation-based regression.
+\end{itemize}
+
+\textbf{Probing parameter guidance extracted from this paper}
+\begin{itemize}
+  \item \textbf{Amplitude ($A$):}
+  \begin{itemize}
+    \item Must exceed ambient frequency noise to ensure measurable ROCOF.
+    \item Upper bounded by grid-security constraints (no protection triggering).
+  \end{itemize}
+
+  \item \textbf{Frequency band ($\omega$):}
+  \begin{itemize}
+    \item Probing energy concentrated in low-frequency range where inertia dominates.
+    \item Avoids overlap with primary frequency control and inverter inner loops.
+  \end{itemize}
+
+  \item \textbf{Duration ($T$):}
+  \begin{itemize}
+    \item Long enough to observe inertial transient.
+    \item Short relative to slower governor and secondary control responses.
+  \end{itemize}
+\end{itemize}
+
+\textbf{Why this is critical for my MOCU-based sBOED}
+\begin{itemize}
+  \item Defines physically meaningful bounds on $(A, T, \omega)$.
+  \item Shows probing should maximize \textbf{sensitivity of ROCOF to inertia}, not generic excitation.
+  \item Directly defines the sBOED design variable:
+  \[
+  u = \{A,\ T,\ \omega\}.
+  \]
+\end{itemize}
+
+
+
+
+% ---------------------------------------------------------
+
+\newpage
+\section*{Paper 2: HICSS 2024 — Real-Time Inertia Estimation Using Probing \& PMUs \cite{yi2024hicss}}
+
+\textbf{What the paper did}
+\begin{itemize}
+  \item Uses repeated low-magnitude probing signals for online inertia estimation.
+  \item Identifies inertia via PMU-measured frequency deviations.
+  \item Emphasizes secure and non-disruptive probing.
+\end{itemize}
+
+\textbf{Probing parameter guidance extracted from this paper}
+\begin{itemize}
+  \item \textbf{Amplitude ($A$):}
+  \begin{itemize}
+    \item Explicitly limited to small active-power deviations.
+    \item Ensures probing does not violate frequency limits or stability margins.
+  \end{itemize}
+
+  \item \textbf{Observation window ($T$):}
+  \begin{itemize}
+    \item Chosen to isolate inertial response before governor action.
+    \item Too long a window contaminates inertia estimates with control effects.
+  \end{itemize}
+
+  \item \textbf{Repetition strategy:}
+  \begin{itemize}
+    \item Multiple probes allow belief refinement without increasing $A$.
+  \end{itemize}
+\end{itemize}
+
+\textbf{Why this is critical for my MOCU-based sBOED}
+\begin{itemize}
+  \item Provides realistic numerical ranges for $A$ usable as hard constraints.
+  \item Motivates \textbf{sequential probing}: adapt $(A,T)$ as uncertainty shrinks.
+  \item Reinforces probing as a constrained decision problem, not free excitation.
+\end{itemize}
+
+
+
+
+% ---------------------------------------------------------
+
+\newpage
+\section*{Paper 3: PMU + Swing Equation — Real-Time Inertia Estimation \& Validation (2025) \cite{pmu2025}}
+
+\textbf{What the paper did}
+\begin{itemize}
+  \item Uses the swing equation as the latent dynamic model.
+  \item Estimates inertia from PMU frequency and ROCOF.
+  \item Validates inferred inertia against system benchmarks.
+\end{itemize}
+
+\textbf{Probing parameter implications (indirect but crucial)}
+\begin{itemize}
+  \item \textbf{Target observable:}
+  \begin{itemize}
+    \item ROCOF is most informative for inertia.
+    \item Probing must induce sufficient acceleration, not just steady deviation.
+  \end{itemize}
+
+  \item \textbf{Timing ($T$):}
+  \begin{itemize}
+    \item Probing must excite the initial transient phase.
+    \item Slow probing yields weak ROCOF and poor identifiability.
+  \end{itemize}
+\end{itemize}
+
+\textbf{Why this is critical for my MOCU-based sBOED}
+\begin{itemize}
+  \item Defines what probing must excite to reduce inertia uncertainty.
+  \item Guides utility design: experiments that fail to induce ROCOF have low MOCU value.
+  \item Strengthens the observation model used for Bayesian belief updates.
+\end{itemize}
+
+
+
+
+% ---------------------------------------------------------
+
+\newpage
+\section*{Paper 4: Du et al. 2022 — Approximations for Optimal Experimental Design \cite{du2022}}
+
+\textbf{What the paper did}
+\begin{itemize}
+  \item Applies Fisher-information-based OED to power-system parameter estimation.
+  \item Selects excitation inputs to maximize parameter identifiability.
+\end{itemize}
+
+\textbf{Probing parameter insights from classical OED}
+\begin{itemize}
+  \item Treats probing parameters as optimization variables under constraints.
+  \item Encourages excitation directions that maximize parameter sensitivity.
+\end{itemize}
+
+\textbf{Why this is critical for my MOCU-based sBOED}
+\begin{itemize}
+  \item Provides a baseline: how $(A,T,\omega)$ would be chosen if estimation accuracy were the only goal.
+  \item Highlights limitation: information-maximizing probes may not improve stability decisions.
+  \item Motivates replacing FIM with \textbf{MOCU-based utility} for probing parameter selection.
+\end{itemize}
+
+
+
+
+% ---------------------------------------------------------
+
+\newpage
+\section*{Paper 5: IJEPES 2024 — Global Inertia Estimation via Active Perturbations \cite{brambilla2024}}
+
+\textbf{What the paper did}
+\begin{itemize}
+  \item Injects probing tones using grid-forming converters.
+  \item Estimates global inertia from frequency-domain response.
+  \item Models the grid as a synchronized oscillator.
+\end{itemize}
+
+\textbf{Probing parameter guidance extracted from this paper}
+\begin{itemize}
+  \item \textbf{Frequency selection:}
+  \begin{itemize}
+    \item Probing tones placed in synchronized low-frequency modes.
+    \item High-frequency excitation provides little inertia information.
+  \end{itemize}
+
+  \item \textbf{Signal structure:}
+  \begin{itemize}
+    \item Frequency-domain probing improves identifiability of inertial constants.
+  \end{itemize}
+\end{itemize}
+
+\textbf{Why this is critical for my MOCU-based sBOED}
+\begin{itemize}
+  \item Supports selecting probing frequency content based on system-level objectives.
+  \item Justifies global-objective-driven probing (e.g., ROCOF risk).
+  \item Reinforces probing design as an objective-based decision problem.
+\end{itemize}
+
+
+
+\newpage
+\bibliographystyle{ieeetr}
+\bibliography{references}
+\end{document}

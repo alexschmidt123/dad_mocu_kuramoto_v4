@@ -1,6 +1,6 @@
 #!/bin/bash
 # Main pipeline script for second-order Kuramoto (swing equation) with active probing
-# Based on new_plan.tex and paper: "Probing Signal-Based Inertia and Frequency Response Estimation"
+# Based on documents/design_part1.tex and design_part2.tex (MOCU-based sBOED)
 
 set -e
 

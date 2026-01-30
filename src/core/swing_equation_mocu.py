@@ -1,7 +1,7 @@
 """
 MOCU computation for second-order Kuramoto (swing equation).
 
-Based on new_plan.tex:
+Based on documents/design_part1.tex:
 - MOCU measures expected excess primary control due to uncertainty in (M,K)
 - MOCU(p_t) = E_{(M,K)~p_t}[γ*(A_t) - γ*(M,K)]
 - γ*(M,K) is computed via binary search over γ to satisfy frequency constraints
@@ -34,7 +34,7 @@ def binary_search_gamma_star(B, P_m, D, M, K, g,
     """
     Binary search for γ*(M,K) - minimum control capacity to satisfy frequency constraints.
     
-    Based on new_plan.tex:
+    Based on documents/design_part1.tex:
     γ*(M,K) = min_γ s.t. frequency constraints are satisfied
     Constraints: max_t |df/dt| <= r_max, min_t f(t) >= f_min
     
@@ -175,7 +175,7 @@ def MOCU_swing_equation(K_max: int, B: np.ndarray, P_m: np.ndarray, D: float,
     """
     Compute MOCU for second-order Kuramoto (swing equation).
     
-    Based on new_plan.tex:
+    Based on documents/design_part1.tex:
     MOCU(p_t) = E_{(M,K)~p_t}[γ*(A_t) - γ*(M,K)]
     
     where:

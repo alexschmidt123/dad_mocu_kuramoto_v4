@@ -1,5 +1,5 @@
 # Full Publication-Level Configuration for IEEE-14 Bus System
-# Based on documents/new_plan.tex: "Probing Signal-Based Inertia and Frequency Response Estimation"
+# Based on documents/design_part1.tex and design_part2.tex (probing / MOCU sBOED)
 # Use this for final publication experiments (publication-quality, practical runtime)
 # 
 # Design rationale:
@@ -12,20 +12,20 @@
 # 1. Statistically sound: Sufficient samples for reliable MOCU estimation and MLP training
 # 2. Reproducible: Fixed seeds, clear parameters, documented rationale
 # 3. Rigorous: Multiple independent runs for statistical significance
-# 4. Realistic: Production-quality parameters aligned with new_plan.tex
+# 4. Realistic: Production-quality parameters aligned with design_part1.tex
 # 5. Feasible: Estimated runtime ~3-5 days on RTX 4090 (sequential processing)
 #
-# Reference: documents/new_plan.tex, documents/project_plan.txt
+# Reference: documents/design_part1.tex, documents/design_part2.tex
 
 # System parameters
-N: 14  # IEEE-14 bus system (from new_plan.tex)
+N: 14  # IEEE-14 bus system (design_part1.tex)
 N_global: 15  # N + 1 for CUDA kernel
 
 # Model type: 'second_order' (swing equation with active probing)
 model_type: 'second_order'
 
 # Second-order model parameters (swing equation for IEEE-14)
-# All parameters from new_plan.tex Section 1 and Section 3
+# All parameters from design_part1.tex Section 1 and Section 3
 swing_equation:
   topology: 'ieee14'          # IEEE-14 bus network topology
   coupling_strength: 1.0       # Base coupling strength for B matrix
@@ -38,13 +38,18 @@ swing_equation:
   r_max: 0.1                  # Maximum ROCOF constraint (Hz/s) - tightened for non-trivial control
                                # Reference: ENTSO-E grid codes use 0.5-1.0 Hz/s for protection
                                # We use 0.1 Hz/s (stricter) to ensure control is needed for meaningful MOCU
-                               # Original new_plan.tex used 0.5 Hz/s, but we tighten for research rigor
+                               # design_part1.tex table: r_max; we tighten for research rigor
   f_min: 49.8                 # Minimum frequency constraint (Hz) - tightened for non-trivial control
                                # Reference: ENTSO-E normal operating band is 49.8-50.2 Hz
                                # We use 49.8 Hz (stricter than 49.5 Hz) to require control
-                               # Original new_plan.tex used 49.5 Hz, but we tighten for research rigor
-  probe_duration: 2.0         # Probe duration T_p (seconds) - from new_plan.tex Section 2
-  probe_amplitudes: [0.5, 1.0, 2.0]  # Probe amplitude options A - from new_plan.tex Section 3
+                               # design_part1.tex: f_min; we tighten for research rigor
+  probe_duration: 2.0         # T_p = 2 s (design_part1.tex Section 3, Peng et al.)
+  probe_amplitudes: [0.5, 1.0, 2.0]  # A_t in A (design_part1.tex Section 3)
+  # Observation (design_part1.tex Section 4 & table; documents/pseucocode _parameter_list.txt)
+  fs_hz: 12.0                # Sampling rate (PMU-like), ENTSO-E/NASPI
+  rocof_window_sec: 0.5      # Sliding window for ROCOF (linear fit)
+  rocof_eval_sec: 1.0       # Evaluate ROCOF_max over first 1 s only
+  T_obs_sec: 10.0           # Observation window [0, 10] s for simulation
 
 # Dataset generation for MLP predictor training
 # Statistical requirements for publication:
@@ -83,7 +88,7 @@ training:
   train_split: 0.8            # 80/20 train/validation split (set in training script)
 
 # Experiment parameters for method evaluation
-# Based on new_plan.tex Section 6: Sequential experimental design
+# Based on design_part1.tex Section 6: Sequential experimental design
 experiment:
   num_simulations: 12         # Number of independent random systems to test
                               # Rationale: 12 runs provide statistical significance
@@ -93,7 +98,7 @@ experiment:
                               # - Time savings: 40% reduction vs 20 simulations
   update_count: 10            # K: Number of sequential experiments per system
                               # Rationale: 10 steps (0-10) provides sufficient learning trajectory
-                              # Matches new_plan.tex: T=10 sequential design steps
+                              # Matches design_part1.tex: T=10 sequential design steps
                               # This allows methods to show clear improvement over time
   it_idx: 10                  # MOCU averaging iterations (for robustness)
                               # Rationale: 10 iterations reduce variance in MOCU estimates

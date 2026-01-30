@@ -1,7 +1,7 @@
 """
 MOCU computation using particle-based posterior.
 
-Based on new_plan.tex Section 6:
+Based on documents/design_part1.tex Section 6:
 MOCU(h_T) = E_{θ~p(θ|h_T)}[γ*(A_T) - γ*(θ)]
 where A_T is the credible set of p(θ | h_T)
 """
@@ -30,7 +30,7 @@ def compute_mocu(particles_theta: np.ndarray, weights: np.ndarray,
     """
     Compute MOCU using particle-based posterior.
     
-    Based on new_plan.tex Section 6:
+    Based on design_part1.tex Section 6:
     MOCU(h_T) = E_{θ~p(θ|h_T)}[γ*(A_T) - γ*(θ)]
     
     where:

@@ -1,7 +1,7 @@
 """
 Compute γ*(θ) - minimum control capacity to satisfy frequency constraints.
 
-Based on new_plan.tex Section 1:
+Based on documents/design_part1.tex Section 1:
 γ*(θ) = min_γ s.t. max_t |df/dt| <= r_max, min_t f(t) >= f_min
 """
 

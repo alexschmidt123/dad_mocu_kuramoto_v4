@@ -4,7 +4,7 @@ Synchronization detection for second-order Kuramoto (swing equation) systems.
 This module is part of the MOCU-OED project for optimal experimental design
 in coupled oscillator systems using the second-order Kuramoto model (swing equation).
 
-Based on new_plan.tex: We check frequency synchronization (ω convergence) instead of phase.
+Based on documents/design_part1.tex: We check frequency synchronization (ω convergence) instead of phase.
 """
 
 import numpy as np
