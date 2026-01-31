@@ -12,9 +12,11 @@ import torch
 from typing import Tuple, Optional
 
 from .swing_equation_ode import (
-    solve_swing_equation_ode, 
+    solve_swing_equation_ode,
+    solve_swing_equation_ode_batch,
     check_frequency_synchronization,
-    extract_frequency_features
+    extract_frequency_features,
+    extract_frequency_features_batch,
 )
 
 try:
@@ -167,6 +169,61 @@ def binary_search_gamma_star(B, P_m, D, M, K, g,
     return gamma_upper
 
 
+def binary_search_gamma_star_batch(M_batch, K_batch, B, P_m, D, g,
+                                   r_max=0.5, f_min=49.5,
+                                   h=1.0/160.0, T=10.0, M_steps=None,
+                                   gamma_min=0.0, gamma_max=100.0,
+                                   max_iterations=20, tol=0.01,
+                                   device='cuda'):
+    """
+    Batched binary search for γ*(M,K) over a batch of (M, K) using one ODE solve per iteration.
+    M_batch, K_batch: arrays of shape [batch_size].
+    Returns: gamma_star [batch_size].
+    """
+    if not TORCHDIFFEQ_AVAILABLE:
+        raise RuntimeError("torchdiffeq not available. Install with: pip install torchdiffeq")
+    if M_steps is None:
+        M_steps = int(T / h)
+    batch_size = len(M_batch)
+    N = len(P_m)
+    gamma_lower = np.full(batch_size, gamma_min, dtype=np.float64)
+    gamma_upper = np.full(batch_size, gamma_max, dtype=np.float64)
+    # Optional: early check at gamma_min (batch)
+    try:
+        state_traj = solve_swing_equation_ode_batch(
+            B, P_m, D, M_batch, K_batch, g, gamma=gamma_min,
+            h=h, M_steps=M_steps, T=T, device=device
+        )
+        omega_traj = state_traj[:, :, N:]
+        features = extract_frequency_features_batch(omega_traj, h, fs=12.0)
+        rocof = features['ROCOF_max']
+        f_min_actual = features['f_min']
+        satisfied = (~np.isnan(rocof)) & (~np.isinf(rocof)) & (~np.isnan(f_min_actual)) & (~np.isinf(f_min_actual)) & (rocof <= r_max) & (f_min_actual >= f_min)
+        gamma_upper[satisfied] = gamma_min
+    except Exception:
+        pass
+    for iteration in range(max_iterations):
+        gamma_mid = (gamma_lower + gamma_upper) / 2.0
+        try:
+            state_traj = solve_swing_equation_ode_batch(
+                B, P_m, D, M_batch, K_batch, g, gamma=gamma_mid,
+                h=h, M_steps=M_steps, T=T, device=device
+            )
+            omega_traj = state_traj[:, :, N:]
+            features = extract_frequency_features_batch(omega_traj, h, fs=12.0)
+            rocof = features['ROCOF_max']
+            f_min_actual = features['f_min']
+            valid = (~np.isnan(rocof)) & (~np.isinf(rocof)) & (~np.isnan(f_min_actual)) & (~np.isinf(f_min_actual))
+            constraints_satisfied = valid & (rocof <= r_max) & (f_min_actual >= f_min)
+        except Exception:
+            constraints_satisfied = np.zeros(batch_size, dtype=bool)
+        gamma_upper[constraints_satisfied] = gamma_mid[constraints_satisfied]
+        gamma_lower[~constraints_satisfied] = gamma_mid[~constraints_satisfied]
+        if np.all((gamma_upper - gamma_lower) < tol):
+            break
+    return gamma_upper.astype(np.float64)
+
+
 def MOCU_swing_equation(K_max: int, B: np.ndarray, P_m: np.ndarray, D: float,
                        M_lower: float, M_upper: float, K_lower: float, K_upper: float,
                        g: np.ndarray, r_max=0.5, f_min=49.5,
@@ -218,65 +275,31 @@ def MOCU_swing_equation(K_max: int, B: np.ndarray, P_m: np.ndarray, D: float,
     if M_steps is None:
         M_steps = int(T / h)
     
-    # Sample (M, K) from uniform distribution over bounds
-    gamma_star_values = []
-    failed_samples = 0
-    max_failures = K_max  # Prevent infinite loop
+    # Sample all (M, K) from uniform distribution over bounds
+    M_batch = np.random.uniform(M_lower, M_upper, size=K_max).astype(np.float64)
+    K_batch = np.random.uniform(K_lower, K_upper, size=K_max).astype(np.float64)
     
-    # Progress indicator for large K_max
-    progress_interval = max(1, K_max // 10)  # Print every 10%
+    # Batched binary search: one ODE solve per iteration over all samples
+    try:
+        gamma_star_values = binary_search_gamma_star_batch(
+            M_batch, K_batch, B, P_m, D, g,
+            r_max=r_max, f_min=f_min,
+            h=h, T=T, M_steps=M_steps,
+            gamma_min=0.0, gamma_max=100.0,
+            max_iterations=20, tol=0.01,
+            device=device
+        )
+    except Exception as e:
+        raise RuntimeError(f"Batched MOCU failed: {e}") from e
     
-    for k in range(K_max):
-        # Sample M and K uniformly from bounds
-        M_sample = np.random.uniform(M_lower, M_upper)
-        K_sample = np.random.uniform(K_lower, K_upper)
-        
-        # Compute γ*(M, K) via binary search
-        try:
-            gamma_star = binary_search_gamma_star(
-                B, P_m, D, M_sample, K_sample, g,
-                r_max=r_max, f_min=f_min,
-                h=h, T=T, M_steps=M_steps,
-                device=device
-            )
-            
-            # Validate result
-            if np.isnan(gamma_star) or np.isinf(gamma_star) or gamma_star < 0:
-                failed_samples += 1
-                if failed_samples >= max_failures:
-                    raise RuntimeError(f"Too many failed samples ({failed_samples}/{K_max})")
-                continue
-            
-            gamma_star_values.append(gamma_star)
-            
-            # Progress indicator (only for first sample to avoid spam)
-            if k > 0 and (k + 1) % progress_interval == 0:
-                import sys
-                sys.stdout.write(f"\r[Progress] MOCU sample {k+1}/{K_max} (valid: {len(gamma_star_values)}, failed: {failed_samples})")
-                sys.stdout.flush()
-        except (RuntimeError, ValueError) as e:
-            # Skip samples that fail (e.g., numerical issues, unstable ODE)
-            failed_samples += 1
-            if failed_samples >= max_failures:
-                raise RuntimeError(f"Too many failed samples ({failed_samples}/{K_max}): {e}")
-            continue
-    
-    # Clear progress line
-    if K_max > progress_interval:
-        import sys
-        sys.stdout.write("\r" + " " * 80 + "\r")
-        sys.stdout.flush()
-    
-    # Check if we have enough valid samples
-    if len(gamma_star_values) == 0:
+    # Filter invalid (NaN/Inf/negative)
+    valid = (~np.isnan(gamma_star_values)) & (~np.isinf(gamma_star_values)) & (gamma_star_values >= 0)
+    if np.sum(valid) == 0:
         raise RuntimeError(f"All {K_max} samples failed. Check parameter bounds and system stability.")
-    
-    if len(gamma_star_values) < K_max * 0.5:
-        # Warning if more than 50% failed, but continue
+    if np.sum(valid) < K_max * 0.5:
         import warnings
-        warnings.warn(f"Only {len(gamma_star_values)}/{K_max} samples succeeded. Some parameter combinations may be unstable.")
-    
-    gamma_star_values = np.array(gamma_star_values)
+        warnings.warn(f"Only {np.sum(valid)}/{K_max} samples succeeded. Some parameter combinations may be unstable.")
+    gamma_star_values = gamma_star_values[valid]
     
     # Compute γ*(A_t) = max_{(M,K)∈A_t} γ*(M,K)
     # A_t is the support (bounds), so we compute max over corner cases

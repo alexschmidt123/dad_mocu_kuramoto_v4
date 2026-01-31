@@ -171,6 +171,184 @@ class SwingEquationODE(torch.nn.Module):
         return dstate_dt
 
 
+class SwingEquationODEBatch(torch.nn.Module):
+    """
+    Batched second-order Kuramoto (swing equation) for torchdiffeq.
+    State shape: [batch, 2*N]; M, K, gamma can be [batch] or scalars.
+    """
+
+    def __init__(self, B, P_m, D, M, K, g, gamma=None, device='cuda'):
+        """
+        Args:
+            B, P_m, g: [N, N], [N], [N] (shared)
+            D: scalar
+            M, K: [batch] or scalar (per-batch or shared)
+            gamma: [batch] or scalar or None
+        """
+        super().__init__()
+        if isinstance(B, np.ndarray):
+            B = torch.tensor(B, dtype=torch.float32)
+        if isinstance(P_m, np.ndarray):
+            P_m = torch.tensor(P_m, dtype=torch.float32)
+        if isinstance(g, np.ndarray):
+            g = torch.tensor(g, dtype=torch.float32)
+        self.register_buffer('B', B.to(device))
+        self.register_buffer('P_m', P_m.to(device))
+        self.register_buffer('D', torch.tensor(D, dtype=torch.float32, device=device))
+        self.register_buffer('g', g.to(device))
+        self.N = len(P_m)
+        self.device = device
+        # M, K, gamma: ensure 1d [batch]
+        self._set_param('M', M, device)
+        self._set_param('K', K, device)
+        self._set_param('gamma', gamma, device)
+        self.probe_bus = None
+        self.probe_amplitude = None
+        self.probe_duration = None
+
+    def _set_param(self, name, val, device):
+        if val is None:
+            setattr(self, name, None)
+            return
+        if isinstance(val, torch.Tensor):
+            t = val.detach().to(dtype=torch.float32, device=device)
+        else:
+            t = torch.tensor(val, dtype=torch.float32, device=device)
+        if t.dim() == 0:
+            t = t.unsqueeze(0)
+        setattr(self, name, t)
+
+    def set_parameters(self, M, K, gamma=None):
+        """Update M [batch], K [batch], optional gamma [batch] or scalar."""
+        self._set_param('M', M, self.device)
+        self._set_param('K', K, self.device)
+        if gamma is not None:
+            self._set_param('gamma', gamma, self.device)
+
+    def set_probe(self, bus_idx, amplitude, duration=2.0):
+        self.probe_bus = bus_idx
+        self.probe_amplitude = amplitude
+        self.probe_duration = duration
+
+    def hann_window(self, t, T):
+        if isinstance(t, torch.Tensor):
+            t_val = t.item() if t.numel() == 1 else float(t)
+        else:
+            t_val = float(t)
+        if t_val > T:
+            return 0.0
+        return 0.5 * (1.0 - np.cos(2.0 * np.pi * t_val / T))
+
+    def forward(self, t, state):
+        # state [batch, 2*N]
+        batch = state.shape[0]
+        theta = state[:, :self.N]   # [batch, N]
+        omega = state[:, self.N:]   # [batch, N]
+        dtheta_dt = omega
+        # Coupling: for each b, coupling[b,i] = sum_j B[i,j]*sin(theta[b,j]-theta[b,i])
+        theta_i = theta.unsqueeze(2)   # [batch, N, 1]
+        theta_j = theta.unsqueeze(1)   # [batch, 1, N]
+        diff = theta_j - theta_i       # [batch, N, N]
+        coupling = (self.B.unsqueeze(0) * torch.sin(diff)).sum(dim=2)  # [batch, N]
+        M = self.M
+        K = self.K
+        if M.dim() == 0 or M.shape[0] != batch:
+            M = M.expand(batch)
+        if K.dim() == 0 or K.shape[0] != batch:
+            K = K.expand(batch)
+        M = M.view(batch, 1)
+        K = K.view(batch, 1)
+        u_ctrl = torch.zeros_like(omega)
+        if self.gamma is not None:
+            gam = self.gamma
+            if gam.dim() == 0 or gam.shape[0] != batch:
+                gam = gam.expand(batch)
+            u_ctrl = gam.view(batch, 1) * self.g.unsqueeze(0) * omega
+        u_probe = torch.zeros_like(omega)
+        if self.probe_bus is not None and self.probe_amplitude is not None:
+            window_val = self.hann_window(t, self.probe_duration)
+            u_probe[:, self.probe_bus] = self.probe_amplitude * window_val
+        domega_dt = (self.P_m.unsqueeze(0) - coupling - self.D * omega - K * omega + u_probe + u_ctrl) / M
+        dstate_dt = torch.cat([dtheta_dt, domega_dt], dim=1)
+        return dstate_dt
+
+
+def solve_swing_equation_ode_batch(B, P_m, D, M_batch, K_batch, g, gamma=None,
+                                   probe_bus=None, probe_amplitude=None, probe_duration=2.0,
+                                   h=1.0/160.0, M_steps=None, T=10.0,
+                                   theta0=None, omega0=None, device='cuda',
+                                   method='rk4', timeout=5.0):
+    """
+    Solve swing equation ODE for a batch of (M, K) using torchdiffeq.
+    state0 has shape [batch, 2*N]; odeint returns [M_steps, batch, 2*N].
+    gamma can be scalar or [batch].
+    """
+    if not TORCHDIFFEQ_AVAILABLE:
+        raise RuntimeError("torchdiffeq not available. Install with: pip install torchdiffeq")
+    import time
+    N = len(P_m)
+    if M_steps is None:
+        M_steps = int(T / h)
+    batch_size = len(M_batch)
+    if isinstance(B, np.ndarray):
+        B_tensor = torch.tensor(B, dtype=torch.float32, device=device)
+    else:
+        B_tensor = B.to(device)
+    if isinstance(P_m, np.ndarray):
+        P_m_tensor = torch.tensor(P_m, dtype=torch.float32, device=device)
+    else:
+        P_m_tensor = P_m.to(device)
+    if isinstance(g, np.ndarray):
+        g_tensor = torch.tensor(g, dtype=torch.float32, device=device)
+    else:
+        g_tensor = g.to(device)
+    M_t = torch.tensor(np.asarray(M_batch, dtype=np.float32), device=device)
+    K_t = torch.tensor(np.asarray(K_batch, dtype=np.float32), device=device)
+    if gamma is not None:
+        g_val = np.atleast_1d(gamma)
+        gamma_t = torch.tensor(g_val.astype(np.float32), device=device)
+        if gamma_t.numel() != batch_size:
+            gamma_t = gamma_t.expand(batch_size)
+    else:
+        gamma_t = None
+    ode_system = SwingEquationODEBatch(B_tensor, P_m_tensor, D, M_t, K_t, g_tensor, gamma=gamma_t, device=device)
+    if probe_bus is not None and probe_amplitude is not None:
+        ode_system.set_probe(probe_bus, probe_amplitude, probe_duration)
+    if theta0 is None:
+        theta0 = np.zeros((batch_size, N), dtype=np.float32)
+    else:
+        theta0 = np.broadcast_to(np.asarray(theta0, dtype=np.float32), (batch_size, N))
+    if omega0 is None:
+        omega0 = np.zeros((batch_size, N), dtype=np.float32)
+    else:
+        omega0 = np.broadcast_to(np.asarray(omega0, dtype=np.float32), (batch_size, N))
+    state0 = torch.tensor(np.concatenate([theta0, omega0], axis=1), dtype=torch.float32, device=device)
+    t = torch.linspace(0, T, M_steps, dtype=torch.float32, device=device)
+    start_time = time.time()
+    try:
+        with torch.no_grad():
+            state_trajectory = odeint(ode_system, state0, t, method=method)
+            if device == 'cuda' and torch.cuda.is_available():
+                _ = state_trajectory[0, 0, 0].item()
+            elapsed = time.time() - start_time
+            if elapsed > timeout:
+                raise RuntimeError(f"ODE solving exceeded timeout ({timeout}s): {elapsed:.2f}s")
+            result = state_trajectory.cpu().numpy()
+            if np.any(np.isnan(result)) or np.any(np.isinf(result)):
+                raise RuntimeError("ODE solution contains NaN or Inf values")
+            return result
+    except RuntimeError as e:
+        if "timeout" in str(e).lower() or "nan" in str(e).lower() or "inf" in str(e).lower():
+            raise
+        elapsed = time.time() - start_time
+        if elapsed > timeout:
+            raise RuntimeError(f"ODE solving exceeded timeout ({timeout}s): {elapsed:.2f}s") from e
+        raise RuntimeError(f"ODE solving failed after {elapsed:.2f}s: {e}") from e
+    except Exception as e:
+        elapsed = time.time() - start_time
+        raise RuntimeError(f"ODE solving failed after {elapsed:.2f}s: {e}") from e
+
+
 def solve_swing_equation_ode(B, P_m, D, M, K, g, gamma=None, 
                              probe_bus=None, probe_amplitude=None, probe_duration=2.0,
                              h=1.0/160.0, M_steps=None, T=10.0, 
@@ -373,6 +551,27 @@ Based on design_part1.tex Section 4:
     }
     
     return features
+
+
+def extract_frequency_features_batch(omega_trajectory, h, fs=12.0):
+    """
+    Extract frequency features for a batch of trajectories.
+    omega_trajectory: [M_steps, batch, N]
+    Returns dict with ROCOF_max [batch], f_min [batch].
+    """
+    M_steps, batch_size, N = omega_trajectory.shape
+    freq_trajectory = omega_trajectory / (2.0 * np.pi)
+    h_obs = 1.0 / fs
+    downsample_factor = max(1, int(h_obs / h))
+    indices = np.arange(0, M_steps, downsample_factor)
+    freq_trajectory_obs = freq_trajectory[indices, :, :]  # [M_obs, batch, N]
+    M_obs = freq_trajectory_obs.shape[0]
+    rocof = np.gradient(freq_trajectory_obs, axis=0) / h_obs
+    rocof_max = np.max(np.abs(rocof), axis=(0, 2))  # [batch]
+    f_nominal = 50.0
+    f_absolute = f_nominal + freq_trajectory_obs
+    f_min = np.min(f_absolute, axis=(0, 2))  # [batch]
+    return {'ROCOF_max': rocof_max, 'f_min': f_min}
 
 
 def check_frequency_synchronization(omega_trajectory, M_steps, tol=1e-3):

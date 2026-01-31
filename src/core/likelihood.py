@@ -16,7 +16,7 @@ import os
 project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, project_root)
 
-from .swing_equation_ode import solve_swing_equation_ode
+from .swing_equation_ode import solve_swing_equation_ode, solve_swing_equation_ode_batch
 from .rocof import extract_rocof
 
 
@@ -116,7 +116,7 @@ def log_likelihood_batch(y: float, thetas: np.ndarray, xi: Tuple[int, float, flo
                          h: float = 1.0/160.0, T: float = 10.0, M_steps: Optional[int] = None,
                          fs: float = 12.0, device: str = 'cuda', timeout: float = 5.0) -> np.ndarray:
     """
-    Compute log-likelihood for a batch of theta values.
+    Compute log-likelihood for a batch of theta values using a single batched ODE solve.
     
     Args:
         y: Observed ROCOF_max (scalar)
@@ -130,13 +130,35 @@ def log_likelihood_batch(y: float, thetas: np.ndarray, xi: Tuple[int, float, flo
         log_likelihoods: [N_particles] array of log p(y | θ, ξ)
     """
     N_particles = len(thetas)
-    log_likelihoods = np.zeros(N_particles)
-    
-    for i in range(N_particles):
-        theta = (float(thetas[i, 0]), float(thetas[i, 1]))
-        log_likelihoods[i] = log_likelihood(
-            y, theta, xi, sigma, B, P_m, D, g,
-            h, T, M_steps, fs, device, timeout
+    N = len(P_m)
+    b, A, T_p = xi
+    M_batch = thetas[:, 0].astype(np.float64)
+    K_batch = thetas[:, 1].astype(np.float64)
+    try:
+        state_traj = solve_swing_equation_ode_batch(
+            B, P_m, D, M_batch, K_batch, g,
+            gamma=None,
+            probe_bus=b,
+            probe_amplitude=A,
+            probe_duration=T_p,
+            h=h, M_steps=M_steps, T=T,
+            device=device, timeout=timeout,
         )
-    
-    return log_likelihoods
+        # state_traj [M_steps, batch, 2*N]; omega = last N columns
+        omega_traj = state_traj[:, :, N:]
+        mu_batch = np.zeros(N_particles)
+        for i in range(N_particles):
+            rocof_max = extract_rocof(omega_traj[:, i, :], h, fs=fs)
+            mu_batch[i] = float(rocof_max)
+        logp = -0.5 * (y - mu_batch) ** 2 / (sigma ** 2) - 0.5 * np.log(2.0 * np.pi * sigma ** 2)
+        return logp.astype(np.float64)
+    except Exception as e:
+        # Fallback: per-particle sequential (e.g. if batch ODE fails)
+        log_likelihoods = np.zeros(N_particles)
+        for i in range(N_particles):
+            theta = (float(thetas[i, 0]), float(thetas[i, 1]))
+            log_likelihoods[i] = log_likelihood(
+                y, theta, xi, sigma, B, P_m, D, g,
+                h, T, M_steps, fs, device, timeout
+            )
+        return log_likelihoods

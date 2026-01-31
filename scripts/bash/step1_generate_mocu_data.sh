@@ -28,7 +28,8 @@ NUM_WORKERS=$(grep -A 3 "^data_generation:" $CONFIG_FILE | grep "  num_workers:"
 CHUNK_SIZE=$(grep -A 3 "^data_generation:" $CONFIG_FILE | grep "  chunk_size:" | awk '{print $2}')
 
 # Use base config name for data folder (MOCU data doesn't depend on K)
-DATA_FOLDER="${PROJECT_ROOT}/data/${BASE_CONFIG_NAME}/"
+# MOCU data: data/<config>/mocu/ (distinct from DAD data)
+DATA_FOLDER="${PROJECT_ROOT}/data/${BASE_CONFIG_NAME}/mocu/"
 mkdir -p "$DATA_FOLDER"
 
 # Check if data already exists (MOCU data doesn't depend on K, so we can reuse it)

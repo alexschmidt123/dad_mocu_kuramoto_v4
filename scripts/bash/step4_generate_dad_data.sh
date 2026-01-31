@@ -49,8 +49,8 @@ fi
 if [ -n "$EXP_DAD_DATA_DIR" ]; then
     DATA_FOLDER="$EXP_DAD_DATA_DIR"
 else
-    # Fallback: use data folder if experiment dir not set (shouldn't happen in normal workflow)
-    DATA_FOLDER="${PROJECT_ROOT}/data/${BASE_CONFIG_NAME}"
+    # Fallback: DAD data in data/<config>/dad/ (distinct from MOCU: data/<config>/mocu/)
+    DATA_FOLDER="${PROJECT_ROOT}/data/${BASE_CONFIG_NAME}/dad"
 fi
 mkdir -p "$DATA_FOLDER"
 

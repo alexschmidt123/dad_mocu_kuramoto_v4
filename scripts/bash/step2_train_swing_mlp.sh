@@ -15,6 +15,7 @@ export PYTHONPATH="${PROJECT_ROOT}:${PYTHONPATH}"
 
 CONFIG_NAME=$(basename "$CONFIG_FILE" .yaml)
 BASE_CONFIG_NAME=$(echo "$CONFIG_NAME" | sed 's/_K[0-9]*$//')
+N=$(grep "^N:" $CONFIG_FILE | awk '{print $2}')
 EPOCHS=$(grep "epochs:" $CONFIG_FILE | awk '{print $2}')
 BATCH_SIZE=$(grep "batch_size:" $CONFIG_FILE | awk '{print $2}')
 LEARNING_RATE=$(grep "learning_rate:" $CONFIG_FILE | awk '{print $2}')
@@ -33,8 +34,11 @@ if [ -n "$2" ]; then
 else
     DATA_FILE=$(cat /tmp/mocu_train_file_${CONFIG_NAME}.txt 2>/dev/null || echo "")
     if [ -z "$DATA_FILE" ]; then
-        # Default location
-        DATA_FILE="${PROJECT_ROOT}/data/${MODEL_NAME}_mocu_data.npz"
+        # Default: data/<config>/mocu/ (matches step1 output)
+        DATA_FILE="${PROJECT_ROOT}/data/${BASE_CONFIG_NAME}/mocu/swing_mocu_data_${N}o.npz"
+        if [ ! -f "$DATA_FILE" ]; then
+            DATA_FILE="${PROJECT_ROOT}/data/${MODEL_NAME}_mocu_data.npz"
+        fi
     fi
 fi
 
