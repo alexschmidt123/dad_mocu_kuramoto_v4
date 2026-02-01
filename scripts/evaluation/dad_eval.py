@@ -14,9 +14,9 @@ import numpy as np
 from pathlib import Path
 from tqdm import tqdm
 
-# Add project root to path
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-sys.path.append(str(PROJECT_ROOT))
+# File in scripts/evaluation/ -> project root = parent.parent.parent
+PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+sys.path.insert(0, str(PROJECT_ROOT))
 
 # Import sync detection (CPU-based, always available)
 from src.core.sync_detection import determineSyncN, determineSyncTwo
@@ -30,7 +30,7 @@ if __name__ == '__main__':
     parser.add_argument('--result_folder', type=str, default=None,
                         help='Result folder for DAD results (default: baseline_results)')
     parser.add_argument('--method_name', type=str, default='DAD',
-                        help='Method name for output files (default: DAD, options: DAD_MOCU, IDAD_MOCU)')
+                        help='Method name for output files (default: DAD)')
     parser.add_argument('--config', type=str, default=None,
                         help='Path to config YAML (required for swing-equation evaluation)')
     args = parser.parse_args()
@@ -115,6 +115,7 @@ if __name__ == '__main__':
             policy_model_path=str(policy_path),
             probe_amplitudes=probe_amplitudes,
             probe_duration=probe_duration,
+            B=B,
         )
         save_MOCU_matrix = np.zeros([update_cnt + 1, 1, numberOfSimulationsPerMethod])
         for sim in range(numberOfSimulationsPerMethod):
@@ -223,7 +224,7 @@ if __name__ == '__main__':
         sim_pbar.set_description(f"Simulation {numberOfVaildSimulations + 1}/{numberOfSimulationsPerMethod}")
         
         # CRITICAL: Load coupling strengths from baseline results to ensure SAME simulations
-        # This ensures DAD/iDAD use EXACTLY the same initial conditions as baselines
+        # This ensures DAD uses EXACTLY the same initial conditions as baselines
         # → Same initial MOCU values for fair comparison
         coupling_file = baseline_results / f'paramCouplingStrength{numberOfVaildSimulations}.txt'
         

@@ -1,10 +1,8 @@
 """
 iNN (Iterative Neural Network) OED Method for Swing Equation
 
-This is the iterative version using Swing MLP predictor.
-It re-computes the expected MOCU for all probe actions at each step, adapting to new observations.
-
-For swing equation model: Uses Swing MLP predictor to predict MOCU from (M, K) bounds.
+Paper (first-order Kuramoto) used MPNN for MOCU estimation.
+Iterative: re-computes expected MOCU for all probe actions at each step.
 """
 
 import time
@@ -18,63 +16,55 @@ sys.path.append(str(PROJECT_ROOT))
 
 from src.methods.base import OEDMethod
 from src.models.predictors.swing_predictor_utils import (
-    load_swing_mlp_predictor,
-    predict_swing_mocu
+    load_swing_mocu_predictor,
+    predict_swing_mocu,
 )
 
 
 class iNN_Method(OEDMethod):
     """
     Iterative Neural Network (iNN) method for OED with swing equation.
-    
-    Uses Swing MLP predictor to compute expected MOCU iteratively at each step,
-    adapting to new observations.
-    
-    This is more accurate than static NN but computationally more expensive.
+    Uses MPNN predictor to compute expected MOCU iteratively at each step.
     """
     
-    def __init__(self, N, K_max, deltaT, MReal, TReal, it_idx, model_name, 
-                 probe_amplitudes=None, probe_duration=2.0, gpu_id=0):
+    def __init__(self, N, K_max, deltaT, MReal, TReal, it_idx, model_name,
+                 probe_amplitudes=None, probe_duration=2.0, gpu_id=0, B=None):
         """
         Args:
-            N: Number of buses
-            K_max: Number of Monte Carlo samples for MOCU
-            deltaT: Time step
-            MReal: Number of time steps
-            TReal: Time horizon
-            it_idx: Number of MOCU averaging iterations
-            model_name: Name of trained Swing MLP model directory
-            probe_amplitudes: List of probe amplitude options (default: [0.5, 1.0, 2.0])
-            probe_duration: Probe duration T (default: 2.0s)
+            N, K_max, deltaT, MReal, TReal, it_idx: as in base
+            model_name: Name of trained MPNN predictor directory
+            probe_amplitudes: List of probe amplitude options
+            probe_duration: Probe duration T
             gpu_id: GPU device ID
+            B: Coupling matrix [N,N] (required for MPNN)
         """
         super().__init__(N, K_max, deltaT, MReal, TReal, it_idx)
         self.model_name = model_name
         self.gpu_id = gpu_id
         self.probe_amplitudes = probe_amplitudes if probe_amplitudes else [0.5, 1.0, 2.0]
         self.probe_duration = probe_duration
+        if B is None:
+            raise ValueError("B (coupling matrix) required for iNN MPNN predictor.")
+        self.B = B
         self.model = None
         self.mean = None
         self.std = None
-        
-        # Device
         self.device = torch.device(f'cuda:{gpu_id}' if torch.cuda.is_available() else 'cpu')
-        
-        # Load model and statistics
         self._load_model_and_stats()
     
     def _load_model_and_stats(self):
-        """Load trained Swing MLP model and normalization statistics."""
+        """Load MPNN MOCU predictor."""
         try:
-            self.model, self.mean, self.std = load_swing_mlp_predictor(
+            self.model, self.mean, self.std = load_swing_mocu_predictor(
                 model_name=self.model_name,
-                device=self.device
+                device=self.device,
+                B=self.B,
+                N=self.N,
             )
-            print(f"[iNN] Loaded Swing MLP predictor '{self.model_name}' on {self.device}")
+            print(f"[iNN] Loaded MPNN predictor '{self.model_name}' on {self.device}")
         except Exception as e:
             raise FileNotFoundError(
-                f"Swing MLP model not found for {self.model_name}. "
-                f"Please ensure the model is trained and saved. Error: {e}"
+                f"MOCU predictor (MPNN) not found for {self.model_name}. Error: {e}"
             )
     
     def _compute_expected_mocu_matrix(self, M_lower, M_upper, K_lower, K_upper):
@@ -103,11 +93,12 @@ class iNN_Method(OEDMethod):
                 M_lower_new, M_upper_new, K_lower_new, K_upper_new = \
                     self._simulate_probe_update(M_lower, M_upper, K_lower, K_upper, b, A)
                 
-                # Predict MOCU with Swing MLP
+                # Predict MOCU (MPNN can condition on probe (b, A); paper used MPNN)
                 mocu_pred = predict_swing_mocu(
                     self.model, self.mean, self.std,
                     M_lower_new, M_upper_new, K_lower_new, K_upper_new,
-                    device=self.device
+                    device=self.device,
+                    probe_bus=b, probe_amplitude=A,
                 )
                 
                 if isinstance(mocu_pred, torch.Tensor):

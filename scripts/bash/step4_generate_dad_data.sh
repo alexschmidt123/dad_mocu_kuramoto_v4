@@ -1,6 +1,5 @@
 #!/bin/bash
 # Step 4: Generate DAD training data (before any policy training)
-# NOTE: DAD/iDAD not yet updated for swing equation - this step will skip gracefully
 
 set +e  # Don't exit on error - allow graceful skip
 
@@ -36,10 +35,10 @@ if [ "$SKIP_DAD" = "true" ]; then
 fi
 
 MOCU_MODEL_NAME=$(cat /tmp/mocu_model_name_${CONFIG_NAME}.txt 2>/dev/null || echo "")
-SWING_MLP_MODEL_FOLDER=$(cat /tmp/mocu_model_folder_${CONFIG_NAME}.txt 2>/dev/null || echo "")
+MOCU_MODEL_FOLDER=$(cat /tmp/mocu_model_folder_${CONFIG_NAME}.txt 2>/dev/null || echo "")
 
-if [ -z "$SWING_MLP_MODEL_FOLDER" ] || [ ! -d "$SWING_MLP_MODEL_FOLDER" ]; then
-    echo "Error: Swing MLP model folder not found. Run step2_train_swing_mlp.sh first."
+if [ -z "$MOCU_MODEL_FOLDER" ] || [ ! -d "$MOCU_MODEL_FOLDER" ]; then
+    echo "Error: MOCU predictor (MPNN) model folder not found. Run step2_train_swing_mpnn.sh first."
     exit 1
 fi
 
@@ -149,11 +148,11 @@ if [[ "$CONFIG_FILE" = /* ]]; then
     ABS_CONFIG_FILE="$CONFIG_FILE"
 fi
 CMD="python3 generate_dad_data.py --config \"$ABS_CONFIG_FILE\" --num-episodes $NUM_EPISODES --K $K --output-dir \"$ABS_DAD_DATA_FOLDER\""
-if [ "$USE_PRECOMPUTED_MOCU" = "true" ] && [ -n "$MOCU_MODEL_NAME" ] && [ -f "${SWING_MLP_MODEL_FOLDER}model.pth" ]; then
-    CMD="$CMD --use-swing-mlp-predictor --swing-mlp-model-name $MOCU_MODEL_NAME"
-    echo "  Using Swing MLP predictor ($MOCU_MODEL_NAME) to pre-compute MOCU values"
+if [ "$USE_PRECOMPUTED_MOCU" = "true" ] && [ -n "$MOCU_MODEL_NAME" ] && [ -f "${MOCU_MODEL_FOLDER}model_mpnn.pth" ]; then
+    CMD="$CMD --use-mocu-predictor --mocu-model-name $MOCU_MODEL_NAME"
+    echo "  Using MPNN MOCU predictor ($MOCU_MODEL_NAME) to pre-compute MOCU values"
 else
-    echo "  Not using Swing MLP predictor (terminal MOCU computed during training if needed)"
+    echo "  Not using MPNN MOCU predictor (terminal MOCU computed during training if needed)"
 fi
 
 # Run command and save to both workflow log and step-specific log

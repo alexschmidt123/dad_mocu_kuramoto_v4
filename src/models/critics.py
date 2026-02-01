@@ -1,7 +1,7 @@
 """
 MOCU Critic Network for Variance Reduction in REINFORCE
 
-Inspired by iDAD's critic network approach for implicit models.
+Critic network for variance reduction in policy gradient (REINFORCE).
 The critic estimates MOCU given state and history, providing a baseline
 to reduce variance in REINFORCE policy gradient updates.
 
@@ -28,7 +28,7 @@ class MOCUCritic(nn.Module):
     
     Architecture:
     1. Pre-trained MPNN predictor: Gets base MOCU estimate from state (no training needed)
-    2. History encoder: Set-equivariant sum (from iDAD) or LSTM
+    2. History encoder: Set-equivariant sum or LSTM
     3. Adjustment head: MLP that adjusts MPNN prediction based on history
     
     Key advantage: Uses existing trained MPNN model on-the-fly, no retraining needed.
@@ -42,7 +42,7 @@ class MOCUCritic(nn.Module):
             N: Number of oscillators
             hidden_dim: Hidden dimension for MLPs
             encoding_dim: Dimension for history encodings
-            use_set_equivariant: If True, use set-equivariant history encoder (iDAD style)
+            use_set_equivariant: If True, use set-equivariant history encoder
                                 If False, use LSTM (current approach)
             mpnn_model: Pre-trained MPNNPlusPredictor model (will be used in eval mode)
             mpnn_mean: Normalization mean for MPNN predictions
@@ -67,7 +67,7 @@ class MOCUCritic(nn.Module):
         
         # ========== History Encoder ==========
         if use_set_equivariant:
-            # Set-equivariant: sum of independent encodings (iDAD style)
+            # Set-equivariant: sum of independent encodings
             self.history_embed = nn.Embedding(N * N + 2, encoding_dim // 2)  # For i, j indices
             self.obs_embed = nn.Embedding(2, encoding_dim // 2)  # For sync/non-sync
             self.pair_encoder = nn.Sequential(

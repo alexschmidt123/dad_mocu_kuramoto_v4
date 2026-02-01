@@ -27,6 +27,7 @@
 \usepackage{lastpage}
 
 % Load style file (uses: geometry, xcolor, titlesec, titling, fancyhdr commands)
+% Note: Ensure style.sty is in your project directory
 \usepackage{style}
 
 % --- explicit layers so backgrounds never cover content ---
@@ -34,7 +35,7 @@
 \pgfdeclarelayer{fg}
 \pgfsetlayers{bg,main,fg}
 
-% Define firstpage style (style.sty references it but Overleaf needs it defined explicitly)
+% Define firstpage style
 \fancypagestyle{firstpage}{
   \fancyhf{}
   \fancyfoot[R]{\thepage/\pageref*{LastPage}}
@@ -66,10 +67,10 @@
 \setlength{\itemsep}{0.2em}
 \pagestyle{fancy}
 
-\title{\Large Research Update}
+\title{\Large Research Update \& Project Acceleration Plan}
 \author{Gaoming Lin \\
 \vspace{10pt} Advisor: Dr. Byung-Jun Yoon}
-\date{01/26/2026}
+\date{January 31, 2026}
 
 \begin{document}
 
@@ -325,6 +326,7 @@ p(\vartheta)\prod_{t=1}^T p(y_t\mid \vartheta,\xi_t).
 \mathbb{E}_{\vartheta\sim p(\vartheta\mid h_T)}
 \big[\gamma^*(\mathcal{A}_T)-\gamma^*(\vartheta)\big].
 \]
+Where $\mathcal{A}_T$ is the credible set of the posterior $p(\vartheta \mid h_T)$.
 
 \textbf{Training objective (decision-aware DAD):}
 \[
@@ -338,7 +340,35 @@ p(\vartheta)\prod_{t=1}^T p(y_t\mid \vartheta,\xi_t).
 \item Baselines are myopic; DAD optimizes the entire probing sequence.
 \end{itemize}
 
+% =========================================================
+\newpage
+\section*{7. Improvement Plan: Computational Acceleration}
 
+To address the serial execution bottleneck in the current implementation, the project will transition to a high-performance computational track.
 
+\subsection*{7.1 Batched ODE Solver for Physics Validation}
+The primary bottleneck is the iterative execution of the swing equation simulator for each particle. The simulator will be refactored into a batched architecture:
+\begin{itemize}
+    \item \textbf{Vectorized Dynamics:} Rewrite \texttt{SwingEquationODE} in \texttt{src/core/swing\_equation\_ode.py} to handle state tensors of shape $[Batch, 2N]$.
+    \item \textbf{GPU Parallelization:} Utilize \texttt{torchdiffeq.odeint} to solve for all posterior particles simultaneously.
+    \item \textbf{Speedup:} This transition eliminates $O(N)$ Python-loop overhead, providing an estimated 50x--100x speedup for "True MOCU" ground-truth calculations.
+\end{itemize}
+
+\subsection*{7.2 Reliable Fast MOCU Estimator (Neural Surrogate)}
+For methods requiring real-time selection (iNN, NN, DAD), a fast estimator will replace the numerical ODE solver.
+\begin{itemize}
+    \item \textbf{Surrogate Architecture:} Implement a Message Passing Neural Network (MPNN) that leverages the IEEE-14 graph topology $B_{ij}$ to map latent bounds $(\vartheta_{low}, \vartheta_{up})$ and probe $\xi_t$ directly to MOCU.
+    \item \textbf{Axiomatic Loss:} Incorporate a physical constraint loss during training: 
+    \[ L_{\text{axiom}} = \max(0, \text{MOCU}_{t+1} - \text{MOCU}_t). \]
+    This ensures the surrogate respects the axiom that experiments strictly reduce or maintain uncertainty.
+\end{itemize}
+
+\subsection*{7.3 Accelerated DAD Policy Integration}
+The DAD policy network will utilize the fast estimator to optimize terminal objectives efficiently:
+\begin{itemize}
+    \item \textbf{Expected MOCU Matrix:} Compute the $R$-matrix (expected remaining MOCU) for all available actions instantly using the neural surrogate.
+    \item \textbf{Decision Acceleration:} Estimated MOCU values will serve as enhanced features for the policy, enabling non-myopic selection without requiring real-time ODE integration.
+    \item \textbf{Scientific Grounding:} Final performance evaluation for all methods will rely on physics-validated results from the Batched ODE solver.
+\end{itemize}
 
 \end{document}

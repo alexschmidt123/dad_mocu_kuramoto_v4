@@ -1,14 +1,15 @@
 """
 ROCOF (Rate of Change of Frequency) extraction.
 
-Based on documents/pseucocode _parameter_list.txt and design_part1.tex Section 4:
+Based on documents/pseucocode _parameter_list.md and design_part1.tex Section 4:
 - PMU-like frequency measurement: Δf_i(t) = ω_i(t) / (2π)
 - Sampling rate: f_s = 12 Hz (ENTSO-E, NASPI standards)
-- ROCOF extraction: Sliding window (0.5s) with linear fit (least squares slope)
-- Evaluation window: First 1.0s only (rocof_eval_sec = 1.0)
-- ROCOF_max = max over sliding windows in first 1s
+- Two modes:
+  1. extract_max_rocof: Full observation window, numerical derivative (doc-compliant).
+     y_t = ROCOF_max = max over window of |diff(Δf)/dt|. Matches pseudocode.
+  2. extract_rocof: Sliding window (0.5s) with linear fit; eval over first 1s (legacy option).
 
-Reference: HICSS 2024 (Peng et al.), pseucocode _parameter_list.txt lines 9-10
+Reference: pseucocode _parameter_list.md; design_part1.tex Section 4; HICSS 2024 (Peng et al.)
 """
 
 import numpy as np
@@ -19,6 +20,41 @@ from typing import Tuple
 # Add project root to path for compatibility
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, project_root)
+
+
+def extract_max_rocof(omega_series: np.ndarray, fs: float = 12.0,
+                      window_sec: float = 10.0, h: float = None) -> float:
+    """
+    Extract peak ROCOF from frequency deviation over the observation window.
+    Matches documents/pseucocode _parameter_list.md (Design Part 1, Section 4):
+    - delta_f = omega_series / (2π)
+    - dt = 1/fs, rocof_series = diff(delta_f, axis=0) / dt
+    - Return max |rocof| within the first window_sec seconds.
+
+    Args:
+        omega_series: [M, N] or [M] frequency trajectory (ω in rad/s)
+        fs: Sampling frequency (Hz), default 12.0 (PMU standard)
+        window_sec: Observation window in seconds (default 10.0, T_obs in doc)
+        h: ODE time step; if provided, downsample to fs first (indices = 0, step, 2*step, ...)
+
+    Returns:
+        rocof_max: Maximum absolute ROCOF (Hz/s)
+    """
+    if omega_series.ndim == 1:
+        omega_series = omega_series[:, np.newaxis]
+    M, N = omega_series.shape
+    dt = 1.0 / fs
+    if h is not None and h > 0 and (1.0 / h) > fs:
+        downsample = max(1, int(round((1.0 / h) / fs)))
+        indices = np.arange(0, M, downsample)
+        omega_series = omega_series[indices, :]
+        M = omega_series.shape[0]
+    n_window = min(M, int(round(window_sec * fs)))
+    omega_series = omega_series[:n_window, :]
+    delta_f = omega_series / (2.0 * np.pi)
+    rocof_series = np.diff(delta_f, axis=0) / dt
+    rocof_max = float(np.max(np.abs(rocof_series)))
+    return rocof_max
 
 
 def extract_rocof(omega_trajectory: np.ndarray, h: float, fs: float = 12.0,

@@ -23,9 +23,9 @@ import yaml
 warnings.filterwarnings('ignore', category=UserWarning, message='.*DataLoader.*deprecated.*')
 warnings.filterwarnings('ignore', category=UserWarning, module='torch_geometric')
 
-# Add project root to path
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-sys.path.append(str(PROJECT_ROOT))
+# File in scripts/evaluation/ -> project root = parent.parent.parent
+PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+sys.path.insert(0, str(PROJECT_ROOT))
 
 # Import swing equation modules
 try:
@@ -74,10 +74,13 @@ if __name__ == '__main__':
                 config = yaml.safe_load(f)
     
     # Get parameters from config or environment
+    mocu_model_name_from_config = None
     if config:
         N = config.get('N', 14)
         swing_params = config.get('swing_equation', {})
         experiment_params = config.get('experiment', {})
+        training_params = config.get('training', {})
+        mocu_model_name_from_config = training_params.get('model_name')
         it_idx = experiment_params.get('it_idx', 10)
         update_cnt = experiment_params.get('update_count', 10)
         K_max = experiment_params.get('K_max', 20480)
@@ -97,6 +100,7 @@ if __name__ == '__main__':
         probe_duration = swing_params.get('probe_duration', 2.0)
         probe_amplitudes = swing_params.get('probe_amplitudes', [0.5, 1.0, 2.0])
     else:
+        mocu_model_name_from_config = None
         # Fallback to environment variables
         it_idx = safe_getenv_int('EVAL_IT_IDX', '10')
         update_cnt = safe_getenv_int('EVAL_UPDATE_CNT', '10')
@@ -132,10 +136,12 @@ if __name__ == '__main__':
     
     # ========== Method Selection ==========
     if args.methods:
-        method_names = [m.strip() for m in args.methods.split(',')]
+        method_names = [m.strip() for m in args.methods.split(',') if m.strip()]
     else:
-        # Default: baseline methods only (DAD/iDAD not yet updated for swing equation)
         method_names = ['iNN', 'NN', 'ODE', 'ENTROPY', 'RANDOM']
+    
+    # Action space: N buses × len(probe_amplitudes) = number of (bus, amplitude) actions
+    num_actions = N * len(probe_amplitudes)
     
     # Print configuration
     print(f"\n{'='*80}")
@@ -145,8 +151,15 @@ if __name__ == '__main__':
     print(f"  num_simulations={numberOfSimulationsPerMethod}")
     print(f"  methods={method_names}")
     print(f"  result_folder={result_folder}")
+    print(f"  Action space: N_buses × num_amplitudes = {N} × {len(probe_amplitudes)} = {num_actions} actions")
     print(f"  M bounds: [{M_lower_base}, {M_upper_base}]")
     print(f"  K bounds: [{K_lower_base}, {K_upper_base}]")
+    print(f"  probe_amplitudes={probe_amplitudes}")
+    mocu_model = os.getenv('MOCU_MODEL_NAME', '')
+    if mocu_model:
+        print(f"  MOCU model (iNN/NN): {mocu_model}")
+    else:
+        print(f"  MOCU model (iNN/NN): not set; iNN/NN will use config training.model_name or fail if missing")
     print(f"{'='*80}\n")
     
     # ========== Generate system parameters (fixed, known) ==========
@@ -228,38 +241,33 @@ if __name__ == '__main__':
         init_bounds_file = os.path.join(result_folder, f'paramInitialBounds_{numberOfVaildSimulations}.txt')
         np.savetxt(init_bounds_file, [M_lower_init, M_upper_init, K_lower_init, K_upper_init], fmt='%.64e')
         
-        # ========== Compute initial MOCU ==========
+        # ========== Compute initial MOCU (batched: one call with K_max*it_idx) ==========
         timeMOCU = time.time()
-        it_temp_val = np.zeros(it_idx)
-        
-        # Initial MOCU computation using swing equation MOCU
-        with tqdm(total=it_idx, desc="  Initial MOCU", leave=False, unit="iter", ncols=80, mininterval=0.5) as pbar:
-            for l in range(it_idx):
-                it_temp_val[l] = MOCU_swing_equation(
-                    K_max=K_max,
-                    B=B,
-                    P_m=P_m,
-                    D=D,
-                    M_lower=M_lower_init,
-                    M_upper=M_upper_init,
-                    K_lower=K_lower_init,
-                    K_upper=K_upper_init,
-                    g=g,
-                    r_max=r_max,
-                    f_min=f_min,
-                    h=h,
-                    T=T,
-                    M_steps=MReal,
-                    seed=l,
-                    device=device
-                )
-                pbar.update(1)
-        
-        MOCUInitial = np.mean(it_temp_val)
+        # Batched version: single MOCU_swing_equation call with K_total = K_max * it_idx
+        # (same expectation as averaging it_idx calls with K_max each; much faster)
+        K_total = K_max * it_idx
+        MOCUInitial = MOCU_swing_equation(
+            K_max=K_total,
+            B=B,
+            P_m=P_m,
+            D=D,
+            M_lower=M_lower_init,
+            M_upper=M_upper_init,
+            K_lower=K_lower_init,
+            K_upper=K_upper_init,
+            g=g,
+            r_max=r_max,
+            f_min=f_min,
+            h=h,
+            T=T,
+            M_steps=MReal,
+            seed=random_seed,
+            device=device
+        )
         elapsed = time.time() - timeMOCU
         sim_pbar.write(f'  Initial MOCU: {MOCUInitial:.6f} ({elapsed:.1f}s)')
         
-        # Save initial MOCU for this simulation (for DAD/iDAD to use same value)
+        # Save initial MOCU for this simulation (for DAD to use same value)
         initial_mocu_file = os.path.join(result_folder, f'initial_MOCU_{numberOfVaildSimulations}.txt')
         np.savetxt(initial_mocu_file, [MOCUInitial], fmt='%.64e')
         
@@ -287,20 +295,25 @@ if __name__ == '__main__':
                 import builtins
                 builtins.print = redirect_print
                 
+                # Resolve MOCU predictor model name: env MOCU_MODEL_NAME, else config training.model_name, else cons{N}
+                _mocu_model = os.getenv('MOCU_MODEL_NAME') or mocu_model_name_from_config or f'cons{N}'
+                
                 # Lazy import methods from src.methods
                 if method_name == 'iNN':
                     from src.methods import iNN_Method
-                    method = iNN_Method(N, K_max, deltaT, MReal, TReal, it_idx, 
-                                       model_name=os.getenv('MOCU_MODEL_NAME', f'cons{N}'),
+                    method = iNN_Method(N, K_max, deltaT, MReal, TReal, it_idx,
+                                       model_name=_mocu_model,
                                        probe_amplitudes=probe_amplitudes,
-                                       probe_duration=probe_duration)
+                                       probe_duration=probe_duration,
+                                       B=B)
                 
                 elif method_name == 'NN':
                     from src.methods import NN_Method
                     method = NN_Method(N, K_max, deltaT, MReal, TReal, it_idx,
-                                      model_name=os.getenv('MOCU_MODEL_NAME', f'cons{N}'),
+                                      model_name=_mocu_model,
                                       probe_amplitudes=probe_amplitudes,
-                                      probe_duration=probe_duration)
+                                      probe_duration=probe_duration,
+                                      B=B)
                 
                 elif method_name == 'ODE':
                     from src.methods import ODE_Method
@@ -324,10 +337,10 @@ if __name__ == '__main__':
                                           probe_duration=probe_duration,
                                           seed=numberOfVaildSimulations)
                 
-                elif method_name in ['DAD', 'DAD_MOCU', 'IDAD_MOCU']:
-                    # DAD/iDAD methods not yet updated for swing equation
-                    method_pbar.write(f'  ⚠️  Skipping {method_name}: Not yet updated for swing equation model')
-                    method_pbar.write(f'  ⚠️  DAD/iDAD requires train_dad_policy.py and dad_eval.py updates')
+                elif method_name == 'DAD':
+                    # DAD is evaluated in step6 (dad_eval.py) with a trained policy, not in this baseline loop
+                    method_pbar.write(f'  ⚠️  Skipping {method_name}: evaluated in Step 6 (dad_eval.py) with trained policy')
+                    method_pbar.write(f'  ⚠️  Run steps 4–5 first, then step6_evaluate_dad.sh to evaluate DAD')
                     continue
                 
                 else:

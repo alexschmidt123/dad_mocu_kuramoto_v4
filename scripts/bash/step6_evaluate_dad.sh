@@ -1,6 +1,5 @@
 #!/bin/bash
 # Step 6: Evaluate DAD methods and generate final visualizations
-# NOTE: DAD/iDAD not yet updated for swing equation - this step will skip gracefully
 
 set +e  # Don't exit on error - allow graceful skip
 
@@ -16,7 +15,6 @@ export PYTHONPATH="${PROJECT_ROOT}:${PYTHONPATH}"
 CONFIG_NAME=$(basename "$CONFIG_FILE" .yaml)
 BASELINE_RESULTS=$(cat /tmp/baseline_results_folder_${CONFIG_NAME}.txt 2>/dev/null || echo "")
 DAD_MOCU_POLICY_PATH=$(cat /tmp/dad_mocu_policy_path_${CONFIG_NAME}.txt 2>/dev/null || echo "")
-IDAD_MOCU_POLICY_PATH=$(cat /tmp/idad_mocu_policy_path_${CONFIG_NAME}.txt 2>/dev/null || echo "")
 
 # DAD is enabled for second_order (swing equation) model
 SKIP_DAD="${SKIP_DAD:-false}"
@@ -33,11 +31,9 @@ if [ -z "$BASELINE_RESULTS" ] || [ ! -d "$BASELINE_RESULTS" ]; then
 fi
 
 HAS_DAD_MOCU=false
-HAS_IDAD_MOCU=false
 [ -n "$DAD_MOCU_POLICY_PATH" ] && [ -f "$DAD_MOCU_POLICY_PATH" ] && HAS_DAD_MOCU=true
-[ -n "$IDAD_MOCU_POLICY_PATH" ] && [ -f "$IDAD_MOCU_POLICY_PATH" ] && HAS_IDAD_MOCU=true
 
-if [ "$HAS_DAD_MOCU" = false ] && [ "$HAS_IDAD_MOCU" = false ]; then
+if [ "$HAS_DAD_MOCU" = false ]; then
     echo "⚠️  No DAD policies found. Skipping DAD evaluation."
     echo "✓ Step 6 skipped gracefully"
     exit 0
@@ -67,7 +63,7 @@ echo "  Using baseline results: $BASELINE_RESULTS"
 echo "  N=$N, update_cnt=$UPDATE_CNT, it_idx=$IT_IDX, K_max=$K_MAX, num_simulations=$NUM_SIMULATIONS"
 echo "  Results: $RESULT_FOLDER"
 
-cd "${PROJECT_ROOT}/scripts"
+cd "${PROJECT_ROOT}/scripts/evaluation"
 
 # Resolve config path for swing-equation DAD evaluation
 ABS_CONFIG_FILE="$CONFIG_FILE"
@@ -77,26 +73,14 @@ fi
 
 if [ "$HAS_DAD_MOCU" = true ]; then
     echo ""
-    echo "Evaluating DAD_MOCU method..."
+    echo "Evaluating DAD method..."
     export DAD_POLICY_PATH="$DAD_MOCU_POLICY_PATH"
     if [ -n "$ABS_CONFIG_FILE" ] && [ -f "$ABS_CONFIG_FILE" ]; then
-        python3 dad_eval.py --baseline_results "$BASELINE_RESULTS" --result_folder "$RESULT_FOLDER" --method_name "DAD_MOCU" --config "$ABS_CONFIG_FILE"
+        python3 dad_eval.py --baseline_results "$BASELINE_RESULTS" --result_folder "$RESULT_FOLDER" --method_name "DAD" --config "$ABS_CONFIG_FILE"
     else
-        python3 dad_eval.py --baseline_results "$BASELINE_RESULTS" --result_folder "$RESULT_FOLDER" --method_name "DAD_MOCU"
+        python3 dad_eval.py --baseline_results "$BASELINE_RESULTS" --result_folder "$RESULT_FOLDER" --method_name "DAD"
     fi
-    echo "✓ DAD_MOCU evaluation complete"
-fi
-
-if [ "$HAS_IDAD_MOCU" = true ]; then
-    echo ""
-    echo "Evaluating IDAD_MOCU method..."
-    export DAD_POLICY_PATH="$IDAD_MOCU_POLICY_PATH"
-    if [ -n "$ABS_CONFIG_FILE" ] && [ -f "$ABS_CONFIG_FILE" ]; then
-        python3 dad_eval.py --baseline_results "$BASELINE_RESULTS" --result_folder "$RESULT_FOLDER" --method_name "IDAD_MOCU" --config "$ABS_CONFIG_FILE"
-    else
-        python3 dad_eval.py --baseline_results "$BASELINE_RESULTS" --result_folder "$RESULT_FOLDER" --method_name "IDAD_MOCU"
-    fi
-    echo "✓ IDAD_MOCU evaluation complete"
+    echo "✓ DAD evaluation complete"
 fi
 
 echo ""
@@ -107,9 +91,9 @@ if [ "${ABS_RESULT_FOLDER: -1}" != "/" ]; then
 fi
 
 if [ -n "$UPDATE_CNT" ]; then
-    python3 visualize.py --N $N --update_cnt $UPDATE_CNT --result_folder "$ABS_RESULT_FOLDER"
+    python3 "${PROJECT_ROOT}/scripts/visualization/visualize.py" --N $N --update_cnt $UPDATE_CNT --result_folder "$ABS_RESULT_FOLDER"
 else
-    python3 visualize.py --N $N --result_folder "$ABS_RESULT_FOLDER"
+    python3 "${PROJECT_ROOT}/scripts/visualization/visualize.py" --N $N --result_folder "$ABS_RESULT_FOLDER"
 fi
 
 echo "✓ Final visualizations generated in $ABS_RESULT_FOLDER"

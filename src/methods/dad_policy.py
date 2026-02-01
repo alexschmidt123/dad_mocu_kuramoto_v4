@@ -35,9 +35,9 @@ class DAD_MOCU_Method(OEDMethod):
     MOCU as the objective instead of Expected Information Gain (EIG).
     """
     
-    def __init__(self, N, K_max, deltaT, MReal, TReal, it_idx, 
+    def __init__(self, N, K_max, deltaT, MReal, TReal, it_idx,
                  policy_model_path=None, probe_amplitudes=None, probe_duration=2.0,
-                 gpu_id=0):
+                 gpu_id=0, B=None):
         """
         Args:
             N: Number of buses
@@ -50,30 +50,29 @@ class DAD_MOCU_Method(OEDMethod):
             probe_amplitudes: List of probe amplitude options (default: [0.5, 1.0, 2.0])
             probe_duration: Probe duration T (default: 2.0s)
             gpu_id: GPU device ID
+            B: Coupling matrix [N,N] for MPNN MOCU predictor (optional; built from default params if None)
         """
         super().__init__(N, K_max, deltaT, MReal, TReal, it_idx)
         
         self.device = torch.device(f'cuda:{gpu_id}' if torch.cuda.is_available() else 'cpu')
         self.policy_net = None
-        self.swing_mlp_model = None
-        self.swing_mlp_mean = None
-        self.swing_mlp_std = None
-        self.use_expected_mocu = True  # Enable expected MOCU features by default
+        self.mocu_predictor = None
+        self.mocu_mean = None
+        self.mocu_std = None
+        self.use_expected_mocu = True
         
         self.probe_amplitudes = probe_amplitudes if probe_amplitudes else [0.5, 1.0, 2.0]
         self.probe_duration = probe_duration
+        self.B = B
         
-        # Load policy network
         self._load_policy(policy_model_path)
-        
-        # Try to load Swing MLP predictor for expected MOCU computation (like iNN/NN)
-        self._load_swing_mlp_predictor()
+        self._load_mocu_predictor()
         
         print(f"[DAD-MOCU] Initialized with policy on {self.device}")
-        if self.swing_mlp_model is not None:
-            print(f"[DAD-MOCU] Swing MLP predictor loaded - will use expected MOCU features (enhanced mode)")
+        if self.mocu_predictor is not None:
+            print(f"[DAD-MOCU] MPNN MOCU predictor loaded - will use expected MOCU features (enhanced mode)")
         else:
-            print(f"[DAD-MOCU] Swing MLP predictor not available - using standard mode")
+            print(f"[DAD-MOCU] MPNN MOCU predictor not available - using standard mode")
     
     def _load_policy(self, policy_model_path):
         """Load trained DAD policy network."""
@@ -145,27 +144,29 @@ class DAD_MOCU_Method(OEDMethod):
             print(f"[DAD-MOCU] DAD will use random selection as fallback.")
             self.policy_net = None
     
-    def _load_swing_mlp_predictor(self):
-        """Load Swing MLP predictor for computing expected MOCU features (like iNN/NN)."""
+    def _load_mocu_predictor(self):
+        """Load MPNN MOCU predictor for expected MOCU features (like iNN/NN)."""
         try:
-            from src.models.predictors.swing_predictor_utils import load_swing_mlp_predictor
+            from src.models.predictors.swing_predictor_utils import load_swing_mocu_predictor
+            from src.core.swing_equation_params import get_default_swing_equation_params
             import os
             
-            # Get model name from environment variable or auto-detect
+            if self.B is None:
+                params = get_default_swing_equation_params(N=self.N)
+                self.B = params['B']
             model_name = os.getenv('MOCU_MODEL_NAME', f'cons{self.N}')
             
-            self.swing_mlp_model, self.swing_mlp_mean, self.swing_mlp_std = load_swing_mlp_predictor(
-                model_name=model_name, device=str(self.device)
+            self.mocu_predictor, self.mocu_mean, self.mocu_std = load_swing_mocu_predictor(
+                model_name=model_name, device=str(self.device), B=self.B, N=self.N
             )
-            
-            if self.swing_mlp_model is not None:
-                self.swing_mlp_model.eval()
-                self.swing_mlp_model = self.swing_mlp_model.to(self.device)
+            if self.mocu_predictor is not None:
+                self.mocu_predictor.eval()
+                self.mocu_predictor = self.mocu_predictor.to(self.device)
         except Exception as e:
-            print(f"[DAD-MOCU] Warning: Could not load Swing MLP predictor: {e}")
-            self.swing_mlp_model = None
-            self.swing_mlp_mean = None
-            self.swing_mlp_std = None
+            print(f"[DAD-MOCU] Warning: Could not load MPNN MOCU predictor: {e}")
+            self.mocu_predictor = None
+            self.mocu_mean = None
+            self.mocu_std = None
     
     def _compute_expected_mocu_matrix(self, M_lower, M_upper, K_lower, K_upper):
         """
@@ -173,29 +174,24 @@ class DAD_MOCU_Method(OEDMethod):
         
         This is the same computation that iNN/NN uses - gives DAD the same information.
         """
-        if self.swing_mlp_model is None:
+        if self.mocu_predictor is None:
             return None
         
-        # For each bus and amplitude combination, compute expected MOCU
         R_matrix = np.zeros((self.N, len(self.probe_amplitudes)))
         
         try:
             from src.models.predictors.swing_predictor_utils import predict_swing_mocu
             
-            # Simulate probe update for each action
             for bus_idx in range(self.N):
                 for amp_idx, probe_amplitude in enumerate(self.probe_amplitudes):
-                    # Simulate bound update (heuristic - same as iNN/NN)
-                    # This is a simplified version - in practice, we'd need to simulate
-                    # the observation and update bounds accordingly
                     M_lower_new, M_upper_new, K_lower_new, K_upper_new = \
                         self._simulate_probe_update(M_lower, M_upper, K_lower, K_upper, bus_idx, probe_amplitude)
                     
-                    # Predict MOCU after this action
                     mocu_pred = predict_swing_mocu(
-                        self.swing_mlp_model, self.swing_mlp_mean, self.swing_mlp_std,
+                        self.mocu_predictor, self.mocu_mean, self.mocu_std,
                         M_lower_new, M_upper_new, K_lower_new, K_upper_new,
-                        device=str(self.device)
+                        device=str(self.device),
+                        probe_bus=bus_idx, probe_amplitude=probe_amplitude,
                     )
                     
                     if hasattr(mocu_pred, 'item'):
@@ -323,9 +319,9 @@ class DAD_MOCU_Method(OEDMethod):
         else:
             history_tensor = torch.tensor([history_list], dtype=torch.float32, device=self.device)
         
-        # Compute expected MOCU features (like iNN/NN) if Swing MLP is available
+        # Compute expected MOCU features (like iNN/NN) if MPNN predictor is available
         expected_mocu_features = None
-        if self.use_expected_mocu and self.swing_mlp_model is not None:
+        if self.use_expected_mocu and self.mocu_predictor is not None:
             try:
                 R_matrix = self._compute_expected_mocu_matrix(M_lower, M_upper, K_lower, K_upper)
                 if R_matrix is not None:

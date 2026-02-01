@@ -30,6 +30,7 @@ __all__ = [
     'MOCU_swing_equation',
     'binary_search_gamma_star',
     'extract_rocof',
+    'extract_max_rocof',
     'log_likelihood',
     'mu_theta_xi',
     'posterior_weights',

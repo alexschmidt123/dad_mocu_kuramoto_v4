@@ -1,6 +1,5 @@
 #!/bin/bash
-# Step 5: Train DAD/IDAD policies (uses existing trajectories)
-# NOTE: DAD/iDAD not yet updated for swing equation - this step will skip gracefully
+# Step 5: Train DAD policies (uses existing trajectories)
 
 set +e  # Don't exit on error - allow graceful skip
 
@@ -41,11 +40,11 @@ if [ -z "$DAD_TRAJ_FILE" ] || [ ! -f "$DAD_TRAJ_FILE" ]; then
     exit 0
 fi
 
-SWING_MLP_MODEL_FOLDER=$(cat /tmp/mocu_model_folder_${CONFIG_NAME}.txt 2>/dev/null || echo "")
+MOCU_MODEL_FOLDER=$(cat /tmp/mocu_model_folder_${CONFIG_NAME}.txt 2>/dev/null || echo "")
 MOCU_MODEL_NAME=$(cat /tmp/mocu_model_name_${CONFIG_NAME}.txt 2>/dev/null || echo "")
 
-if [ -z "$SWING_MLP_MODEL_FOLDER" ] || [ ! -d "$SWING_MLP_MODEL_FOLDER" ]; then
-    echo "Error: Swing MLP model folder not found. Run step2_train_swing_mlp.sh first."
+if [ -z "$MOCU_MODEL_FOLDER" ] || [ ! -d "$MOCU_MODEL_FOLDER" ]; then
+    echo "Error: MOCU predictor (MPNN) model folder not found. Run step2_train_swing_mpnn.sh first."
     exit 1
 fi
 
@@ -63,7 +62,7 @@ K=$(grep -A 3 "^dad_data:" "$CONFIG_FILE" | grep "  K:" | awk '{print $2}' || ec
 [ -z "$NUM_EPISODES" ] && NUM_EPISODES=1000
 [ -z "$K" ] && K=4
 
-# Determine which methods to train
+# Determine which methods to train (DAD only)
 METHODS_TO_TRAIN=$(python3 << PYEOF
 import yaml
 try:
@@ -72,21 +71,18 @@ try:
     methods = []
     if 'experiment' in config and 'methods' in config['experiment']:
         method_list = config['experiment']['methods']
-        if isinstance(method_list, list):
-            if 'DAD_MOCU' in method_list:
-                methods.append('dad_mocu')
-            if 'IDAD_MOCU' in method_list:
-                methods.append('idad_mocu')
+        if isinstance(method_list, list) and 'DAD' in method_list:
+            methods.append('dad_mocu')
     if not methods:
-        methods = ['dad_mocu', 'idad_mocu']
+        methods = ['dad_mocu']
     print(' '.join(methods))
 except Exception:
-    print('dad_mocu idad_mocu')
+    print('dad_mocu')
 PYEOF
 )
 
 if [ -z "$METHODS_TO_TRAIN" ]; then
-    METHODS_TO_TRAIN="dad_mocu idad_mocu"
+    METHODS_TO_TRAIN="dad_mocu"
 fi
 
 # Helper functions (copied from original script)
@@ -140,7 +136,7 @@ PYEOF
 )
 
 USE_PREDICTED_MOCU=""
-if [ -f "${SWING_MLP_MODEL_FOLDER}model.pth" ]; then
+if [ -f "${MOCU_MODEL_FOLDER}model_mpnn.pth" ]; then
     USE_PREDICTED_MOCU="--use-predicted-mocu"
 fi
 
@@ -153,7 +149,7 @@ echo "  Output dir: $POLICY_OUTPUT_DIR"
 
 METHODS_TO_TRAIN_ARRAY=($METHODS_TO_TRAIN)
 if [ ${#METHODS_TO_TRAIN_ARRAY[@]} -eq 0 ]; then
-    METHODS_TO_TRAIN_ARRAY=("dad_mocu" "idad_mocu")
+    METHODS_TO_TRAIN_ARRAY=("dad_mocu")
 fi
 
 for METHOD in "${METHODS_TO_TRAIN_ARRAY[@]}"; do
@@ -182,11 +178,7 @@ for METHOD in "${METHODS_TO_TRAIN_ARRAY[@]}"; do
     if [ "$METHOD_MODEL_MATCHES" = true ] && [ "$DATA_MATCHES" = true ]; then
         echo "✓ $METHOD model already exists and matches config: $METHOD_TO_CHECK"
         echo "✓ Skipping training for $METHOD"
-        if [ "$METHOD" = "dad_mocu" ]; then
-            echo "$METHOD_TO_CHECK" > /tmp/dad_mocu_policy_path_${CONFIG_NAME}.txt
-        else
-            echo "$METHOD_TO_CHECK" > /tmp/idad_mocu_policy_path_${CONFIG_NAME}.txt
-        fi
+        echo "$METHOD_TO_CHECK" > /tmp/dad_mocu_policy_path_${CONFIG_NAME}.txt
         continue
     fi
 
@@ -220,18 +212,10 @@ for METHOD in "${METHODS_TO_TRAIN_ARRAY[@]}"; do
         eval $TRAIN_CMD
     fi
 
-    if [ "$METHOD" = "dad_mocu" ]; then
-        if [ -f "$METHOD_BEST_MODEL_FILE" ]; then
-            echo "$METHOD_BEST_MODEL_FILE" > /tmp/dad_mocu_policy_path_${CONFIG_NAME}.txt
-        else
-            echo "$METHOD_MODEL_FILE" > /tmp/dad_mocu_policy_path_${CONFIG_NAME}.txt
-        fi
+    if [ -f "$METHOD_BEST_MODEL_FILE" ]; then
+        echo "$METHOD_BEST_MODEL_FILE" > /tmp/dad_mocu_policy_path_${CONFIG_NAME}.txt
     else
-        if [ -f "$METHOD_BEST_MODEL_FILE" ]; then
-            echo "$METHOD_BEST_MODEL_FILE" > /tmp/idad_mocu_policy_path_${CONFIG_NAME}.txt
-        else
-            echo "$METHOD_MODEL_FILE" > /tmp/idad_mocu_policy_path_${CONFIG_NAME}.txt
-        fi
+        echo "$METHOD_MODEL_FILE" > /tmp/dad_mocu_policy_path_${CONFIG_NAME}.txt
     fi
 done
 

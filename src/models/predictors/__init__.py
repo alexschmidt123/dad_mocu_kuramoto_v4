@@ -1,34 +1,27 @@
 """
 MOCU Predictors Package for Swing Equation Model
 
-This package contains neural network models for MOCU prediction for the 
-second-order Kuramoto (swing equation) model.
-
-Predictor:
-- SwingMLPPredictor: Simple MLP for predicting MOCU from (M, K) bounds
-
-Files:
-- swing_mlp_predictor.py: MLP predictor for swing equation
-- swing_predictor_utils.py: Utilities for loading/using Swing MLP predictor
-- utils.py: Shared utility functions (minimal, for compatibility)
-
-Based on: "Probing Signal-Based Inertia and Frequency Response Estimation 
-for Power Systems with High Penetration of Inverter-Based Resources"
+Uses MPNN for MOCU estimation (paper first-order Kuramoto iNN/NN used MPNN).
+- SwingMPNNPredictor: MPNN over graph B for MOCU from (M, K) bounds and optional probe
+- load_swing_mpnn_predictor, load_swing_mocu_predictor, predict_swing_mocu
 """
 
-# Import swing equation predictor
-from .swing_mlp_predictor import SwingMLPPredictor
+try:
+    from .swing_mpnn_predictor import SwingMPNNPredictor, TORCH_GEOMETRIC_AVAILABLE
+except ImportError:
+    SwingMPNNPredictor = None
+    TORCH_GEOMETRIC_AVAILABLE = False
 
-# Import utilities
 from .swing_predictor_utils import (
-    load_swing_mlp_predictor,
+    load_swing_mpnn_predictor,
+    load_swing_mocu_predictor,
     predict_swing_mocu,
 )
 
 __all__ = [
-    # Predictor
-    'SwingMLPPredictor',
-    # Utilities
-    'load_swing_mlp_predictor',
+    'SwingMPNNPredictor',
+    'TORCH_GEOMETRIC_AVAILABLE',
+    'load_swing_mpnn_predictor',
+    'load_swing_mocu_predictor',
     'predict_swing_mocu',
 ]

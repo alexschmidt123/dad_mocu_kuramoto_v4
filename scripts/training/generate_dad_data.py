@@ -20,8 +20,9 @@ import os
 import yaml
 
 # Add project root to path
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-sys.path.append(str(PROJECT_ROOT))
+# File in scripts/training/ -> project root = parent.parent.parent
+PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+sys.path.insert(0, str(PROJECT_ROOT))
 
 import numpy as np
 import torch
@@ -39,7 +40,7 @@ try:
         sample_uncertain_parameters
     )
     from src.models.predictors.swing_predictor_utils import (
-        load_swing_mlp_predictor,
+        load_swing_mocu_predictor,
         predict_swing_mocu
     )
     SWING_EQUATION_AVAILABLE = True
@@ -217,25 +218,13 @@ def update_bounds(M_lower, M_upper, K_lower, K_upper, observation, probe_bus,
 def generate_trajectory(N, K, B, P_m, D, g, M_lower_base, M_upper_base,
                        K_lower_base, K_upper_base, probe_amplitudes, probe_duration,
                        h, T, M_steps, device='cuda', verbose=False,
-                       swing_mlp_predictor=None, mocu_mean=None, mocu_std=None):
+                       mocu_predictor=None, mocu_mean=None, mocu_std=None):
     """
     Generate a single trajectory using random policy.
-    
+
     Args:
-        N: Number of buses
-        K: Number of sequential experiments
-        B, P_m, D, g: Fixed system parameters
-        M_lower_base, M_upper_base, K_lower_base, K_upper_base: Base bounds
-        probe_amplitudes: List of probe amplitude options
-        probe_duration: Probe duration T
-        h, T, M_steps: Time parameters
-        device: 'cuda' or 'cpu'
-        verbose: Print progress
-        swing_mlp_predictor: Optional Swing MLP predictor for terminal MOCU
-        mocu_mean, mocu_std: Normalization statistics
-    
-    Returns:
-        trajectory: Dictionary containing the full trajectory
+        mocu_predictor: Optional MPNN MOCU predictor for terminal MOCU.
+        mocu_mean, mocu_std: Normalization statistics (for predictor).
     """
     # Generate random system
     max_attempts = 100
@@ -292,12 +281,12 @@ def generate_trajectory(N, K, B, P_m, D, g, M_lower_base, M_upper_base,
             print(f"Step {step+1}: Probe bus {probe_bus}, A={probe_amplitude}, "
                   f"ROCOF_max={observation.get('ROCOF_max', 0.0):.4f}")
     
-    # Compute terminal MOCU if predictor provided
+    # Compute terminal MOCU if MPNN predictor provided
     terminal_MOCU = None
-    if swing_mlp_predictor is not None:
+    if mocu_predictor is not None:
         try:
             terminal_MOCU = predict_swing_mocu(
-                swing_mlp_predictor, mocu_mean, mocu_std,
+                mocu_predictor, mocu_mean, mocu_std,
                 M_lower, M_upper, K_lower, K_upper, device=device
             )
             if hasattr(terminal_MOCU, 'item'):
@@ -324,10 +313,10 @@ def main():
     parser.add_argument('--output-dir', type=str, default=None,
                         help='Output directory (overrides config)')
     parser.add_argument('--seed', type=int, default=42, help='Random seed')
-    parser.add_argument('--use-swing-mlp-predictor', action='store_true',
-                       help='Pre-compute terminal MOCU using Swing MLP predictor')
-    parser.add_argument('--swing-mlp-model-name', type=str, default=None,
-                       help='Swing MLP model name (required if --use-swing-mlp-predictor)')
+    parser.add_argument('--use-mocu-predictor', action='store_true',
+                       help='Pre-compute terminal MOCU using MPNN MOCU predictor')
+    parser.add_argument('--mocu-model-name', type=str, default=None,
+                       help='MOCU predictor model name (required if --use-mocu-predictor)')
     args = parser.parse_args()
     
     # Load config
@@ -410,32 +399,28 @@ def main():
     print(f"  - Number of episodes: {num_episodes}")
     print(f"  - Probe amplitudes: {probe_amplitudes}")
     print(f"  - Probe duration: {probe_duration}s")
-    print(f"  - Pre-compute MOCU: {'Yes' if args.use_swing_mlp_predictor else 'No'}")
+    print(f"  - Pre-compute MOCU: {'Yes' if args.use_mocu_predictor else 'No'}")
     print("=" * 80)
     
-    # Load Swing MLP predictor if requested
-    swing_mlp_predictor = None
+    mocu_predictor = None
     mocu_mean = None
     mocu_std = None
     
-    if args.use_swing_mlp_predictor:
-        if args.swing_mlp_model_name is None:
-            args.swing_mlp_model_name = os.getenv('SWING_MLP_MODEL_NAME')
-            if args.swing_mlp_model_name is None:
-                raise ValueError("--swing-mlp-model-name required when using --use-swing-mlp-predictor")
-        
+    if args.use_mocu_predictor:
+        if args.mocu_model_name is None:
+            args.mocu_model_name = os.getenv('MOCU_MODEL_NAME')
+            if args.mocu_model_name is None:
+                raise ValueError("--mocu-model-name required when using --use-mocu-predictor")
         try:
-            print(f"[INFO] Loading Swing MLP predictor: {args.swing_mlp_model_name}")
-            swing_mlp_predictor, mocu_mean, mocu_std = load_swing_mlp_predictor(
-                model_name=args.swing_mlp_model_name,
-                device=device
+            print(f"[INFO] Loading MPNN MOCU predictor: {args.mocu_model_name}")
+            mocu_predictor, mocu_mean, mocu_std = load_swing_mocu_predictor(
+                model_name=args.mocu_model_name, device=device, B=B, N=N
             )
-            print(f"[INFO] ✓ Swing MLP predictor loaded successfully")
+            print(f"[INFO] ✓ MPNN MOCU predictor loaded successfully")
         except Exception as e:
-            print(f"[ERROR] Failed to load Swing MLP predictor: {e}")
+            print(f"[ERROR] Failed to load MPNN MOCU predictor: {e}")
             return
     
-    # Generate trajectories
     trajectories = []
     start_time = time.time()
     
@@ -447,7 +432,7 @@ def main():
             probe_amplitudes=probe_amplitudes, probe_duration=probe_duration,
             h=h, T=T, M_steps=M_steps, device=device,
             verbose=False,
-            swing_mlp_predictor=swing_mlp_predictor,
+            mocu_predictor=mocu_predictor,
             mocu_mean=mocu_mean, mocu_std=mocu_std
         )
         
@@ -477,7 +462,7 @@ def main():
             'K': K,
             'num_episodes': len(trajectories),
             'has_precomputed_mocu': has_mocu,
-            'swing_mlp_model_used': args.swing_mlp_model_name if args.use_swing_mlp_predictor else None,
+            'mocu_model_used': args.mocu_model_name if args.use_mocu_predictor else None,
             'model_type': 'swing_equation',
             'probe_amplitudes': probe_amplitudes,
         }

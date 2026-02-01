@@ -72,7 +72,7 @@ class DADPolicyNetwork(nn.Module):
         
         if history_encoder_type == 'lstm':
             # LSTM: Order-dependent (captures temporal dependencies)
-            # Used in iDAD for time-dependent problems (e.g., epidemic models)
+            # Order-dependent (for time-dependent problems)
             self.history_lstm = nn.LSTM(
                 input_size=hidden_dim // 2,
                 hidden_size=hidden_dim,
@@ -81,7 +81,7 @@ class DADPolicyNetwork(nn.Module):
                 dropout=0.1
             )
         elif history_encoder_type == 'sum':
-            # Set-equivariant sum: Order-independent (iDAD default for most cases)
+            # Set-equivariant sum: Order-independent
             # Each (i, j, obs) pair encoded independently, then summed
             self.pair_encoder = nn.Sequential(
                 Linear(hidden_dim // 2, encoding_dim),
@@ -89,7 +89,7 @@ class DADPolicyNetwork(nn.Module):
                 Linear(encoding_dim, encoding_dim)
             )
         elif history_encoder_type == 'cat':
-            # Concatenation: Concatenates all encodings (iDAD option 3)
+            # Concatenation: Concatenates all encodings
             # Fixed-size concatenation of all history encodings
             self.max_history_len = max_history_len
             self.pair_encoder = nn.Sequential(
@@ -194,9 +194,9 @@ class DADPolicyNetwork(nn.Module):
         """
         Encode history of past (action, observation) pairs.
         
-        Supports two modes (matching iDAD):
+        Supports two modes:
         - 'lstm': Order-dependent sequential processing (for time-dependent problems)
-        - 'sum': Order-independent set-equivariant sum (iDAD default for most cases)
+        - 'sum': Order-independent set-equivariant sum
         """
         if history_data is None or len(history_data) == 0:
             batch_size = 1
@@ -235,7 +235,7 @@ class DADPolicyNetwork(nn.Module):
         obs_emb = self.obs_embed(obs_indices)
         
         if self.history_encoder_type == 'lstm':
-            # === LSTM: Order-dependent (iDAD style for time-dependent problems) ===
+            # === LSTM: Order-dependent (for time-dependent problems) ===
             history_emb = torch.cat([i_emb, j_emb], dim=-1)
             
             if not history_emb.is_contiguous():
@@ -279,7 +279,7 @@ class DADPolicyNetwork(nn.Module):
             return history_embedding
         
         elif self.history_encoder_type == 'sum':
-            # === Set-Equivariant Sum: Order-independent (iDAD style) ===
+            # === Set-Equivariant Sum: Order-independent ===
             # Encode each (i, j, obs) pair independently, then sum
             pair_emb = torch.cat([i_emb, j_emb], dim=-1)  # [batch, seq, hidden_dim//2]
             
@@ -293,8 +293,8 @@ class DADPolicyNetwork(nn.Module):
             sum_encoding = sum(pair_encodings)  # [batch, encoding_dim]
             return sum_encoding
         
-        else:  # cat - concatenation (iDAD option 3)
-            # === Concatenation: Fixed-size concatenation (iDAD style) ===
+        else:  # cat - concatenation
+            # === Concatenation: Fixed-size concatenation ===
             # Encode each (i, j, obs) pair independently, then concatenate
             pair_emb = torch.cat([i_emb, j_emb], dim=-1)  # [batch, seq, hidden_dim//2]
             

@@ -35,8 +35,31 @@ NUM_SIMULATIONS=$(grep -A 10 "^experiment:" $CONFIG_FILE | grep "num_simulations
 [ -z "$K_MAX" ] && K_MAX=20480
 [ -z "$NUM_SIMULATIONS" ] && NUM_SIMULATIONS=10
 
-# Run baseline methods
-BASELINE_METHODS="iNN,NN,ODE,ENTROPY,RANDOM"
+# Methods: from config experiment.methods (baseline-only) or default
+# DAD is evaluated in step6, not here
+BASELINE_METHODS=$(python3 -c "
+import yaml
+import sys
+try:
+    with open('$CONFIG_FILE', 'r') as f:
+        config = yaml.safe_load(f)
+    methods = config.get('experiment', {}).get('methods', [])
+    if isinstance(methods, list):
+        # Keep only baseline methods (DAD is run in step6)
+        baseline = [m for m in methods if m in ('RANDOM', 'ENTROPY', 'ODE', 'iNN', 'NN')]
+        if baseline:
+            print(','.join(baseline))
+            sys.exit(0)
+except Exception:
+    pass
+print('iNN,NN,ODE,ENTROPY,RANDOM')
+" 2>/dev/null || echo "iNN,NN,ODE,ENTROPY,RANDOM")
+
+# If MOCU_MODEL_NAME not set (e.g. /tmp cleared), resolve from config for iNN/NN
+if [ -z "$MOCU_MODEL_NAME" ] || [ "$MOCU_MODEL_NAME" = "" ]; then
+    MOCU_MODEL_NAME=$(grep -A 5 "^training:" "$CONFIG_FILE" 2>/dev/null | grep "model_name:" | awk '{print $2}' | tr -d '"' | tr -d "'" || echo "")
+    [ -n "$MOCU_MODEL_NAME" ] && export MOCU_MODEL_NAME
+fi
 
 if [ -n "$EXP_EVAL_DIR" ]; then
     RESULT_RUN_FOLDER="$EXP_EVAL_DIR"
@@ -87,9 +110,9 @@ if [ "${ABS_RESULT_FOLDER: -1}" != "/" ]; then
 fi
 
 if [ -n "$UPDATE_CNT" ]; then
-    python3 "${PROJECT_ROOT}/scripts/visualize.py" --N $N --update_cnt $UPDATE_CNT --result_folder "$ABS_RESULT_FOLDER" --baseline_only
+    python3 "${PROJECT_ROOT}/scripts/visualization/visualize.py" --N $N --update_cnt $UPDATE_CNT --result_folder "$ABS_RESULT_FOLDER" --baseline_only
 else
-    python3 "${PROJECT_ROOT}/scripts/visualize.py" --N $N --result_folder "$ABS_RESULT_FOLDER" --baseline_only
+    python3 "${PROJECT_ROOT}/scripts/visualization/visualize.py" --N $N --result_folder "$ABS_RESULT_FOLDER" --baseline_only
 fi
 
 echo "✓ Baseline-only visualizations generated"

@@ -1,10 +1,10 @@
 """
-Generate training data for Swing MLP predictor (second-order Kuramoto / swing equation).
+Generate training data for Swing MPNN MOCU predictor (second-order Kuramoto / swing equation).
 
 Based on documents/design_part1.tex:
 - Uncertainty: (M, K) with bounds [M_lower, M_upper, K_lower, K_upper]
 - MOCU computation: E_{(M,K)~p_t}[γ*(A_t) - γ*(M,K)]
-- Output: (M_lower, M_upper, K_lower, K_upper, MOCU) for MLP training
+- Output: (M_lower, M_upper, K_lower, K_upper, MOCU) for MPNN training
 """
 
 import sys
@@ -17,8 +17,9 @@ import multiprocessing as mp
 import yaml
 
 # Get absolute path to project root
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-sys.path.append(str(PROJECT_ROOT))
+# File in scripts/training/ -> project root = parent.parent.parent
+PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+sys.path.insert(0, str(PROJECT_ROOT))
 
 import numpy as np
 import random
@@ -150,7 +151,7 @@ def generate_single_sample(args_tuple):
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Generate training dataset for Swing MLP predictor')
+    parser = argparse.ArgumentParser(description='Generate training dataset for Swing MPNN MOCU predictor')
     parser.add_argument('--config', type=str, required=True,
                         help='Path to config YAML file')
     parser.add_argument('--samples', type=int, default=None,
@@ -348,7 +349,7 @@ def main():
     K_upper_arr = np.array([d['K_upper'] for d in data], dtype=np.float32)
     MOCU_arr = np.array([d['MOCU'] for d in data], dtype=np.float32)
     
-    # Save as .npz file (format expected by train_swing_mlp_predictor.py)
+    # Save as .npz file (format expected by train_swing_mpnn_predictor.py)
     output_file = output_dir / f'swing_mocu_data_{N}o.npz'
     np.savez(
         output_file,

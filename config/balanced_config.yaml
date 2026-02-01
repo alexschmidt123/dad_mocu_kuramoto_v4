@@ -5,7 +5,7 @@
 # Estimated Runtime: ~10 hours on RTX 4090
 #
 # Key differences from full_config.yaml:
-# - samples_per_type: 250 (vs 1200) - minimal for basic MLP training
+# - samples_per_type: 250 (vs 1200) - minimal for basic MPNN training
 # - K_max: 512 (vs 1024) - acceptable accuracy for testing
 # - num_simulations: 5 (vs 12) - sufficient for basic statistical analysis
 
@@ -33,7 +33,8 @@ swing_equation:
                                 # Reference: ENTSO-E normal operating band is 49.8-50.2 Hz
                                 # We use 49.8 Hz (stricter than 49.5 Hz) to require control
   probe_duration: 2.0         # T_p = 2 s (design_part1.tex Section 3, Hann window)
-  probe_amplitudes: [0.5, 1.0, 2.0]
+  probe_amplitudes: [0.05, 0.1, 0.2]  # A_set (pseucocode _parameter_list.md)
+  sigma: 0.01
   # Observation (design_part1.tex Section 4 & table; documents/pseucocode _parameter_list.txt)
   fs_hz: 12.0                # Sampling rate (PMU-like), ENTSO-E/NASPI
   rocof_window_sec: 0.5      # Sliding window for ROCOF (linear fit)
@@ -42,7 +43,7 @@ swing_equation:
 
 # Dataset generation (balanced for ~10 hour runtime)
 dataset:
-  samples_per_type: 250       # Reduced for ~10 hour runtime while maintaining basic MLP training
+  samples_per_type: 250       # Reduced for ~10 hour runtime while maintaining basic MPNN training
                               # Rationale: 4D input space, 250 provides minimal coverage for testing
                               # Runtime: ~250 samples × ~120s (K_max=512) ≈ 8.3 hours
   train_size: 200             # 80% for training (250 * 0.8 = 200)

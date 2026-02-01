@@ -2,8 +2,11 @@ import sys
 import os
 import time
 import argparse
+from pathlib import Path
 
-sys.path.append("./src")
+# File in scripts/visualization/ -> project root = parent.parent.parent
+PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+sys.path.insert(0, str(PROJECT_ROOT))
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -28,7 +31,7 @@ if not resultFolder.endswith(os.sep):
 if args.baseline_only:
     listMethods = ['iNN', 'NN', 'iODE', 'ODE', 'ENTROPY', 'RANDOM']
 else:
-    listMethods = ['iNN', 'NN', 'iODE', 'ODE', 'ENTROPY', 'RANDOM', 'DAD', 'DAD_MOCU', 'IDAD_MOCU']
+    listMethods = ['iNN', 'NN', 'iODE', 'ODE', 'ENTROPY', 'RANDOM', 'DAD']
 
 # Detect which methods have results by checking which files exist
 available_methods = []
@@ -135,15 +138,9 @@ if 'ENTROPY' in available_methods:
 if 'RANDOM' in available_methods:
     plot_args.extend([x_ax, method_data['RANDOM']['mocu'], 'b,:'])
     legend_labels.append('Random')
-if 'DAD_MOCU' in available_methods:
-    plot_args.extend([x_ax, method_data['DAD_MOCU']['mocu'], 'm^-'])
-    legend_labels.append('DAD-MOCU')
-if 'IDAD_MOCU' in available_methods:
-    plot_args.extend([x_ax, method_data['IDAD_MOCU']['mocu'], 'y^-'])
-    legend_labels.append('iDAD-MOCU')
 if 'DAD' in available_methods:
-    plot_args.extend([x_ax, method_data['DAD']['mocu'], 'g^-'])
-    legend_labels.append('DAD (legacy)')
+    plot_args.extend([x_ax, method_data['DAD']['mocu'], 'm^-'])
+    legend_labels.append('DAD')
 
 plt.plot(*plot_args)
 plt.legend(legend_labels, loc='center left', bbox_to_anchor=(1, 0.5))
@@ -183,15 +180,9 @@ if 'ENTROPY' in available_methods:
 if 'RANDOM' in available_methods:
     plot_args.extend([x_ax, np.insert(np.cumsum(method_data['RANDOM']['time']), 0, 0.0000000001), 'b,:'])
     legend_labels.append('Random')
-if 'DAD_MOCU' in available_methods:
-    plot_args.extend([x_ax, np.insert(np.cumsum(method_data['DAD_MOCU']['time']), 0, 0.0000000001), 'm^-'])
-    legend_labels.append('DAD-MOCU')
-if 'IDAD_MOCU' in available_methods:
-    plot_args.extend([x_ax, np.insert(np.cumsum(method_data['IDAD_MOCU']['time']), 0, 0.0000000001), 'y^-'])
-    legend_labels.append('iDAD-MOCU')
 if 'DAD' in available_methods:
-    plot_args.extend([x_ax, np.insert(np.cumsum(method_data['DAD']['time']), 0, 0.0000000001), 'g^-'])
-    legend_labels.append('DAD (legacy)')
+    plot_args.extend([x_ax, np.insert(np.cumsum(method_data['DAD']['time']), 0, 0.0000000001), 'm^-'])
+    legend_labels.append('DAD')
 
 plt.plot(*plot_args)
 plt.legend(legend_labels, loc='center left', bbox_to_anchor=(1, 0.5))

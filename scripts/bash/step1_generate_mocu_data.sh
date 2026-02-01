@@ -1,5 +1,5 @@
 #!/bin/bash
-# Step 1: Generate MOCU training data for Swing MLP predictor
+# Step 1: Generate MOCU training data for Swing MPNN MOCU predictor
 
 set -e
 
@@ -33,7 +33,10 @@ DATA_FOLDER="${PROJECT_ROOT}/data/${BASE_CONFIG_NAME}/mocu/"
 mkdir -p "$DATA_FOLDER"
 
 # Check if data already exists (MOCU data doesn't depend on K, so we can reuse it)
-TRAIN_FILE=$(find "$DATA_FOLDER" -name "*_${N}o_train.pth" -type f 2>/dev/null | head -1)
+TRAIN_FILE=$(find "$DATA_FOLDER" -name "swing_mocu_data_${N}o.npz" -type f 2>/dev/null | head -1)
+if [ -z "$TRAIN_FILE" ]; then
+    TRAIN_FILE=$(find "$DATA_FOLDER" -name "*_${N}o_train.pth" -type f 2>/dev/null | head -1)
+fi
 
 if [ -n "$TRAIN_FILE" ]; then
     echo "✓ Found existing MOCU training data: $TRAIN_FILE"

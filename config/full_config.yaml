@@ -3,13 +3,13 @@
 # Use this for final publication experiments (publication-quality, practical runtime)
 # 
 # Design rationale:
-# - samples_per_type: 1200 provides sufficient diversity for MLP training (4D input space)
+# - samples_per_type: 1200 provides sufficient diversity for MPNN training (4D input space)
 # - K_max: 1024 gives ~3.1% relative error (sufficient for publication, standard practice)
 # - num_simulations: 12 provides statistical significance (mean, std, CI)
 # - Estimated runtime: ~4-5 days on RTX 4090 (much more practical than 15 days)
 # 
 # Design Principles:
-# 1. Statistically sound: Sufficient samples for reliable MOCU estimation and MLP training
+# 1. Statistically sound: Sufficient samples for reliable MOCU estimation and MPNN training
 # 2. Reproducible: Fixed seeds, clear parameters, documented rationale
 # 3. Rigorous: Multiple independent runs for statistical significance
 # 4. Realistic: Production-quality parameters aligned with design_part1.tex
@@ -51,15 +51,15 @@ swing_equation:
   rocof_eval_sec: 1.0       # Evaluate ROCOF_max over first 1 s only
   T_obs_sec: 10.0           # Observation window [0, 10] s for simulation
 
-# Dataset generation for MLP predictor training
+# Dataset generation for MPNN MOCU predictor training
 # Statistical requirements for publication:
-# - Sufficient diversity in (M, K) bounds for robust MLP training
+# - Sufficient diversity in (M, K) bounds for robust MPNN training
 # - K_max: Sufficient Monte Carlo samples for accurate MOCU estimation
-# - samples_per_type: Enough training data for MLP (rule of thumb: 10x-20x input dimension)
+# - samples_per_type: Enough training data for MPNN (rule of thumb: 10x-20x input dimension)
 # - Train/validation split: 80/20 for model selection and early stopping
 dataset:
   samples_per_type: 1200      # 1200 unique (M_lower, M_upper, K_lower, K_upper) bounds
-                              # Rationale: 4D input space, 1200 provides sufficient diversity for MLP training.
+                              # Rationale: 4D input space, 1200 provides sufficient diversity for MPNN training.
                               # Standard practice: 500-2000 samples. 1200 is a good balance.
   train_size: 960             # 80% for training (1200 * 0.8 = 960)
                               # Remaining 240 samples used for validation
@@ -76,14 +76,12 @@ data_generation:
                               # Note: GPU is still used for ODE solving, but samples are processed sequentially
   chunk_size: 10              # Samples per worker batch
 
-# Training parameters for Swing MLP predictor
-# Based on standard MLP training practices for regression
+# Training parameters for Swing MPNN MOCU predictor
 training:
   model_name: "ieee14_full"  # Model identifier
   epochs: 400                 # Sufficient for convergence (monitor validation loss for early stopping)
-                              # Typical: 200-500 epochs for MLP regression
   constrain_weight: 0.0001    # Regularization weight (L2 penalty)
-  batch_size: 128             # Standard batch size for MLP (64-256 typical)
+  batch_size: 128             # Standard batch size for MPNN
   learning_rate: 0.001        # Standard learning rate for Adam optimizer
   train_split: 0.8            # 80/20 train/validation split (set in training script)
 
@@ -110,14 +108,12 @@ experiment:
     - "RANDOM"                 # Random probe selection (baseline)
     - "ENTROPY"                # Entropy-based heuristic (baseline)
     - "ODE"                    # ODE-based expected MOCU (ground truth, slow but accurate)
-    - "iNN"                    # Iterative Swing MLP predictor (adaptive, re-computes at each step)
-    - "NN"                     # Static Swing MLP predictor (fast, computes once)
-    # DAD/iDAD methods can be added if implemented
-    # - "DAD_MOCU"             # DAD-MOCU (if available)
-    # - "IDAD_MOCU"            # iDAD-MOCU (if available)
+    - "iNN"                    # Iterative MPNN MOCU predictor (adaptive, re-computes at each step)
+    - "NN"                     # Static MPNN MOCU predictor (fast, computes once)
+    # DAD method (evaluated in step 6 if policy trained)
+    # - "DAD"                  # DAD (if available)
 
-# DAD policy training data generation (if using DAD methods)
-# Note: DAD/iDAD methods require additional training data
+# DAD policy training data generation (if using DAD)
 dad_data:
   num_episodes: 5000          # Number of trajectories for DAD training
                               # Rationale: 5000 episodes sufficient for policy learning
@@ -125,7 +121,7 @@ dad_data:
                               # 5000 is a good balance for publication
   K: 10                        # Must match experiment.update_count
                               # Number of sequential experiments per trajectory
-  use_precomputed_mocu: true  # Use Swing MLP predictor for terminal MOCU (recommended)
+  use_precomputed_mocu: true  # Use MPNN predictor for terminal MOCU (recommended)
                               # This speeds up DAD training significantly
 
 # Reproducibility settings
@@ -146,7 +142,7 @@ paths:
 # Step 1: MOCU data generation
 #   - 1200 samples × ~300s per sample (with K_max=1024) = ~100 hours ≈ 4.2 days
 #   - Note: This is the main bottleneck. Can run overnight/weekend.
-# Step 2: MLP training
+# Step 2: MPNN training
 #   - ~30-60 minutes (depends on convergence)
 # Step 3: Baseline evaluation
 #   - 12 simulations × 5 methods × ~10 steps × ~15s per MOCU = ~2.5 hours
@@ -154,5 +150,5 @@ paths:
 #
 # This configuration maintains publication quality while being 3x faster:
 # - K_max=1024: 3.1% error (vs 2.2% with 2048) - still publication-quality
-# - samples_per_type=1200: Sufficient for MLP training
+# - samples_per_type=1200: Sufficient for MPNN training
 # - num_simulations=12: Statistically significant (10-20 is standard)

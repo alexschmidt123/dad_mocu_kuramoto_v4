@@ -7,7 +7,7 @@ Based on documents/design_part1.tex:
   dθ/dt = ω
   M dω/dt = P_m - Σ B_ij sin(θ_i - θ_j) - D ω - K ω + u_probe + u_ctrl
 
-This replaces the first-order Kuramoto model to enable DAD/iDAD methods.
+This replaces the first-order Kuramoto model to enable DAD methods.
 """
 
 import numpy as np

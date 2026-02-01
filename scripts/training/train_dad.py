@@ -23,8 +23,9 @@ from torch.utils.data import Dataset, DataLoader
 from tqdm import tqdm
 
 # Project imports
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-sys.path.append(str(PROJECT_ROOT))
+# File in scripts/training/ -> project root = parent.parent.parent
+PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+sys.path.insert(0, str(PROJECT_ROOT))
 from src.models.policy_networks import DADPolicyNetwork, DADPolicyNetworkSwing, create_state_data, create_swing_state_data
 
 # Optional imports (for visualization only)
@@ -311,6 +312,44 @@ def train_imitation(model, dataloader, optimizer, device, N):
     avg_loss = total_loss / total_samples
     accuracy = total_correct / total_samples
     
+    return avg_loss, accuracy
+
+
+def train_swing_imitation(model, dataloader, optimizer, device, N, num_probe_amplitudes):
+    """
+    Train one epoch of behavior cloning for swing-equation DAD policy.
+    Batch format: M_lower, M_upper, K_lower, K_upper, history, action_bus, action_amp_idx, available_mask.
+    """
+    model.train()
+    total_loss = 0.0
+    total_correct = 0
+    total_samples = 0
+    for batch in dataloader:
+        optimizer.zero_grad()
+        M_lower = batch['M_lower'].to(device)
+        M_upper = batch['M_upper'].to(device)
+        K_lower = batch['K_lower'].to(device)
+        K_upper = batch['K_upper'].to(device)
+        history_batch = batch['history'].to(device)
+        action_bus = batch['action_bus'].to(device)
+        action_amp_idx = batch['action_amp_idx'].to(device)
+        available_mask = batch['available_mask'].to(device)
+        batch_size = M_lower.shape[0]
+        state_data = {
+            'M_lower': M_lower, 'M_upper': M_upper,
+            'K_lower': K_lower, 'K_upper': K_upper,
+        }
+        action_logits, action_probs = model(state_data, history_batch, available_mask)
+        expert_action_idx = action_bus * num_probe_amplitudes + action_amp_idx
+        loss = F.cross_entropy(action_logits, expert_action_idx)
+        loss.backward()
+        optimizer.step()
+        total_loss += loss.item() * batch_size
+        predicted = torch.argmax(action_logits, dim=-1)
+        total_correct += (predicted == expert_action_idx).sum().item()
+        total_samples += batch_size
+    avg_loss = total_loss / total_samples if total_samples else 0.0
+    accuracy = total_correct / total_samples if total_samples else 0.0
     return avg_loss, accuracy
 
 
@@ -650,7 +689,7 @@ def train_reinforce(model, trajectories, optimizer, device, N, gamma=0.96, K_max
         reward_list.append(reward)
         all_rewards.append(reward)
         
-        # === CRITIC BASELINE (iDAD-inspired variance reduction) ===
+        # === CRITIC BASELINE (variance reduction) ===
         critic_baseline = None
         if critic is not None:
             # Estimate terminal MOCU using critic network
@@ -678,7 +717,7 @@ def train_reinforce(model, trajectories, optimizer, device, N, gamma=0.96, K_max
         
         # Compute advantage using critic baseline (if available) or reward normalization
         if critic_baseline is not None:
-            # Use critic as baseline (iDAD approach - reduces variance)
+            # Use critic as baseline (reduces variance)
             advantage = float(reward - critic_baseline)
             
             # Normalize advantage to prevent extreme values
@@ -984,7 +1023,7 @@ def train_reinforce(model, trajectories, optimizer, device, N, gamma=0.96, K_max
         torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=0.5)
         optimizer.step()
         
-        # === TRAIN CRITIC (iDAD-inspired) ===
+        # === TRAIN CRITIC ===
         if critic is not None and critic_optimizer is not None:
             critic_optimizer.zero_grad()
             
@@ -1135,7 +1174,7 @@ def _run_swing_training(args, trajectories, config, N, K, device):
     """Train DAD policy for swing equation (imitation / behavior cloning)."""
     probe_amplitudes = config.get('probe_amplitudes', [0.5, 1.0, 2.0])
     num_probe_amplitudes = len(probe_amplitudes)
-    dataset = SwingDADTrajectoryDataset(trajectories, N=N, probe_amplitudes=probe_amplitudes)
+    dataset = SwingDADTrajectoryDataset(trajectories, probe_amplitudes=probe_amplitudes)
     dataloader = DataLoader(
         dataset,
         batch_size=args.batch_size,
@@ -1192,8 +1231,8 @@ def main():
     parser = argparse.ArgumentParser(description='Train DAD policy network')
     parser.add_argument('--data-path', type=str, required=True, help='Path to trajectory data')
     parser.add_argument('--method', type=str, default='dad_mocu', 
-                       choices=['imitation', 'reinforce', 'dad_mocu', 'idad_mocu'], 
-                       help='Training method: "dad_mocu" (no critic, simple baseline), "idad_mocu" (with critic from scratch), "reinforce" (legacy), or "imitation" (behavior cloning)')
+                       choices=['imitation', 'reinforce', 'dad_mocu'], 
+                       help='Training method: "dad_mocu" (no critic, simple baseline), "reinforce" (legacy), or "imitation" (behavior cloning)')
     parser.add_argument('--epochs', type=int, default=100, help='Number of epochs')
     parser.add_argument('--batch-size', type=int, default=32, help='Batch size')
     parser.add_argument('--lr', type=float, default=0.00005, help='Learning rate (default: 5e-5, reduced from 1e-4 for stability)')
@@ -1205,26 +1244,19 @@ def main():
     parser.add_argument('--use-predicted-mocu', action='store_true',
                        help='Use MPNN predictor for fast MOCU estimation (recommended). Requires trained MPNN model.')
     parser.add_argument('--use-critic', action='store_true',
-                       help='Use critic network for variance reduction (iDAD-inspired). Auto-enabled for idad_mocu method.')
+                       help='Use critic network for variance reduction (reinforce only).')
     parser.add_argument('--critic-lr', type=float, default=None,
                        help='Learning rate for critic (default: same as policy lr)')
     args = parser.parse_args()
     
     # Map method names to critic usage
-    if args.method == 'idad_mocu':
-        # iDAD-MOCU: Use critic (learns from scratch, no MPNN)
-        args.use_critic = True
-        print("[METHOD] Using iDAD-MOCU: with critic network (learns from scratch)")
-    elif args.method == 'dad_mocu':
-        # DAD-MOCU: No critic, use simple baseline
+    if args.method == 'dad_mocu':
         args.use_critic = False
         print("[METHOD] Using DAD-MOCU: no critic, simple baseline")
     elif args.method == 'reinforce':
-        # Legacy: Use --use-critic flag if provided
         print("[METHOD] Using legacy REINFORCE method")
     
-    # Both dad_mocu and idad_mocu use per-step rewards by default
-    use_per_step_reward_default = args.method in ['dad_mocu', 'idad_mocu']
+    use_per_step_reward_default = (args.method == 'dad_mocu')
     
     # Load data
     print("Loading trajectory data...")
@@ -1269,22 +1301,16 @@ def main():
     
     print(f"Model parameters: {sum(p.numel() for p in model.parameters()):,}")
     
-    # Load MPNN predictor for critic (if using critic) - iDAD paper approach
-    # In iDAD paper, critic uses EIG estimate function (similar to MPNN) as base prediction
+    # Load MPNN predictor for critic (if using critic)
     mpnn_model_for_critic = None
     mpnn_mean_for_critic = None
     mpnn_std_for_critic = None
     
-    # Create critic network (iDAD-inspired for variance reduction)
-    # iDAD approach: Critic uses fast approximation (MPNN) + adjustment based on history
-    # This aligns with iDAD paper where critic uses EIG estimate function
     critic = None
     critic_optimizer = None
     if args.use_critic:
         from src.models.critics import MOCUCritic
         
-        # Load MPNN predictor for critic (iDAD paper approach)
-        # MPNN provides base MOCU estimate, critic learns to adjust it based on history
         try:
             from src.models.predictors.predictor_utils import load_mpnn_predictor
             import os
@@ -1308,7 +1334,7 @@ def main():
             if not model_name:
                 model_name = f'cons{N}'
             
-            print(f"[iDAD Critic] Loading MPNN predictor for critic: {model_name}")
+            print(f"[Critic] Loading MPNN predictor: {model_name}")
             mpnn_model_for_critic, mpnn_mean_for_critic, mpnn_std_for_critic = load_mpnn_predictor(
                 model_name=model_name, device=str(device)
             )
@@ -1316,46 +1342,35 @@ def main():
             if mpnn_model_for_critic is not None:
                 mpnn_model_for_critic.eval()
                 mpnn_model_for_critic = mpnn_model_for_critic.to(device)
-                print(f"[iDAD Critic] ✓ MPNN predictor loaded successfully")
+                print(f"[Critic] ✓ MPNN predictor loaded")
             else:
-                print(f"[iDAD Critic] ⚠ MPNN predictor not found, critic will learn from scratch")
+                print(f"[Critic] ⚠ MPNN not found, critic will learn from scratch")
         except Exception as e:
-            print(f"[iDAD Critic] ⚠ Failed to load MPNN predictor: {e}")
-            print(f"[iDAD Critic]   Critic will learn from scratch (fallback)")
+            print(f"[Critic] ⚠ Failed to load MPNN: {e}")
+            print(f"[Critic]   Critic will learn from scratch (fallback)")
             mpnn_model_for_critic = None
         
-        # Create critic with MPNN (iDAD paper approach)
-        # Critic uses MPNN as base prediction, then adjusts based on history
         critic = MOCUCritic(
             N=N,
             hidden_dim=args.hidden_dim,
             encoding_dim=args.encoding_dim,
-            use_set_equivariant=False,  # Use LSTM encoder (order-dependent, necessary when order matters)
-            mpnn_model=mpnn_model_for_critic,  # Use MPNN like iDAD uses EIG estimate function
+            use_set_equivariant=False,
+            mpnn_model=mpnn_model_for_critic,
             mpnn_mean=mpnn_mean_for_critic,
             mpnn_std=mpnn_std_for_critic
         )
         critic = critic.to(device)
         print(f"Critic parameters: {sum(p.numel() for p in critic.parameters()):,}")
-        
-        # Use lower learning rate for critic (2-5x lower than policy) for stability
-        # Critic adjusts MPNN predictions, needs slower updates to avoid interference with policy
         if args.critic_lr is not None:
             critic_lr = args.critic_lr
         else:
-            # Default: 0.25x policy LR for stability
             critic_lr = args.lr * 0.25
         critic_optimizer = torch.optim.Adam(critic.parameters(), lr=critic_lr)
-        print(f"Using critic network for variance reduction (iDAD-inspired)")
-        print(f"  Critic LR: {critic_lr}")
+        print(f"Using critic for variance reduction, LR: {critic_lr}")
         if mpnn_model_for_critic is not None:
-            print(f"  Pre-trained MPNN: ENABLED in critic (iDAD paper approach)")
-            print(f"    → Critic uses MPNN as base prediction (like EIG estimate in iDAD)")
-            print(f"    → Critic learns to adjust MPNN predictions based on history")
-            print(f"    → This aligns with iDAD paper architecture")
+            print(f"  Pre-trained MPNN: ENABLED in critic")
         else:
-            print(f"  Pre-trained MPNN: DISABLED (fallback - MPNN not available)")
-            print(f"    → Critic learns from scratch")
+            print(f"  Pre-trained MPNN: DISABLED (critic learns from scratch)")
     
     # Warn if learning rate is too small (likely to cause training issues)
     if args.lr < 1e-5:
@@ -1460,7 +1475,7 @@ def main():
             epoch_pbar.set_postfix({'loss': f'{loss:.4f}', 'acc': f'{acc:.4f}', 
                                    'time': f'{time.time()-start_time:.1f}s'})
         
-        elif args.method in ['reinforce', 'dad_mocu', 'idad_mocu']:
+        elif args.method in ['reinforce', 'dad_mocu']:
             # Get K_max from config or use default
             K_max = config.get('K_max', 20480)
             
@@ -1474,8 +1489,7 @@ def main():
             
             # CRITICAL: For per-step rewards, we NEED MPNN predictor even if terminal MOCU is pre-computed
             # Per-step rewards require computing MOCU at each step, which needs the predictor
-            # Both dad_mocu and idad_mocu use per-step rewards by default
-            if args.method in ['dad_mocu', 'idad_mocu']:
+            if args.method == 'dad_mocu':
                 enable_per_step_reward = True  # Always enable for new methods
                 print(f"[{args.method.upper()}] Per-step rewards enabled (default for this method)")
             else:
@@ -1593,7 +1607,7 @@ def main():
                         print(f"\n[REINFORCE] REINFORCE training requires MPNN predictor to avoid segmentation faults.")
                         print(f"[REINFORCE] MPNN predictor is required for efficient training.")
                         print(f"\n[REINFORCE] Solutions:")
-                        print(f"  1. Train Swing MLP predictor first: bash scripts/bash/step2_train_swing_mlp.sh configs/fast_config.yaml")
+                        print(f"  1. Train Swing MPNN MOCU predictor first: bash scripts/bash/step2_train_swing_mpnn.sh config/fast_config.yaml")
                         print(f"  2. Or set MOCU_MODEL_NAME environment variable: export MOCU_MODEL_NAME='{model_name}'")
                         print(f"  3. Or ensure MPNN model exists in: models/{model_name.split('_')[0]}/")
                         print(f"!"*80 + "\n")

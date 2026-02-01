@@ -78,7 +78,7 @@ echo "Experiment Configuration:"
 echo "  System size (N): $N"
 echo "  N_global: $((N + 1))"
 echo "  K: $UPDATE_CNT"
-echo "  Methods to evaluate: RANDOM,ENTROPY,ODE,iNN,NN,DAD_MOCU"
+echo "  Methods to evaluate: RANDOM,ENTROPY,ODE,iNN,NN,DAD"
 echo ""
 
 # Export environment variables for scripts
@@ -102,9 +102,9 @@ echo "[Step 1/6] Generating MOCU training data..."
 bash "${PROJECT_ROOT}/scripts/bash/step1_generate_mocu_data.sh" "$CONFIG_FILE"
 echo ""
 
-# Step 2: Train Swing MLP predictor
-echo "[Step 2/6] Training Swing MLP predictor..."
-bash "${PROJECT_ROOT}/scripts/bash/step2_train_swing_mlp.sh" "$CONFIG_FILE"
+# Step 2: Train Swing MPNN MOCU predictor
+echo "[Step 2/6] Training Swing MPNN MOCU predictor..."
+bash "${PROJECT_ROOT}/scripts/bash/step2_train_swing_mpnn.sh" "$CONFIG_FILE"
 echo ""
 
 # Step 3: Run baseline evaluation and visualization
