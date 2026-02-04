@@ -51,7 +51,7 @@ data_generation:
 
 # Training parameters (minimal for quick testing)
 training:
-  model_name: "fast_test"  # Identifier for trained model directory (models/fast_test/)
+  model_name: "fast_config"  # Model folder: models/fast_config/ (MPNN + DAD + loss curves)
   epochs: 50              # Minimal epochs for quick testing
   constrain_weight: 0.0001
   batch_size: 16          # Small batch for small dataset

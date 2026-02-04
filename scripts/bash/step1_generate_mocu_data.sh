@@ -17,11 +17,12 @@ export PYTHONPATH="${PROJECT_ROOT}:${PYTHONPATH}"
 CONFIG_NAME=$(basename "$CONFIG_FILE" .yaml)
 # Extract base config name (remove _K* suffix if present, since MOCU data doesn't depend on K)
 BASE_CONFIG_NAME=$(echo "$CONFIG_NAME" | sed 's/_K[0-9]*$//')
+# Match only key lines (optional spaces, key, colon, value) — avoid comment lines like "# - samples_per_type:"
 N=$(grep "^N:" $CONFIG_FILE | awk '{print $2}')
-SAMPLES=$(grep "samples_per_type:" $CONFIG_FILE | awk '{print $2}')
-TRAIN_SIZE=$(grep "train_size:" $CONFIG_FILE | awk '{print $2}')
-K_MAX=$(grep -A 3 "^dataset:" $CONFIG_FILE | grep "K_max:" | awk '{print $2}')
-SAVE_JSON=$(grep "save_json:" $CONFIG_FILE | awk '{print $2}')
+SAMPLES=$(grep "^  samples_per_type:" $CONFIG_FILE | awk '{print $2}')
+TRAIN_SIZE=$(grep "^  train_size:" $CONFIG_FILE | awk '{print $2}')
+K_MAX=$(grep -A 3 "^dataset:" $CONFIG_FILE | grep "^  K_max:" | awk '{print $2}')
+SAVE_JSON=$(grep "^  save_json:" $CONFIG_FILE | awk '{print $2}')
 
 # Parse data generation optimization settings (optional, with defaults)
 NUM_WORKERS=$(grep -A 3 "^data_generation:" $CONFIG_FILE | grep "  num_workers:" | awk '{print $2}')

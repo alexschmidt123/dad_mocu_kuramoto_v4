@@ -604,12 +604,12 @@ class DADPolicyNetworkSwing(nn.Module):
     def encode_state(self, state_data):
         """Encode current state (M, K bounds)."""
         if isinstance(state_data, dict):
-            # Extract bounds from dict
+            # Extract bounds from dict; each is [batch] -> stack to [batch, 4]
             M_lower = state_data['M_lower']
             M_upper = state_data['M_upper']
             K_lower = state_data['K_lower']
             K_upper = state_data['K_upper']
-            state_vec = torch.cat([M_lower, M_upper, K_lower, K_upper], dim=-1)
+            state_vec = torch.stack([M_lower, M_upper, K_lower, K_upper], dim=-1)
         else:
             # Assume state_data is already a tensor [batch, 4]
             state_vec = state_data
@@ -619,15 +619,16 @@ class DADPolicyNetworkSwing(nn.Module):
     
     def encode_history(self, history_data):
         """Encode history of (bus, amplitude, observation) tuples."""
+        device = next(self.parameters()).device
         if history_data is None or history_data.shape[1] == 0:
-            # No history
+            # No history — use model device so output matches state_emb for torch.cat
             if self.history_encoder_type == 'lstm':
                 batch_size = 1
-                return torch.zeros(batch_size, self.hidden_dim, device=history_data.device if history_data is not None else 'cpu')
+                return torch.zeros(batch_size, self.hidden_dim, device=device)
             elif self.history_encoder_type == 'sum':
-                return torch.zeros(1, self.encoding_dim, device=history_data.device if history_data is not None else 'cpu')
+                return torch.zeros(1, self.encoding_dim, device=device)
             else:  # cat
-                return torch.zeros(1, self.max_history_len * self.encoding_dim, device=history_data.device if history_data is not None else 'cpu')
+                return torch.zeros(1, self.max_history_len * self.encoding_dim, device=device)
         
         batch_size, seq_len, _ = history_data.shape
         device = history_data.device

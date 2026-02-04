@@ -50,6 +50,17 @@ def load_swing_mpnn_predictor(B, model_name, device='cuda', N_probe_buses=14):
         stats = torch.load(stats_path, map_location=device, weights_only=False)
         mean = stats.get('mean', mean)
         std = stats.get('std', std)
+        # MOCU output normalization (used by predict_mocu for denormalization)
+        if 'mocu_mean' in stats and 'mocu_std' in stats:
+            m = stats['mocu_mean']
+            s = stats['mocu_std']
+            if torch.is_tensor(m):
+                m, s = m.to(device), s.to(device)
+            else:
+                m = torch.tensor(float(m), device=device, dtype=torch.float32)
+                s = torch.tensor(float(s), device=device, dtype=torch.float32)
+            model.register_buffer('mocu_mean', m.reshape(-1))
+            model.register_buffer('mocu_std', s.reshape(-1))
 
     print(f"[SwingMPNN] Loaded model '{model_name}' on {device}")
     return model, mean, std

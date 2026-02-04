@@ -85,6 +85,8 @@ if __name__ == '__main__':
         update_cnt = experiment_params.get('update_count', 10)
         K_max = experiment_params.get('K_max', 20480)
         numberOfSimulationsPerMethod = experiment_params.get('num_simulations', 10)
+        skip_sync_check = experiment_params.get('skip_sync_check', False) or \
+            os.getenv('EVAL_SKIP_SYNC_CHECK', '0').strip().lower() in ('1', 'true', 'yes')
         
         # Swing equation parameters
         topology = swing_params.get('topology', 'ieee14')
@@ -107,6 +109,7 @@ if __name__ == '__main__':
         N = safe_getenv_int('EVAL_N', '14')
         K_max = safe_getenv_int('EVAL_K_MAX', '20480')
         numberOfSimulationsPerMethod = safe_getenv_int('EVAL_NUM_SIMULATIONS', '10')
+        skip_sync_check = os.getenv('EVAL_SKIP_SYNC_CHECK', '0').strip().lower() in ('1', 'true', 'yes')
         
         # Default swing equation parameters
         topology = 'ieee14'
@@ -149,6 +152,7 @@ if __name__ == '__main__':
     print(f"{'='*80}")
     print(f"  N={N}, update_cnt={update_cnt}, it_idx={it_idx}, K_max={K_max}")
     print(f"  num_simulations={numberOfSimulationsPerMethod}")
+    print(f"  skip_sync_check={skip_sync_check}")
     print(f"  methods={method_names}")
     print(f"  result_folder={result_folder}")
     print(f"  Action space: N_buses × num_amplitudes = {N} × {len(probe_amplitudes)} = {num_actions} actions")
@@ -212,26 +216,29 @@ if __name__ == '__main__':
         
         numberOfSimulations += 1
         
-        # Check if system is already synchronized (optional - can skip for speed)
-        # For swing equation, we check frequency synchronization
-        try:
-            state_traj = solve_swing_equation_ode(
-                B, P_m, D, M_true, K_true, g,
-                h=h, M_steps=MReal, T=T,
-                device=device, timeout=5.0
-            )
-            N_buses = len(P_m)
-            omega_traj = state_traj[:, N_buses:]  # Extract frequency part
-            is_synced = check_frequency_synchronization(omega_traj, MReal)
-            
-            if is_synced:
-                sim_pbar.write(f'  ⚠️  System {numberOfSimulations}: Already synchronized (skipping - no learning needed)')
-                continue
-            else:
-                sim_pbar.write(f'  ✓ System {numberOfSimulations}: Not synchronized (good for OED evaluation)')
-        except Exception as e:
-            # If sync check fails, continue anyway
-            sim_pbar.write(f'  ⚠️  System {numberOfSimulations}: Sync check failed ({e}), continuing...')
+        # Optional filter: skip systems that are already frequency-synchronized.
+        # Target is (M,K) uncertainty reduction (MOCU), not synchronization. This filter
+        # only avoids systems where initial MOCU may be trivial; set skip_sync_check=true to use every draw.
+        if not skip_sync_check:
+            try:
+                state_traj = solve_swing_equation_ode(
+                    B, P_m, D, M_true, K_true, g,
+                    h=h, M_steps=MReal, T=T,
+                    device=device, timeout=5.0
+                )
+                N_buses = len(P_m)
+                omega_traj = state_traj[:, N_buses:]  # Extract frequency part
+                is_synced = check_frequency_synchronization(omega_traj, MReal)
+                
+                if is_synced:
+                    sim_pbar.write(f'  ⚠️  System {numberOfSimulations}: Skipped (frequency-sync filter; use skip_sync_check to include)')
+                    continue
+                else:
+                    sim_pbar.write(f'  ✓ System {numberOfSimulations}: Using system')
+            except Exception as e:
+                sim_pbar.write(f'  ⚠️  System {numberOfSimulations}: Sync check failed ({e}), continuing...')
+        else:
+            sim_pbar.write(f'  ✓ System {numberOfSimulations}: Using system')
         
         # Save true parameters
         true_params_file = os.path.join(result_folder, f'paramTrue_M_K_{numberOfVaildSimulations}.txt')

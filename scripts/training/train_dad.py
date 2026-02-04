@@ -178,11 +178,8 @@ class SwingDADTrajectoryDataset(Dataset):
                     history.append([bus, amp_idx, rocof])
                 bus, amp, _ = traj['actions'][step]
                 amp_idx = self._amp_to_idx(amp)
-                num_buses = int(np.sqrt(len(traj['states'][0])) * 2) if isinstance(traj['states'][0], (list, tuple)) else 14
-                try:
-                    num_buses = len(traj['states'][0]) if isinstance(traj['states'][0], (list, tuple)) and len(traj['states'][0]) == 4 else 14
-                except Exception:
-                    num_buses = 14
+                # num_buses = self.N (states[0] is (M_low, M_up, K_low, K_up) — 4 scalars, not bus count)
+                num_buses = self.N
                 num_actions = num_buses * len(self.probe_amplitudes)
                 available_mask = np.ones(num_actions, dtype=np.float32)
                 terminal_MOCU = traj.get('terminal_MOCU')
@@ -1194,10 +1191,14 @@ def _run_swing_training(args, trajectories, config, N, K, device):
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     best_loss = float('inf')
+    train_losses = []
+    train_accs = []
     for epoch in range(args.epochs):
         avg_loss, accuracy = train_swing_imitation(
             model, dataloader, optimizer, device, N, num_probe_amplitudes
         )
+        train_losses.append(avg_loss)
+        train_accs.append(accuracy)
         if (epoch + 1) % 10 == 0 or epoch == 0:
             print(f"  Epoch {epoch+1}/{args.epochs}  loss={avg_loss:.4f}  acc={accuracy:.4f}")
         if avg_loss < best_loss:
@@ -1225,6 +1226,30 @@ def _run_swing_training(args, trajectories, config, N, K, device):
         },
     }, output_dir / f'{args.name}.pth')
     print(f"Saved swing DAD policy to {output_dir / args.name}.pth")
+
+    # DAD loss curve for swing (imitation) path - same layout as main path
+    if HAS_MATPLOTLIB and train_losses and train_accs:
+        fig, axes = plt.subplots(1, 2, figsize=(12, 4))
+        axes[0].plot(train_losses)
+        axes[0].set_xlabel('Epoch')
+        axes[0].set_ylabel('Loss')
+        axes[0].set_title('DAD policy (swing) – training loss')
+        axes[0].grid(True)
+        axes[1].plot(train_accs)
+        axes[1].set_xlabel('Epoch')
+        axes[1].set_ylabel('Accuracy')
+        axes[1].set_title('DAD policy (swing) – training accuracy')
+        axes[1].grid(True)
+        plt.tight_layout()
+        plt.savefig(output_dir / f'{args.name}_training_curve.png', dpi=300)
+        plt.savefig(output_dir / 'dad_training_curve.png', dpi=300)
+        plt.close()
+        print(f"✓ DAD loss curve saved to: {output_dir / 'dad_training_curve.png'}")
+    import json
+    metrics_path = output_dir / f'{args.name}_training_metrics.json'
+    with open(metrics_path, 'w') as f:
+        json.dump({'train_losses': train_losses, 'train_accs': train_accs, 'best_loss': best_loss}, f, indent=2)
+    print(f"✓ DAD metrics saved to: {metrics_path}")
 
 
 def main():
@@ -1917,8 +1942,11 @@ def main():
                     axes.legend()
         
         plt.tight_layout()
+        # Save with method-specific name and canonical name for config folder layout (mpnn_training_curve.png + dad_training_curve.png)
         plt.savefig(output_dir / f'{args.name}_training_curve.png', dpi=300)
+        plt.savefig(output_dir / 'dad_training_curve.png', dpi=300)
         print(f"✓ Training curve saved to: {output_dir / f'{args.name}_training_curve.png'}")
+        print(f"✓ DAD loss curve saved to: {output_dir / 'dad_training_curve.png'}")
     else:
         print("[INFO] Skipping training curve plot (matplotlib not available)")
     

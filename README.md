@@ -12,7 +12,7 @@ Sequential optimal experimental design for power systems using second-order Kura
 
 **Observations**: ROCOF-only observation $y_t = \text{ROCOF}_{\max}$ (scalar) extracted at 12 Hz sampling rate
 
-**Objective**: Minimize MOCU through sequential probe selection
+**Objective**: Minimize MOCU through sequential probe selection (target is uncertainty in $(M,K)$, not synchronization or coupling).
 
 **Methods**: RANDOM, ENTROPY, ODE, iNN, NN (baselines) and DAD (learned policy with explicit likelihood)
 
@@ -104,3 +104,5 @@ python scripts/evaluation/validate_mpnn_mocu.py --config config/fast_config.yaml
 - Increase `dataset.samples_per_type` and re-run Step 1 and Step 2.
 - Increase `training.epochs` or check learning rate.
 - Ensure `dataset.K_max` matches or exceeds the value used at evaluation time.
+
+To improve MPNN further: use more data (samples_per_type, K_max), tune --dropout and --hidden_dim in Step 2, and run validate_mpnn_mocu.py to target R² > 0.9.

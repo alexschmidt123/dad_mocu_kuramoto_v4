@@ -163,5 +163,14 @@ class SwingMPNNPredictor(nn.Module):
             if x.dim() == 1:
                 x = x.unsqueeze(0)
             out = self.forward(x, probe_bus=probe_bus, probe_amplitude=probe_amplitude)
+            # Denormalize if training used MOCU target normalization (statistics.pth: mocu_mean, mocu_std)
+            if getattr(self, 'mocu_std', None) is not None:
+                s = self.mocu_std.to(out.device)
+                m = self.mocu_mean.to(out.device)
+                if s.numel() == 1:
+                    if s.abs().item() > 1e-12:
+                        out = out * s + m
+                elif (s.abs() > 1e-12).all():
+                    out = out * s + m
             out = out.squeeze(-1).cpu().numpy()
             return out.item() if out.size == 1 else out

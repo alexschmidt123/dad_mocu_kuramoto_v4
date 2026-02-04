@@ -18,6 +18,14 @@ import numpy as np
 from tqdm import tqdm
 import yaml
 
+try:
+    import matplotlib
+    matplotlib.use('Agg')
+    import matplotlib.pyplot as plt
+    HAS_MATPLOTLIB = True
+except ImportError:
+    HAS_MATPLOTLIB = False
+
 # File lives in scripts/training/ -> project root is parent.parent.parent
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
@@ -57,10 +65,15 @@ def main():
     parser.add_argument('--config', type=str, required=True, help='Path to config YAML')
     parser.add_argument('--data_file', type=str, default=None,
                         help='Path to .npz MOCU data (default: data/{model_name}_mocu_data.npz)')
+    parser.add_argument('--model_dir', type=str, default=None,
+                        help='Output directory for model and plots (default: models/{training.model_name})')
     parser.add_argument('--epochs', type=int, default=400)
     parser.add_argument('--batch_size', type=int, default=128)
     parser.add_argument('--learning_rate', type=float, default=0.001)
     parser.add_argument('--train_split', type=float, default=0.8)
+    parser.add_argument('--early_stop_patience', type=int, default=30, help='Stop if val loss does not improve for this many epochs')
+    parser.add_argument('--hidden_dim', type=int, default=None, help='MPNN hidden dim (default: 64)')
+    parser.add_argument('--dropout', type=float, default=0.15, help='MPNN dropout (default: 0.15)')
     args = parser.parse_args()
 
     with open(args.config, 'r') as f:
@@ -95,6 +108,13 @@ def main():
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f"Using device: {device}")
 
+    if args.model_dir is not None:
+        model_dir = Path(args.model_dir).resolve()
+    else:
+        model_dir = PROJECT_ROOT / 'models' / model_name
+    model_dir.mkdir(parents=True, exist_ok=True)
+    print(f"Model output: {model_dir}")
+
     full_dataset = SwingMOCUDataset(data_file)
     train_size = int(args.train_split * len(full_dataset))
     val_size = len(full_dataset) - train_size
@@ -105,53 +125,83 @@ def main():
     train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True)
     val_loader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False)
 
+    # MOCU target normalization (stabilizes training, improves gradient scale)
+    train_mocu = full_dataset.MOCU[train_dataset.indices]
+    mocu_mean = float(np.mean(train_mocu))
+    mocu_std = float(np.std(train_mocu)) or 1.0
+    print(f"MOCU target normalization: mean = {mocu_mean:.4f}, std = {mocu_std:.4f}")
+
+    hidden_dim = args.hidden_dim if args.hidden_dim is not None else 64
     B_np = np.asarray(B)
-    model = SwingMPNNPredictor(B_np, use_probe=True, N_probe_buses=N).to(device)
+    model = SwingMPNNPredictor(
+        B_np, use_probe=True, N_probe_buses=N,
+        hidden_dim=hidden_dim, dropout=args.dropout
+    ).to(device)
     print(f"Model:\n{model}")
 
     criterion = nn.MSELoss()
     optimizer = optim.Adam(model.parameters(), lr=args.learning_rate)
+    scheduler = optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer, mode='min', factor=0.5, patience=10, verbose=True
+    )
 
-    model_dir = PROJECT_ROOT / 'models' / model_name
-    model_dir.mkdir(parents=True, exist_ok=True)
     best_val_loss = float('inf')
     mean = torch.zeros(4, device=device)
     std = torch.ones(4, device=device)
+    train_losses = []
+    val_losses = []
+    early_stop_patience = args.early_stop_patience
+    epochs_no_improve = 0
 
     for epoch in range(args.epochs):
         model.train()
         train_loss = 0.0
         for x, y in tqdm(train_loader, desc=f"Epoch {epoch+1}", leave=False):
             x, y = x.to(device), y.to(device)
+            y_norm = (y - mocu_mean) / (mocu_std + 1e-12)
             optimizer.zero_grad()
             pred = model(x, probe_bus=None, probe_amplitude=None)
-            loss = criterion(pred, y)
+            loss = criterion(pred, y_norm)
             loss.backward()
             optimizer.step()
             train_loss += loss.item()
         train_loss /= len(train_loader)
+        train_losses.append(train_loss)
 
         model.eval()
         val_loss = 0.0
         with torch.no_grad():
             for x, y in val_loader:
                 x, y = x.to(device), y.to(device)
+                y_norm = (y - mocu_mean) / (mocu_std + 1e-12)
                 pred = model(x, probe_bus=None, probe_amplitude=None)
-                val_loss += criterion(pred, y).item()
+                val_loss += criterion(pred, y_norm).item()
         val_loss /= len(val_loader)
+        val_losses.append(val_loss)
+        scheduler.step(val_loss)
 
         print(f"Epoch {epoch+1}/{args.epochs}: Train Loss = {train_loss:.6f}, Val Loss = {val_loss:.6f}")
         if val_loss < best_val_loss:
             best_val_loss = val_loss
+            epochs_no_improve = 0
             torch.save({
                 'model_state_dict': model.state_dict(),
                 'epoch': epoch, 'val_loss': val_loss,
                 'config': {'N': N, 'B_shape': B_np.shape}
             }, model_dir / 'model_mpnn.pth')
-            torch.save({'mean': mean, 'std': std}, model_dir / 'statistics.pth')
+            stats = {
+                'mean': mean, 'std': std,
+                'mocu_mean': mocu_mean, 'mocu_std': mocu_std,
+            }
+            torch.save(stats, model_dir / 'statistics.pth')
             print(f"  ✓ Saved best model (val_loss = {val_loss:.6f})")
+        else:
+            epochs_no_improve += 1
+            if epochs_no_improve >= early_stop_patience:
+                print(f"  Early stopping: no improvement for {early_stop_patience} epochs")
+                break
 
-    # Final validation metrics (estimation quality)
+    # Final validation metrics (estimation quality) in original MOCU scale
     model.eval()
     val_preds, val_true = [], []
     with torch.no_grad():
@@ -160,7 +210,7 @@ def main():
             pred = model(x, probe_bus=None, probe_amplitude=None)
             val_preds.append(pred.cpu().numpy().ravel())
             val_true.append(y.cpu().numpy().ravel())
-    val_preds = np.concatenate(val_preds)
+    val_preds = np.concatenate(val_preds) * mocu_std + mocu_mean
     val_true = np.concatenate(val_true)
     val_mae = np.mean(np.abs(val_true - val_preds))
     ss_res = np.sum((val_true - val_preds) ** 2)
@@ -171,6 +221,30 @@ def main():
     print(f"\nTraining complete. Best val loss (MSE): {best_val_loss:.6f}")
     print(f"Validation quality: MAE = {val_mae:.6f}, R² = {val_r2:.4f}, Pearson r = {val_r:.4f}")
     print(f"Model saved to: {model_dir / 'model_mpnn.pth'}")
+
+    # Loss curve plot (train + val)
+    if HAS_MATPLOTLIB and train_losses and val_losses:
+        fig, ax = plt.subplots(1, 1, figsize=(8, 5))
+        ax.plot(train_losses, 'b-', label='Train loss', linewidth=2)
+        ax.plot(val_losses, 'g-', label='Val loss', linewidth=2)
+        ax.set_xlabel('Epoch')
+        ax.set_ylabel('MSE Loss')
+        ax.set_title('MPNN MOCU predictor – training and validation loss')
+        ax.legend()
+        ax.grid(True)
+        plt.tight_layout()
+        plot_path = model_dir / 'mpnn_training_curve.png'
+        plt.savefig(plot_path, dpi=300)
+        plt.close()
+        print(f"✓ MPNN loss curve saved to: {plot_path}")
+
+    # Save training metrics for reproducibility
+    import json
+    metrics_path = model_dir / 'mpnn_training_metrics.json'
+    with open(metrics_path, 'w') as f:
+        json.dump({'train_losses': train_losses, 'val_losses': val_losses, 'best_val_loss': best_val_loss}, f, indent=2)
+    print(f"✓ MPNN metrics saved to: {metrics_path}")
+
     print(f"Run validation: python scripts/evaluation/validate_mpnn_mocu.py --config <config> [--ode_spot_check 5]")
 
 

@@ -162,24 +162,11 @@ for METHOD in "${METHODS_TO_TRAIN_ARRAY[@]}"; do
     METHOD_MODEL_FILE="${POLICY_OUTPUT_DIR}/${MODEL_NAME}.pth"
     METHOD_BEST_MODEL_FILE="${POLICY_OUTPUT_DIR}/${MODEL_NAME}_best.pth"
 
-    METHOD_MODEL_EXISTS=false
-    METHOD_MODEL_MATCHES=false
+    # Always train/update DAD when same config is run (models are overwritten)
     if [ -f "$METHOD_MODEL_FILE" ] || [ -f "$METHOD_BEST_MODEL_FILE" ]; then
-        METHOD_MODEL_EXISTS=true
         METHOD_TO_CHECK="$METHOD_BEST_MODEL_FILE"
-        if [ ! -f "$METHOD_TO_CHECK" ]; then
-            METHOD_TO_CHECK="$METHOD_MODEL_FILE"
-        fi
-        if [ "$(check_model_k_n "$METHOD_TO_CHECK")" = "true" ]; then
-            METHOD_MODEL_MATCHES=true
-        fi
-    fi
-
-    if [ "$METHOD_MODEL_MATCHES" = true ] && [ "$DATA_MATCHES" = true ]; then
-        echo "✓ $METHOD model already exists and matches config: $METHOD_TO_CHECK"
-        echo "✓ Skipping training for $METHOD"
-        echo "$METHOD_TO_CHECK" > /tmp/dad_mocu_policy_path_${CONFIG_NAME}.txt
-        continue
+        [ ! -f "$METHOD_TO_CHECK" ] && METHOD_TO_CHECK="$METHOD_MODEL_FILE"
+        echo "Existing $METHOD model found; retraining to update: $METHOD_TO_CHECK"
     fi
 
     cd "${PROJECT_ROOT}/scripts/training"
