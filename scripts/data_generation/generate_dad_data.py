@@ -20,7 +20,7 @@ import os
 import yaml
 
 # Add project root to path
-# File in scripts/training/ -> project root = parent.parent.parent
+# File in scripts/data_generation/ -> project root = parent.parent.parent
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
@@ -33,7 +33,6 @@ try:
     from src.core.swing_equation_ode import (
         solve_swing_equation_ode,
         extract_frequency_features,
-        check_frequency_synchronization
     )
     from src.core.swing_equation_params import (
         get_default_swing_equation_params,
@@ -64,6 +63,7 @@ def generate_random_system(N, B, P_m, D, g, M_lower_base, M_upper_base,
     
     Returns:
         (M_lower_0, M_upper_0, K_lower_0, K_upper_0, M_true, K_true, init_sync)
+        init_sync is always 0 (sync check removed; target is (M,K) uncertainty).
     """
     if seed is not None:
         np.random.seed(seed)
@@ -100,9 +100,7 @@ def generate_random_system(N, B, P_m, D, g, M_lower_base, M_upper_base,
     M_true = np.random.uniform(M_lower_0, M_upper_0)
     K_true = np.random.uniform(K_lower_0, K_upper_0)
     
-    # Check initial synchronization (optional - can skip for speed)
-    init_sync = 0  # Assume not synchronized initially (can be checked if needed)
-    
+    init_sync = 0  # Unused; kept for API compatibility (sync check removed)
     return M_lower_0, M_upper_0, K_lower_0, K_upper_0, M_true, K_true, init_sync
 
 
@@ -226,18 +224,12 @@ def generate_trajectory(N, K, B, P_m, D, g, M_lower_base, M_upper_base,
         mocu_predictor: Optional MPNN MOCU predictor for terminal MOCU.
         mocu_mean, mocu_std: Normalization statistics (for predictor).
     """
-    # Generate random system
-    max_attempts = 100
-    for attempt in range(max_attempts):
-        (M_lower_0, M_upper_0, K_lower_0, K_upper_0, M_true, K_true, init_sync) = \
-            generate_random_system(
-                N, B, P_m, D, g, M_lower_base, M_upper_base,
-                K_lower_base, K_upper_base, seed=None
-            )
-        if init_sync == 0:  # Not initially synchronized (or skip check)
-            break
-    else:
-        return None  # Failed to find valid system
+    # Generate random system (sync check removed; target is (M,K) uncertainty)
+    (M_lower_0, M_upper_0, K_lower_0, K_upper_0, M_true, K_true, _) = \
+        generate_random_system(
+            N, B, P_m, D, g, M_lower_base, M_upper_base,
+            K_lower_base, K_upper_base, seed=None
+        )
     
     # Initialize trajectory
     trajectory = {

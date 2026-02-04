@@ -8,7 +8,6 @@
 # - samples_per_type: 250 (vs 1200) - minimal for basic MPNN training
 # - K_max: 512 (vs 1024) - acceptable accuracy for testing
 # - num_simulations: 5 (vs 12) - sufficient for basic statistical analysis
-# - skip_sync_check: true - use every random system (avoids many "Already synchronized" redraws)
 
 # System parameters
 N: 14  # IEEE-14 bus system
@@ -71,7 +70,6 @@ training:
 experiment:
   num_simulations: 5          # Reduced for faster testing
                               # Rationale: 5 runs sufficient for basic statistical analysis
-  skip_sync_check: true       # Target is (M,K) uncertainty, not sync; use every random system
   update_count: 10            # K: Number of sequential experiments
   it_idx: 5                   # Reduced MOCU averaging iterations (faster)
   K_max: 512                  # Match dataset K_max

@@ -52,8 +52,8 @@ echo "Generating MOCU training data (Step 1/6)..."
 echo "  N=$N, Samples per type=$SAMPLES, Train size=$TRAIN_SIZE, K_max=$K_MAX"
 echo "  Note: This data will be reused for all K values (MOCU data doesn't depend on K)"
 
-# Use scripts/training/ location
-SCRIPT_DIR="${PROJECT_ROOT}/scripts/training"
+# Use scripts/data_generation/ location
+SCRIPT_DIR="${PROJECT_ROOT}/scripts/data_generation"
 if [ ! -f "${SCRIPT_DIR}/generate_mocu_data.py" ]; then
     echo "Error: generate_mocu_data.py not found in ${SCRIPT_DIR}"
     exit 1

@@ -137,9 +137,9 @@ else
     STEP_LOG="/dev/null"
 fi
 
-cd "${PROJECT_ROOT}/scripts/training"
+cd "${PROJECT_ROOT}/scripts/data_generation"
 if [ ! -f "generate_dad_data.py" ]; then
-    echo "Error: generate_dad_data.py not found in ${PROJECT_ROOT}/scripts/training"
+    echo "Error: generate_dad_data.py not found in ${PROJECT_ROOT}/scripts/data_generation"
     exit 1
 fi
 ABS_DAD_DATA_FOLDER=$(cd "$DATA_FOLDER" && pwd)

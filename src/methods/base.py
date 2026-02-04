@@ -251,7 +251,7 @@ class OEDMethod(ABC):
         
         # Import swing equation functions
         try:
-            from scripts.training.generate_dad_data import (
+            from scripts.data_generation.generate_dad_data import (
                 perform_probe_experiment,
                 update_bounds as update_bounds_swing
             )

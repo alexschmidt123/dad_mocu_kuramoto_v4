@@ -17,7 +17,7 @@ import multiprocessing as mp
 import yaml
 
 # Get absolute path to project root
-# File in scripts/training/ -> project root = parent.parent.parent
+# File in scripts/data_generation/ -> project root = parent.parent.parent
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 

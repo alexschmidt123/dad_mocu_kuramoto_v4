@@ -1,9 +1,7 @@
 """
-Training scripts and data generation.
+Training scripts: MPNN predictor and DAD policy.
 
-- generate_mocu_data.py: Generate MOCU training data for MPNN predictor
-- generate_dad_data.py: Generate DAD training trajectories
-- train_dad.py: Train DAD policy network
+(Data generation is in scripts/data_generation/.)
 """
 
 __all__ = []
