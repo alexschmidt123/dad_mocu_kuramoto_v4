@@ -136,8 +136,8 @@ if __name__ == '__main__':
     else:
         method_names = ['iNN', 'NN', 'ODE', 'ENTROPY', 'RANDOM']
     
-    # Action space: N buses × len(probe_amplitudes) = number of (bus, amplitude) actions
-    num_actions = N * len(probe_amplitudes)
+    # Design space: N buses × len(probe_amplitudes) = number of (bus, amplitude) designs ξ
+    num_designs = N * len(probe_amplitudes)
     
     # Print configuration
     print(f"\n{'='*80}")
@@ -147,7 +147,7 @@ if __name__ == '__main__':
     print(f"  num_simulations={numberOfSimulationsPerMethod}")
     print(f"  methods={method_names}")
     print(f"  result_folder={result_folder}")
-    print(f"  Action space: N_buses × num_amplitudes = {N} × {len(probe_amplitudes)} = {num_actions} actions")
+    print(f"  Design space: N_buses × num_amplitudes = {N} × {len(probe_amplitudes)} = {num_designs} designs ξ")
     print(f"  M bounds: [{M_lower_base}, {M_upper_base}]")
     print(f"  K bounds: [{K_lower_base}, {K_upper_base}]")
     print(f"  probe_amplitudes={probe_amplitudes}")

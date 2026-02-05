@@ -192,8 +192,8 @@ class OEDMethod(ABC):
         # initial_mocu is passed from evaluate.py (computed with swing equation MOCU)
         # Use it to avoid redundant computation
         if initial_mocu is not None:
-            MOCUCurve[0] = initial_mocu
-            self._last_valid_mocu = initial_mocu
+            MOCUCurve[0] = max(float(initial_mocu), 1e-10)
+            self._last_valid_mocu = MOCUCurve[0]
         else:
             # Fallback: Compute initial MOCU if not provided
             try:
@@ -227,14 +227,15 @@ class OEDMethod(ABC):
                         seed=l,
                         device=device
                     )
-                MOCUCurve[0] = np.mean(it_temp_val)
+                MOCUCurve[0] = max(np.mean(it_temp_val), 1e-10)
                 self._last_valid_mocu = MOCUCurve[0]
             except Exception as e:
                 if not hasattr(self, '_mocu_warned'):
                     print(f"[WARNING] Failed to compute initial MOCU: {e}")
                     self._mocu_warned = True
-                MOCUCurve[0] = 0.0
-                self._last_valid_mocu = 0.0
+                # Do not use 0 (would be misleading). Use small positive fallback so curve is valid.
+                MOCUCurve[0] = 1e-6
+                self._last_valid_mocu = 1e-6
         
         # Sequential experimental design
         method_name = self.__class__.__name__
@@ -346,12 +347,10 @@ class OEDMethod(ABC):
                         seed=l,
                         device=device
                     )
-                MOCUCurve[iteration + 1] = np.mean(it_temp_val)
-                
-                # Update last valid MOCU for future fallbacks
+                raw_mocu = np.mean(it_temp_val)
+                # Never persist exact 0 (would imply no uncertainty; min bound width should prevent this)
+                MOCUCurve[iteration + 1] = max(float(raw_mocu), 1e-10)
                 self._last_valid_mocu = MOCUCurve[iteration + 1]
-                
-                # Apply monotonicity constraint (MOCU should not increase)
                 if MOCUCurve[iteration + 1] > MOCUCurve[iteration]:
                     MOCUCurve[iteration + 1] = MOCUCurve[iteration]
                     

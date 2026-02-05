@@ -44,12 +44,14 @@ def mu_theta_xi(theta: Tuple[float, float], xi: Tuple[int, float, float],
     """
     M, K = theta
     b, A, T_p = xi
-    
+    # Bus b is 1-based (1..14); ODE uses 0-based index
+    probe_bus_internal = (b - 1) if b >= 1 else b
+
     try:
         state_traj = solve_swing_equation_ode(
             B, P_m, D, M, K, g,
             gamma=None,
-            probe_bus=b,
+            probe_bus=probe_bus_internal,
             probe_amplitude=A,
             probe_duration=T_p,
             h=h, M_steps=M_steps, T=T,
@@ -122,13 +124,14 @@ def log_likelihood_batch(y: float, thetas: np.ndarray, xi: Tuple[int, float, flo
     N_particles = len(thetas)
     N = len(P_m)
     b, A, T_p = xi
+    probe_bus_internal = (b - 1) if b >= 1 else b
     M_batch = thetas[:, 0].astype(np.float64)
     K_batch = thetas[:, 1].astype(np.float64)
     try:
         state_traj = solve_swing_equation_ode_batch(
             B, P_m, D, M_batch, K_batch, g,
             gamma=None,
-            probe_bus=b,
+            probe_bus=probe_bus_internal,
             probe_amplitude=A,
             probe_duration=T_p,
             h=h, M_steps=M_steps, T=T,

@@ -31,8 +31,8 @@ if [ -n "$2" ]; then
 else
     DATA_FILE=$(cat /tmp/mocu_train_file_${CONFIG_NAME}.txt 2>/dev/null || echo "")
     if [ -z "$DATA_FILE" ]; then
-        DATA_FILE="${PROJECT_ROOT}/data/${BASE_CONFIG_NAME}/mocu/swing_mocu_data_${N}o.npz"
-        [ ! -f "$DATA_FILE" ] && DATA_FILE="${PROJECT_ROOT}/data/${BASE_CONFIG_NAME}/mocu/swing_mocu_data_${N}o.npz"
+        DATA_FILE="${PROJECT_ROOT}/data/${BASE_CONFIG_NAME}/mocu/swing_mocu_data_${N}.npz"
+        [ ! -f "$DATA_FILE" ] && DATA_FILE="${PROJECT_ROOT}/data/${BASE_CONFIG_NAME}/mocu/swing_mocu_data_${N}.npz"
     fi
 fi
 

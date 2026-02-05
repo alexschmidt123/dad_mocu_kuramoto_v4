@@ -73,7 +73,7 @@ class DADTrajectoryDataset(Dataset):
             w = traj['w']
             N = len(w)
             
-            for step in range(len(traj['actions'])):
+            for step in range(len(traj['designs'])):
                 # State at this step
                 a_lower, a_upper = traj['states'][step]
                 
@@ -81,15 +81,15 @@ class DADTrajectoryDataset(Dataset):
                 if step == 0:
                     history = []
                 else:
-                    history = [(traj['actions'][k][0], 
-                               traj['actions'][k][1], 
+                    history = [(traj['designs'][k][0], 
+                               traj['designs'][k][1], 
                                traj['observations'][k]) 
                               for k in range(step)]
                 
-                # Expert action
-                action_i, action_j = traj['actions'][step]
+                # Expert design (ξ = bus, amplitude)
+                action_i, action_j = traj['designs'][step]
                 
-                # Available actions mask
+                # Available designs mask
                 available_mask = traj['available_masks'][step]
                 
                 self.samples.append({
@@ -135,16 +135,16 @@ def collate_fn(batch):
 
 
 class SwingDADTrajectoryDataset(Dataset):
-    """Dataset for DAD policy training (swing equation: state = (M,K) bounds, action = (bus, amplitude))."""
+    """Dataset for DAD policy training (swing equation: state = (M,K) bounds, design ξ = (bus, amplitude))."""
     
     def __init__(self, trajectories, probe_amplitudes=None):
         self.trajectories = trajectories
         self.probe_amplitudes = probe_amplitudes if probe_amplitudes is not None else [0.5, 1.0, 2.0]
-        max_bus = max((a[0] for t in trajectories for a in t['actions']), default=0)
+        max_bus = max((d[0] for t in trajectories for d in t['designs']), default=0)
         self.N = max_bus + 1
     
     def __len__(self):
-        return sum(len(traj['actions']) for traj in self.trajectories)
+        return sum(len(traj['designs']) for traj in self.trajectories)
     
     def _amp_to_idx(self, amp):
         """Map amplitude value to index (closest match)."""
@@ -166,29 +166,29 @@ class SwingDADTrajectoryDataset(Dataset):
     def __getitem__(self, idx):
         count = 0
         for traj in self.trajectories:
-            k = len(traj['actions'])
+            k = len(traj['designs'])
             if count + k > idx:
                 step = idx - count
                 M_lower, M_upper, K_lower, K_upper = traj['states'][step]
                 history = []
                 for s in range(step):
-                    bus, amp, _ = traj['actions'][s]
+                    bus, amp, _ = traj['designs'][s]
                     amp_idx = self._amp_to_idx(amp)
                     rocof = self._obs_to_scalar(traj['observations'][s])
                     history.append([bus, amp_idx, rocof])
-                bus, amp, _ = traj['actions'][step]
+                bus, amp, _ = traj['designs'][step]
                 amp_idx = self._amp_to_idx(amp)
                 # num_buses = self.N (states[0] is (M_low, M_up, K_low, K_up) — 4 scalars, not bus count)
                 num_buses = self.N
-                num_actions = num_buses * len(self.probe_amplitudes)
-                available_mask = np.ones(num_actions, dtype=np.float32)
+                num_designs = num_buses * len(self.probe_amplitudes)
+                available_mask = np.ones(num_designs, dtype=np.float32)
                 terminal_MOCU = traj.get('terminal_MOCU')
                 if terminal_MOCU is None:
                     terminal_MOCU = 0.0
                 return {
                     'M_lower': M_lower, 'M_upper': M_upper, 'K_lower': K_lower, 'K_upper': K_upper,
                     'history': history,
-                    'action_bus': bus, 'action_amp_idx': amp_idx,
+                    'xi_bus': bus, 'xi_amp_idx': amp_idx,
                     'available_mask': available_mask,
                     'terminal_MOCU': terminal_MOCU,
                     'num_buses': num_buses,
@@ -214,8 +214,8 @@ def collate_fn_swing(batch):
             pad = torch.zeros(max_hist - len(h), 3, dtype=torch.float32)
             hist_list.append(torch.cat([torch.tensor(h, dtype=torch.float32), pad], dim=0))
     history_batch = torch.stack(hist_list)
-    action_bus = torch.tensor([b['action_bus'] for b in batch], dtype=torch.long)
-    action_amp_idx = torch.tensor([b['action_amp_idx'] for b in batch], dtype=torch.long)
+    xi_bus = torch.tensor([b['xi_bus'] for b in batch], dtype=torch.long)
+    xi_amp_idx = torch.tensor([b['xi_amp_idx'] for b in batch], dtype=torch.long)
     available_mask = torch.tensor(np.array([b['available_mask'] for b in batch]), dtype=torch.float32)
     terminal_MOCU = torch.tensor([b['terminal_MOCU'] for b in batch], dtype=torch.float32)
     N = batch[0]['num_buses']
@@ -223,7 +223,7 @@ def collate_fn_swing(batch):
     return {
         'M_lower': M_lower, 'M_upper': M_upper, 'K_lower': K_lower, 'K_upper': K_upper,
         'history': history_batch,
-        'action_bus': action_bus, 'action_amp_idx': action_amp_idx,
+        'xi_bus': xi_bus, 'xi_amp_idx': xi_amp_idx,
         'available_mask': available_mask,
         'terminal_MOCU': terminal_MOCU,
         'N': N,
@@ -315,7 +315,7 @@ def train_imitation(model, dataloader, optimizer, device, N):
 def train_swing_imitation(model, dataloader, optimizer, device, N, num_probe_amplitudes):
     """
     Train one epoch of behavior cloning for swing-equation DAD policy.
-    Batch format: M_lower, M_upper, K_lower, K_upper, history, action_bus, action_amp_idx, available_mask.
+    Batch format: M_lower, M_upper, K_lower, K_upper, history, xi_bus, xi_amp_idx, available_mask.
     """
     model.train()
     total_loss = 0.0
@@ -328,22 +328,22 @@ def train_swing_imitation(model, dataloader, optimizer, device, N, num_probe_amp
         K_lower = batch['K_lower'].to(device)
         K_upper = batch['K_upper'].to(device)
         history_batch = batch['history'].to(device)
-        action_bus = batch['action_bus'].to(device)
-        action_amp_idx = batch['action_amp_idx'].to(device)
+        xi_bus = batch['xi_bus'].to(device)
+        xi_amp_idx = batch['xi_amp_idx'].to(device)
         available_mask = batch['available_mask'].to(device)
         batch_size = M_lower.shape[0]
         state_data = {
             'M_lower': M_lower, 'M_upper': M_upper,
             'K_lower': K_lower, 'K_upper': K_upper,
         }
-        action_logits, action_probs = model(state_data, history_batch, available_mask)
-        expert_action_idx = action_bus * num_probe_amplitudes + action_amp_idx
-        loss = F.cross_entropy(action_logits, expert_action_idx)
+        xi_logits, xi_probs = model(state_data, history_batch, available_mask)
+        expert_xi_idx = xi_bus * num_probe_amplitudes + xi_amp_idx
+        loss = F.cross_entropy(xi_logits, expert_xi_idx)
         loss.backward()
         optimizer.step()
         total_loss += loss.item() * batch_size
-        predicted = torch.argmax(action_logits, dim=-1)
-        total_correct += (predicted == expert_action_idx).sum().item()
+        predicted = torch.argmax(xi_logits, dim=-1)
+        total_correct += (predicted == expert_xi_idx).sum().item()
         total_samples += batch_size
     avg_loss = total_loss / total_samples if total_samples else 0.0
     accuracy = total_correct / total_samples if total_samples else 0.0
@@ -400,8 +400,8 @@ def train_reinforce(model, trajectories, optimizer, device, N, gamma=0.96, K_max
     T = 5.0
     M = int(T / h)
     
-    num_actions_total = N * (N - 1) // 2
-    action_visit_counts = np.zeros(num_actions_total, dtype=np.int64)
+    num_designs_total = N * (N - 1) // 2
+    xi_visit_counts = np.zeros(num_designs_total, dtype=np.int64)
     terminal_mocu_values = []
     mpnn_errors = []
     observation_counts = {}
@@ -456,7 +456,7 @@ def train_reinforce(model, trajectories, optimizer, device, N, gamma=0.96, K_max
             raise ValueError("REINFORCE requires 'a_true' in trajectories")
         
         log_probs = []
-        action_probs_list = []  # Store action_probs for entropy computation
+        xi_probs_list = []  # Store ξ (design) probs for entropy computation
         observed_pairs = []
         observations_list = []
         step_mocus = []  # Store MOCU at each step for per-step rewards
@@ -464,7 +464,7 @@ def train_reinforce(model, trajectories, optimizer, device, N, gamma=0.96, K_max
         a_lower = traj['states'][0][0].copy()
         a_upper = traj['states'][0][1].copy()
         
-        K = len(traj['actions'])
+        K = len(traj['designs'])
         
         # Compute initial MOCU (needed for improvement-based reward AND per-step rewards)
         initial_MOCU_computed = None
@@ -501,34 +501,34 @@ def train_reinforce(model, trajectories, optimizer, device, N, gamma=0.96, K_max
                               for k in range(len(observed_pairs))]
                 history_tensor = torch.tensor([history_list], dtype=torch.long, device=device)
             
-            num_actions = N * (N - 1) // 2
-            available_mask = np.ones(num_actions, dtype=np.float32)
+            num_designs = N * (N - 1) // 2
+            available_mask = np.ones(num_designs, dtype=np.float32)
             for (i_obs, j_obs) in observed_pairs:
-                action_idx = model.pair_to_idx(i_obs, j_obs)
-                available_mask[action_idx] = 0.0
+                xi_idx = model.pair_to_idx(i_obs, j_obs)
+                available_mask[xi_idx] = 0.0
             
             available_mask_array = np.array([available_mask], dtype=np.float32)
             available_mask_tensor = torch.from_numpy(available_mask_array).to(device)
             
             # Policy forward pass
-            action_logits, action_probs = model(state_data, history_tensor, available_mask_tensor)
+            xi_logits, xi_probs = model(state_data, history_tensor, available_mask_tensor)
             
-            # Store action_probs for entropy computation (detach to avoid gradient issues)
-            action_probs_list.append(action_probs.squeeze(0).detach())  # [num_actions]
+            # Store ξ probs for entropy computation (detach to avoid gradient issues)
+            xi_probs_list.append(xi_probs.squeeze(0).detach())  # [num_designs]
             
-            dist = torch.distributions.Categorical(probs=action_probs)
-            action_idx = dist.sample()
-            log_prob = dist.log_prob(action_idx)
+            dist = torch.distributions.Categorical(probs=xi_probs)
+            xi_idx = dist.sample()
+            log_prob = dist.log_prob(xi_idx)
             
-            action_i, action_j = model.idx_to_pair(action_idx.item())
-            action_visit_counts[action_idx.item()] += 1
+            xi_i, xi_j = model.idx_to_pair(xi_idx.item())
+            xi_visit_counts[xi_idx.item()] += 1
             
             # === EXPERIMENT SIMULATION === (first-order path removed: swing-equation only)
             raise RuntimeError("First-order Kuramoto path removed. This project is swing-equation only.")
-            a_lower, a_upper = update_bounds(a_lower, a_upper, action_i, action_j, observation, w)
+            a_lower, a_upper = update_bounds(a_lower, a_upper, xi_i, xi_j, observation, w)
             observation_counts[observation] = observation_counts.get(observation, 0) + 1
             
-            observed_pairs.append((action_i, action_j))
+            observed_pairs.append((xi_i, xi_j))
             observations_list.append(observation)
             log_probs.append(log_prob)
             
@@ -814,11 +814,11 @@ def train_reinforce(model, trajectories, optimizer, device, N, gamma=0.96, K_max
                 assert not (torch.isnan(log_prob) or torch.isinf(log_prob)), f"log_prob {idx} is NaN/Inf"
                 valid_log_probs.append(log_prob)
                 # Store corresponding action_probs for entropy (from the forward pass)
-                # Note: action_probs_list contains detached tensors, but we need gradients for entropy
+                # Note: xi_probs_list contains detached tensors, but we need gradients for entropy
                 # So we'll recompute entropy from the policy network during loss computation
-                if idx < len(action_probs_list):
-                    # Use stored action_probs (will recompute with gradients in loss computation)
-                    valid_action_probs.append(action_probs_list[idx])
+                if idx < len(xi_probs_list):
+                    # Use stored ξ probs (will recompute with gradients in loss computation)
+                    valid_action_probs.append(xi_probs_list[idx])
                 else:
                     raise RuntimeError(f"Missing action_probs for step {idx}")
             except (AssertionError, RuntimeError) as e:
@@ -1123,16 +1123,16 @@ def train_reinforce(model, trajectories, optimizer, device, N, gamma=0.96, K_max
     avg_reward = total_reward / len(trajectories)
     
     # Monitoring metrics for trajectory diversity, MOCU variance, and MPNN predictor health
-    action_visit_total = action_visit_counts.sum()
-    if action_visit_total > 0:
-        action_distribution = action_visit_counts / action_visit_total
+    xi_visit_total = xi_visit_counts.sum()
+    if xi_visit_total > 0:
+        action_distribution = xi_visit_counts / xi_visit_total
         action_entropy = float(
             -np.sum(action_distribution * np.log(action_distribution + 1e-12)) /
             np.log(len(action_distribution))
         )
     else:
         action_entropy = 0.0
-    action_coverage = float(np.count_nonzero(action_visit_counts) / len(action_visit_counts)) if len(action_visit_counts) > 0 else 0.0
+    action_coverage = float(np.count_nonzero(xi_visit_counts) / len(xi_visit_counts)) if len(xi_visit_counts) > 0 else 0.0
     mocu_variance = float(np.var(terminal_mocu_values)) if len(terminal_mocu_values) > 1 else 0.0
     total_observations = sum(observation_counts.values())
     if total_observations > 0:

@@ -58,6 +58,7 @@ training:
   learning_rate: 0.001
 
 # Experiment parameters (minimal for ~1 hour runtime)
+# Bounds enforce min width (2% of base range) so MOCU does not collapse to 0; keeps problem non-trivial.
 experiment:
   num_simulations: 1       # Single run only (for quick testing)
   update_count: 4          # 4 iterations = 5 steps total (0,1,2,3,4)
@@ -65,12 +66,10 @@ experiment:
   K_max: 64                # Match dataset K_max (reduced for speed with tighter constraints)
   methods:
     - "RANDOM"             # Random probe selection (fast)
-    - "ENTROPY"             # Entropy-based (degree-based) probe selection (fast)
-    # - "ODE"               # ODE method skipped - too slow for fast_config (~3+ hours per simulation)
-    #                        # ODE evaluates ALL actions (14×3=42) × it_idx(3) × K_max(128) ≈ 16K MOCU computations
-    #                        # Use balanced_config or full_config for ODE evaluation
-    - "iNN"                 # Iterative MPNN MOCU predictor (fast, ~15 min)
-    - "NN"                  # Static MPNN MOCU predictor (fast, ~15 min)
+    - "ENTROPY"             # Entropy-based probe selection (fast)
+    - "ODE"                 # ODE (sampling-based) baseline: ground-truth MOCU, important for comparison (slower)
+    - "iNN"                 # Iterative MPNN MOCU predictor (fast)
+    - "NN"                  # Static MPNN MOCU predictor (fast)
     # DAD method (evaluated in step 6 if policy trained)
     # - "DAD"                 # DAD (no critic, simple baseline, uses per-step rewards)
 

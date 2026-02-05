@@ -170,7 +170,7 @@ class DAD_MOCU_Method(OEDMethod):
     
     def _compute_expected_mocu_matrix(self, M_lower, M_upper, K_lower, K_upper):
         """
-        Compute R matrix (expected remaining MOCU) for all possible probe actions.
+        Compute R matrix (expected remaining MOCU) for all possible probe designs.
         
         This is the same computation that iNN/NN uses - gives DAD the same information.
         """
@@ -206,7 +206,7 @@ class DAD_MOCU_Method(OEDMethod):
     
     def _simulate_probe_update(self, M_lower, M_upper, K_lower, K_upper, probe_bus, probe_amplitude):
         """
-        Simulate bound update after a probe action (heuristic).
+        Simulate bound update after a probe design (heuristic).
         
         This is a simplified version - in practice, we'd need to simulate
         the actual observation and update bounds accordingly.
@@ -234,11 +234,11 @@ class DAD_MOCU_Method(OEDMethod):
     def select_experiment(self, M_lower, M_upper, K_lower, K_upper, history,
                           probe_amplitudes=None, probe_duration=None):
         """
-        Select next probe action using learned DAD policy.
+        Select next probe design using learned DAD policy.
         
         The policy network takes the current state (M, K bounds, history)
-        and outputs a probability distribution over available probe actions.
-        We select the action with highest probability (greedy/deterministic).
+        and outputs a probability distribution over available probe designs (ξ).
+        We select the design with highest probability (greedy/deterministic).
         
         Args:
             M_lower, M_upper, K_lower, K_upper: Current uncertainty bounds (scalars)
@@ -247,7 +247,7 @@ class DAD_MOCU_Method(OEDMethod):
             probe_duration: Probe duration (optional, uses self.probe_duration)
         
         Returns:
-            (probe_bus, probe_amplitude, probe_duration): Selected probe action
+            (probe_bus, probe_amplitude, probe_duration): Selected probe design ξ
         """
         if probe_amplitudes is None:
             probe_amplitudes = self.probe_amplitudes
@@ -263,20 +263,20 @@ class DAD_MOCU_Method(OEDMethod):
         
         # Convert history format: from [((bus, amp, dur), obs), ...] to [(bus, amp, obs), ...]
         history_list = []
-        observed_actions = set()
+        observed_designs = set()
         if history:
-            for action_obs in history:
-                if isinstance(action_obs, tuple) and len(action_obs) == 2:
-                    action, obs = action_obs
-                    if isinstance(action, tuple) and len(action) >= 2:
-                        bus, amp = action[0], action[1]
+            for xi_obs in history:
+                if isinstance(xi_obs, tuple) and len(xi_obs) == 2:
+                    xi, obs = xi_obs
+                    if isinstance(xi, tuple) and len(xi) >= 2:
+                        bus, amp = xi[0], xi[1]
                         # Convert observation to scalar (use ROCOF_max if available)
                         if isinstance(obs, dict):
                             obs_scalar = obs.get('ROCOF_max', 0.0)
                         else:
                             obs_scalar = float(obs) if isinstance(obs, (int, float)) else 0.0
                         history_list.append((bus, amp, obs_scalar))
-                        observed_actions.add((bus, amp))
+                        observed_designs.add((bus, amp))
         
         # Create state data for policy network (swing equation version)
         try:
@@ -293,23 +293,23 @@ class DAD_MOCU_Method(OEDMethod):
                 'K_upper': torch.tensor([K_upper], dtype=torch.float32, device=self.device),
             }
         
-        # Get available actions (not yet observed)
-        available_actions = []
+        # Get available designs (not yet observed)
+        available_designs = []
         for bus_idx in range(self.N):
             for amp_idx, amp in enumerate(probe_amplitudes):
-                if (bus_idx, amp) not in observed_actions:
-                    available_actions.append((bus_idx, amp_idx))
+                if (bus_idx, amp) not in observed_designs:
+                    available_designs.append((bus_idx, amp_idx))
         
-        if not available_actions:
-            print("[DAD-MOCU] Warning: No available probe actions left!")
+        if not available_designs:
+            print("[DAD-MOCU] Warning: No available probe designs left!")
             return (0, probe_amplitudes[0], probe_duration)
         
-        # Create available actions mask
-        num_actions = self.N * len(probe_amplitudes)
-        available_mask = np.zeros(num_actions, dtype=np.float32)
-        for bus_idx, amp_idx in available_actions:
-            action_idx = bus_idx * len(probe_amplitudes) + amp_idx
-            available_mask[action_idx] = 1.0
+        # Create available designs mask
+        num_designs = self.N * len(probe_amplitudes)
+        available_mask = np.zeros(num_designs, dtype=np.float32)
+        for bus_idx, amp_idx in available_designs:
+            xi_idx = bus_idx * len(probe_amplitudes) + amp_idx
+            available_mask[xi_idx] = 1.0
         
         available_mask_tensor = torch.tensor([available_mask], dtype=torch.float32, device=self.device)
         
@@ -325,17 +325,17 @@ class DAD_MOCU_Method(OEDMethod):
             try:
                 R_matrix = self._compute_expected_mocu_matrix(M_lower, M_upper, K_lower, K_upper)
                 if R_matrix is not None:
-                    # Extract expected MOCU values for available actions
+                    # Extract expected MOCU values for available designs
                     expected_mocu_values = []
-                    for bus_idx, amp_idx in available_actions:
+                    for bus_idx, amp_idx in available_designs:
                         expected_mocu_values.append(R_matrix[bus_idx, amp_idx])
                     
-                    # Convert to tensor: [1, num_actions]
-                    num_actions = self.N * len(probe_amplitudes)
-                    expected_mocu_array = np.zeros(num_actions, dtype=np.float32)
-                    for idx, (bus_idx, amp_idx) in enumerate(available_actions):
-                        action_idx = bus_idx * len(probe_amplitudes) + amp_idx
-                        expected_mocu_array[action_idx] = expected_mocu_values[idx]
+                    # Convert to tensor: [1, num_designs]
+                    num_designs = self.N * len(probe_amplitudes)
+                    expected_mocu_array = np.zeros(num_designs, dtype=np.float32)
+                    for idx, (bus_idx, amp_idx) in enumerate(available_designs):
+                        xi_idx = bus_idx * len(probe_amplitudes) + amp_idx
+                        expected_mocu_array[xi_idx] = expected_mocu_values[idx]
                     
                     # Normalize expected MOCU features
                     if len(expected_mocu_values) > 0:
@@ -350,21 +350,21 @@ class DAD_MOCU_Method(OEDMethod):
                 print(f"[DAD-MOCU] Warning: Failed to compute expected MOCU features: {e}")
                 expected_mocu_features = None
         
-        # Get policy action probabilities (greedy/deterministic)
+        # Get policy ξ (design) probabilities (greedy/deterministic)
         with torch.no_grad():
             self.policy_net.eval()
-            action_logits, action_probs = self.policy_net(
+            xi_logits, xi_probs = self.policy_net(
                 state_data, history_tensor, available_mask_tensor, 
                 expected_mocu_features=expected_mocu_features
             )
         
-        # Select action with highest probability (deterministic)
-        action_probs = action_probs.squeeze(0)  # [num_actions]
-        action_idx = torch.argmax(action_probs).item()
+        # Select ξ with highest probability (deterministic)
+        xi_probs = xi_probs.squeeze(0)  # [num_designs]
+        xi_idx = torch.argmax(xi_probs).item()
         
-        # Convert action index to (bus, amplitude)
-        bus_idx = action_idx // len(probe_amplitudes)
-        amp_idx = action_idx % len(probe_amplitudes)
+        # Convert ξ index to (bus, amplitude)
+        bus_idx = xi_idx // len(probe_amplitudes)
+        amp_idx = xi_idx % len(probe_amplitudes)
         probe_bus = bus_idx
         probe_amplitude = probe_amplitudes[amp_idx]
         

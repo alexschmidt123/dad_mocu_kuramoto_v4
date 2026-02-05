@@ -78,8 +78,7 @@ def compute_mocu(particles_theta: np.ndarray, weights: np.ndarray,
             continue
     
     if len(gamma_star_credible) == 0:
-        # If all failed, return a default value
-        return 0.0
+        return np.nan
     
     # γ*(A_T) = max_{θ∈A_T} γ*(θ)
     gamma_star_A = np.max(gamma_star_credible)
@@ -104,7 +103,7 @@ def compute_mocu(particles_theta: np.ndarray, weights: np.ndarray,
             continue
     
     if len(gamma_star_values) == 0:
-        return 0.0
+        return np.nan
     
     # Compute MOCU: E[γ*(A_T) - γ*(θ)] = Σ_n w[n] * (γ*(A_T) - γ*(θ_n))
     mocu_val = 0.0

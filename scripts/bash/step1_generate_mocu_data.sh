@@ -34,7 +34,7 @@ DATA_FOLDER="${PROJECT_ROOT}/data/${BASE_CONFIG_NAME}/mocu/"
 mkdir -p "$DATA_FOLDER"
 
 # Check if data already exists (MOCU data doesn't depend on K, so we can reuse it)
-TRAIN_FILE=$(find "$DATA_FOLDER" -name "swing_mocu_data_${N}o.npz" -type f 2>/dev/null | head -1)
+TRAIN_FILE=$(find "$DATA_FOLDER" -name "swing_mocu_data_${N}.npz" -type f 2>/dev/null | head -1)
 if [ -z "$TRAIN_FILE" ]; then
     TRAIN_FILE=$(find "$DATA_FOLDER" -name "*_${N}o_train.pth" -type f 2>/dev/null | head -1)
 fi
@@ -93,9 +93,9 @@ fi
 eval $CMD
 
 # Look for .npz file (swing equation uses .npz format)
-TRAIN_FILE=$(find "$DATA_FOLDER" -name "swing_mocu_data_${N}o.npz" -type f 2>/dev/null | head -1)
+TRAIN_FILE=$(find "$DATA_FOLDER" -name "swing_mocu_data_${N}.npz" -type f 2>/dev/null | head -1)
 if [ -z "$TRAIN_FILE" ]; then
-    echo "Error: No training file found: swing_mocu_data_${N}o.npz in $DATA_FOLDER"
+    echo "Error: No training file found: swing_mocu_data_${N}.npz in $DATA_FOLDER"
     echo "  Generated files in $DATA_FOLDER:"
     ls -la "$DATA_FOLDER" 2>/dev/null || echo "  (directory not found or empty)"
     exit 1

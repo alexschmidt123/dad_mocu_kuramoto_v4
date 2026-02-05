@@ -22,7 +22,6 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 import numpy as np
-import random
 import torch
 
 # Import swing equation MOCU computation
@@ -40,82 +39,71 @@ except ImportError as e:
 
 
 def generate_uncertainty_bounds(M_lower_base, M_upper_base, K_lower_base, K_upper_base,
-                                uncertainty_ratio=0.3, seed=None):
+                                uncertainty_ratio=0.3, rng=None):
     """
     Generate a random uncertainty set (bounds) for (M, K).
-    
+    Uses a local RNG so global state is never touched.
+
     Args:
         M_lower_base, M_upper_base: Base inertia bounds
         K_lower_base, K_upper_base: Base control gain bounds
         uncertainty_ratio: Ratio of uncertainty (0-1)
-        seed: Random seed
-    
+        rng: numpy Generator (if None, uses default_rng())
+
     Returns:
         (M_lower, M_upper, K_lower, K_upper): Random bounds within base ranges
     """
-    if seed is not None:
-        np.random.seed(seed)
-        random.seed(seed)
-    
-    # Sample a center point
-    M_center = np.random.uniform(M_lower_base, M_upper_base)
-    K_center = np.random.uniform(K_lower_base, K_upper_base)
-    
-    # Generate bounds around center with uncertainty_ratio
+    rng = rng if rng is not None else np.random.default_rng()
+    M_center = rng.uniform(M_lower_base, M_upper_base)
+    K_center = rng.uniform(K_lower_base, K_upper_base)
+
     M_range = M_upper_base - M_lower_base
     K_range = K_upper_base - K_lower_base
-    
     M_half_range = M_range * uncertainty_ratio / 2.0
     K_half_range = K_range * uncertainty_ratio / 2.0
-    
+
     M_lower = max(M_lower_base, M_center - M_half_range)
     M_upper = min(M_upper_base, M_center + M_half_range)
     K_lower = max(K_lower_base, K_center - K_half_range)
     K_upper = min(K_upper_base, K_center + K_half_range)
-    
-    # Ensure bounds are valid
+
     if M_lower >= M_upper:
         M_lower = M_lower_base
         M_upper = M_upper_base
     if K_lower >= K_upper:
         K_lower = K_lower_base
         K_upper = K_upper_base
-    
+
     return M_lower, M_upper, K_lower, K_upper
 
 
 def generate_single_sample(args_tuple):
     """
     Generate a single training sample: (M_lower, M_upper, K_lower, K_upper, MOCU).
-    
+    Uses deterministic per-sample seed = base_seed + sample_id for reproducibility.
+
     Args:
-        args_tuple: (N, K_max, B, P_m, D, g, M_lower_base, M_upper_base, 
+        args_tuple: (N, K_max, B, P_m, D, g, M_lower_base, M_upper_base,
                      K_lower_base, K_upper_base, r_max, f_min, h, T, M_steps,
-                     device, worker_id)
-    
+                     device, sample_id, base_seed)
+
     Returns:
-        dict with keys: 'M_lower', 'M_upper', 'K_lower', 'K_upper', 'MOCU'
+        dict with keys: 'M_lower', 'M_upper', 'K_lower', 'K_upper', 'MOCU', 'uncertainty_ratio'
         or None if generation failed
     """
     (N, K_max, B, P_m, D, g, M_lower_base, M_upper_base,
      K_lower_base, K_upper_base, r_max, f_min, h, T, M_steps,
-     device, worker_id) = args_tuple
-    
-    # Set worker-specific random seed
-    if worker_id is not None:
-        seed = worker_id * 12345 + int(time.time()) % 10000
-        np.random.seed(seed)
-        random.seed(seed)
-    else:
-        seed = None
-    
-    # Generate random uncertainty bounds
+     device, sample_id, base_seed) = args_tuple
+
+    seed = int(base_seed + sample_id)
+    rng = np.random.default_rng(seed)
+    uncertainty_ratio = float(rng.uniform(0.05, 0.6))
+
     M_lower, M_upper, K_lower, K_upper = generate_uncertainty_bounds(
         M_lower_base, M_upper_base, K_lower_base, K_upper_base,
-        uncertainty_ratio=0.3, seed=seed
+        uncertainty_ratio=uncertainty_ratio, rng=rng
     )
-    
-    # Compute MOCU for this set of bounds
+
     try:
         MOCU_val = MOCU_swing_equation(
             K_max=K_max,
@@ -132,21 +120,20 @@ def generate_single_sample(args_tuple):
             h=h,
             T=T,
             M_steps=M_steps,
-            seed=seed if seed is not None else 0,
+            seed=seed,
             device=device
         )
-        
         return {
             'M_lower': float(M_lower),
             'M_upper': float(M_upper),
             'K_lower': float(K_lower),
             'K_upper': float(K_upper),
-            'MOCU': float(MOCU_val)
+            'MOCU': float(MOCU_val),
+            'uncertainty_ratio': uncertainty_ratio,
+            '_seed': seed,
         }
     except Exception as e:
-        # Skip samples that fail (e.g., numerical issues)
-        if worker_id == 0:  # Only print from first worker
-            print(f"[WARNING] Sample generation failed: {e}")
+        print(f"[WARNING] Sample {sample_id} failed: {e}")
         return None
 
 
@@ -203,16 +190,18 @@ def main():
     # Time parameters
     T = 10.0  # Time horizon (seconds)
     h = 1.0 / 160.0  # Time step (seconds)
-    M_steps = int(T / h)
-    
-    # Device
+    M_steps = int(round(T / h))
+
+    base_seed = config.get('seed', 1234)
+
+    # Device and workers: decide once so args_list is built with final values
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
-    
-    # Number of workers
     num_workers = args.num_workers if args.num_workers is not None else data_gen_params.get('num_workers', max(1, mp.cpu_count() - 1))
     if num_workers == 0:
         num_workers = 1
-    
+    if device == 'cuda' and torch.cuda.is_available() and num_workers > 1:
+        num_workers = 1  # avoid CUDA + multiprocessing hangs
+
     # Output directory
     output_dir = Path(args.output_dir) if args.output_dir else Path(paths.get('data_dir', 'data'))
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -247,43 +236,27 @@ def main():
     print(f"  - K bounds: [{K_lower_base}, {K_upper_base}]")
     print(f"  - Frequency constraints: r_max={r_max} Hz/s, f_min={f_min} Hz")
     print(f"  - Time: T={T}s, h={h}s, M_steps={M_steps}")
+    print(f"  - Base seed: {base_seed}")
     print(f"  - Device: {device}")
     print(f"  - Workers: {num_workers}")
     print("=" * 80)
-    
-    # Set multiprocessing start method
-    # CUDA + multiprocessing can cause hangs - use sequential for CUDA
-    if device == 'cuda' and torch.cuda.is_available():
-        if num_workers > 1:
-            print(f"\n  ⚠ Warning: Multiprocessing with CUDA can cause hangs.")
-            print(f"  ⚠ Switching to sequential processing (num_workers=1) for stability.")
-            num_workers = 1
-    
-    # Prepare arguments for multiprocessing
-    args_list = [
-        (N, K_max, B, P_m, D, g, M_lower_base, M_upper_base,
-         K_lower_base, K_upper_base, r_max, f_min, h, T, M_steps,
-         device, i % num_workers if num_workers > 1 else None)
-        for i in range(num_samples)
-    ]
-    
-    # Test CUDA if using GPU
+
     if device == 'cuda':
         print(f"\n[INFO] Testing CUDA availability...")
         try:
-            test_tensor = torch.randn(10, device=device)
+            torch.randn(10, device=device)
             print(f"✓ CUDA is working (device: {torch.cuda.get_device_name(0)})")
         except Exception as e:
-            print(f"⚠ CUDA test failed: {e}")
-            print(f"  Falling back to CPU...")
+            print(f"⚠ CUDA test failed: {e}, falling back to CPU")
             device = 'cpu'
-            # Update device in args_list
-            args_list = [
-                (N, K_max, B, P_m, D, g, M_lower_base, M_upper_base,
-                 K_lower_base, K_upper_base, r_max, f_min, h, T, M_steps,
-                 device, i % num_workers if num_workers > 1 else None)
-                for i in range(num_samples)
-            ]
+
+    # Build args_list once after device and num_workers are final
+    args_list = [
+        (N, K_max, B, P_m, D, g, M_lower_base, M_upper_base,
+         K_lower_base, K_upper_base, r_max, f_min, h, T, M_steps,
+         device, i, base_seed)
+        for i in range(num_samples)
+    ]
     
     # Generate samples
     print(f"\nGenerating {num_samples} samples...")
@@ -341,23 +314,31 @@ def main():
     if len(data) == 0:
         print("\n⚠️  ERROR: No valid samples generated!")
         sys.exit(1)
-    
+
+    # Sanity: print first 3 samples
+    for j, d in enumerate(data[:3]):
+        print(f"[DEBUG] sample_id={d.get('_seed', j)-base_seed}, seed={d.get('_seed')}, "
+              f"M=[{d['M_lower']:.3f},{d['M_upper']:.3f}], K=[{d['K_lower']:.3f},{d['K_upper']:.3f}], "
+              f"ratio={d.get('uncertainty_ratio', 0):.3f}, MOCU={d['MOCU']:.6f}")
+
     # Convert to numpy arrays
     M_lower_arr = np.array([d['M_lower'] for d in data], dtype=np.float32)
     M_upper_arr = np.array([d['M_upper'] for d in data], dtype=np.float32)
     K_lower_arr = np.array([d['K_lower'] for d in data], dtype=np.float32)
     K_upper_arr = np.array([d['K_upper'] for d in data], dtype=np.float32)
     MOCU_arr = np.array([d['MOCU'] for d in data], dtype=np.float32)
-    
-    # Save as .npz file (format expected by train_swing_mpnn_predictor.py)
-    output_file = output_dir / f'swing_mocu_data_{N}o.npz'
+
+    # Save as .npz (train_swing_mpnn_predictor expects M_lower, M_upper, K_lower, K_upper, MOCU)
+    output_file = output_dir / f'swing_mocu_data_{N}.npz'
     np.savez(
         output_file,
         M_lower=M_lower_arr,
         M_upper=M_upper_arr,
         K_lower=K_lower_arr,
         K_upper=K_upper_arr,
-        MOCU=MOCU_arr
+        MOCU=MOCU_arr,
+        seed=np.int64(base_seed),
+        uncertainty_ratio=np.array([d.get('uncertainty_ratio') for d in data], dtype=np.float32),
     )
     
     print("\n" + "=" * 80)

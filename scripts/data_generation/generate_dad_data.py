@@ -155,12 +155,13 @@ def perform_probe_experiment(B, P_m, D, M_true, K_true, g, probe_bus, probe_ampl
 
 def update_bounds(M_lower, M_upper, K_lower, K_upper, observation, probe_bus,
                  probe_amplitude, M_lower_base, M_upper_base, K_lower_base, K_upper_base,
-                 update_strength=0.1):
+                 update_strength=0.1, min_relative_width=0.02):
     """
     Update uncertainty bounds based on observation.
     
     Simple heuristic: Use observation features to narrow bounds.
-    In practice, this would use a proper Bayesian update.
+    Enforces a minimum relative width (fraction of base range) so bounds never
+    collapse to a point, avoiding trivial MOCU=0 and keeping the problem non-trivial.
     
     Args:
         M_lower, M_upper, K_lower, K_upper: Current bounds
@@ -169,46 +170,53 @@ def update_bounds(M_lower, M_upper, K_lower, K_upper, observation, probe_bus,
         probe_amplitude: Probe amplitude used
         M_lower_base, M_upper_base, K_lower_base, K_upper_base: Base bounds
         update_strength: How much to update (0.0 = no update, 1.0 = full update)
+        min_relative_width: Minimum width as fraction of base range (default 0.02 = 2%)
     
     Returns:
         (M_lower_new, M_upper_new, K_lower_new, K_upper_new): Updated bounds
     """
-    # Copy scalar values (floats don't have .copy() method)
     M_lower_new = float(M_lower)
     M_upper_new = float(M_upper)
     K_lower_new = float(K_lower)
     K_upper_new = float(K_upper)
     
-    # Simple heuristic: Use ROCOF_max and f_min to infer (M, K)
-    # Higher ROCOF_max or lower f_min suggests lower M or K
     rocof_max = observation.get('ROCOF_max', 0.0)
     f_min = observation.get('f_min', 50.0)
+    rocof_normalized = min(rocof_max / 1.0, 1.0)
+    f_min_normalized = max((49.5 - f_min) / 0.5, 0.0)
     
-    # Normalize features (rough heuristic)
-    rocof_normalized = min(rocof_max / 1.0, 1.0)  # Assume max ROCOF ~1.0 Hz/s
-    f_min_normalized = max((49.5 - f_min) / 0.5, 0.0)  # Assume f_min range [49.5, 50.0]
+    M_base_range = M_upper_base - M_lower_base
+    K_base_range = K_upper_base - K_lower_base
+    min_M_width = max(min_relative_width * M_base_range, 1e-6)
+    min_K_width = max(min_relative_width * K_base_range, 1e-6)
     
-    # Update M bounds: lower M -> higher ROCOF, lower f_min
+    # Update M bounds
     M_range = M_upper_new - M_lower_new
     if rocof_normalized > 0.5 or f_min_normalized > 0.5:
-        # Likely lower M, narrow upper bound
         M_upper_new = M_upper_new - update_strength * M_range * rocof_normalized
         M_upper_new = max(M_lower_new, min(M_upper_base, M_upper_new))
     else:
-        # Likely higher M, narrow lower bound
         M_lower_new = M_lower_new + update_strength * M_range * (1.0 - rocof_normalized)
         M_lower_new = min(M_upper_new, max(M_lower_base, M_lower_new))
+    if M_upper_new - M_lower_new < min_M_width:
+        mid = (M_lower_new + M_upper_new) / 2
+        M_lower_new = max(M_lower_base, mid - min_M_width / 2)
+        M_upper_new = min(M_upper_base, M_lower_new + min_M_width)
+        M_lower_new = max(M_lower_base, M_upper_new - min_M_width)
     
-    # Update K bounds: lower K -> higher ROCOF, lower f_min
+    # Update K bounds
     K_range = K_upper_new - K_lower_new
     if rocof_normalized > 0.5 or f_min_normalized > 0.5:
-        # Likely lower K, narrow upper bound
         K_upper_new = K_upper_new - update_strength * K_range * rocof_normalized
         K_upper_new = max(K_lower_new, min(K_upper_base, K_upper_new))
     else:
-        # Likely higher K, narrow lower bound
         K_lower_new = K_lower_new + update_strength * K_range * (1.0 - rocof_normalized)
         K_lower_new = min(K_upper_new, max(K_lower_base, K_lower_new))
+    if K_upper_new - K_lower_new < min_K_width:
+        mid = (K_lower_new + K_upper_new) / 2
+        K_lower_new = max(K_lower_base, mid - min_K_width / 2)
+        K_upper_new = min(K_upper_base, K_lower_new + min_K_width)
+        K_lower_new = max(K_lower_base, K_upper_new - min_K_width)
     
     return M_lower_new, M_upper_new, K_lower_new, K_upper_new
 
@@ -236,7 +244,7 @@ def generate_trajectory(N, K, B, P_m, D, g, M_lower_base, M_upper_base,
         'M_true': float(M_true),
         'K_true': float(K_true),
         'states': [(M_lower_0, M_upper_0, K_lower_0, K_upper_0)],  # Initial bounds
-        'actions': [],  # Probe actions (b, A, T)
+        'designs': [],  # Probe designs ξ = (b, A, T_p)
         'observations': []  # Frequency features
     }
     
@@ -265,7 +273,7 @@ def generate_trajectory(N, K, B, P_m, D, g, M_lower_base, M_upper_base,
         )
         
         # Record trajectory data
-        trajectory['actions'].append((probe_bus, probe_amplitude, probe_duration))
+        trajectory['designs'].append((probe_bus, probe_amplitude, probe_duration))
         trajectory['observations'].append(observation)
         trajectory['states'].append((M_lower, M_upper, K_lower, K_upper))
         

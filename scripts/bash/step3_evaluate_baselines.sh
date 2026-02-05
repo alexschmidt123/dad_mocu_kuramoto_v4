@@ -18,11 +18,19 @@ CONFIG_NAME=$(basename "$CONFIG_FILE" .yaml)
 # Remove _K* suffix if present to get base config name (for fallback folder structure)
 BASE_CONFIG_NAME=$(echo "$CONFIG_NAME" | sed 's/_K[0-9]*$//')
 
+# Resolve absolute config path once (for Python and compare_methods.py)
+if [[ "$CONFIG_FILE" = /* ]]; then
+    ABS_CONFIG_FILE="$CONFIG_FILE"
+else
+    ABS_CONFIG_FILE="${PROJECT_ROOT}/${CONFIG_FILE}"
+fi
+export ABS_CONFIG_FILE
+
 # Get info from previous steps (remove quotes if present)
 MOCU_MODEL_NAME=$(cat /tmp/mocu_model_name_${CONFIG_NAME}.txt 2>/dev/null | tr -d '"' | tr -d "'" || echo "")
 
 # Parse config parameters
-N=$(grep "^N:" $CONFIG_FILE | awk '{print $2}')
+N=$(grep "^N:" "$CONFIG_FILE" | awk '{print $2}')
 UPDATE_CNT=$(grep -A 10 "^experiment:" $CONFIG_FILE | grep "update_count:" | awk '{print $2}')
 IT_IDX=$(grep -A 10 "^experiment:" $CONFIG_FILE | grep "it_idx:" | awk '{print $2}')
 K_MAX=$(grep -A 10 "^experiment:" $CONFIG_FILE | grep "K_max:" | awk '{print $2}')
@@ -40,8 +48,10 @@ NUM_SIMULATIONS=$(grep -A 10 "^experiment:" $CONFIG_FILE | grep "num_simulations
 BASELINE_METHODS=$(python3 -c "
 import yaml
 import sys
+import os
+config_path = os.environ.get('ABS_CONFIG_FILE', '$CONFIG_FILE')
 try:
-    with open('$CONFIG_FILE', 'r') as f:
+    with open(config_path, 'r') as f:
         config = yaml.safe_load(f)
     methods = config.get('experiment', {}).get('methods', [])
     if isinstance(methods, list):
@@ -87,13 +97,6 @@ cd "${PROJECT_ROOT}/scripts/evaluation"
 if [ ! -f "compare_methods.py" ]; then
     echo "Error: compare_methods.py not found in ${PROJECT_ROOT}/scripts/evaluation"
     exit 1
-fi
-
-# Resolve config file to absolute path before changing directory
-if [[ "$CONFIG_FILE" = /* ]]; then
-    ABS_CONFIG_FILE="$CONFIG_FILE"
-else
-    ABS_CONFIG_FILE="${PROJECT_ROOT}/${CONFIG_FILE}"
 fi
 
 python3 compare_methods.py --methods "$BASELINE_METHODS" --config "$ABS_CONFIG_FILE"
