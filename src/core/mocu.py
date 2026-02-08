@@ -21,7 +21,7 @@ from .posterior_particles import get_credible_set
 
 def compute_mocu(particles_theta: np.ndarray, weights: np.ndarray,
                  B: np.ndarray, P_m: np.ndarray, D: float, g: np.ndarray,
-                 r_max: float = 0.5, f_min: float = 49.5,
+                 r_max: float = 0.5, f_min: float = 59.5,
                  h: float = 1.0/160.0, T: float = 10.0, M_steps=None,
                  gamma_min: float = 0.0, gamma_max: float = 100.0,
                  max_iterations: int = 20, tol: float = 0.01,

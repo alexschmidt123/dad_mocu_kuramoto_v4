@@ -181,7 +181,7 @@ def main():
     K_lower_base = swing_params.get('K_lower', 0.1)
     K_upper_base = swing_params.get('K_upper', 1.0)
     r_max = swing_params.get('r_max', 0.5)
-    f_min = swing_params.get('f_min', 49.5)
+    f_min = swing_params.get('f_min', 59.5)
     
     # Dataset parameters
     num_samples = args.samples if args.samples is not None else dataset_params.get('samples_per_type', 1000)

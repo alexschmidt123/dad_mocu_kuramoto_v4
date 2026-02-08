@@ -37,6 +37,9 @@ $$
 
 where $M$ is equivalent system inertia and $K$ is aggregate fast frequency response (droop-like gain). Network $B_{ij}$ (IEEE-14), damping $D$, and nominal injections $P_{m,i}$ are known and fixed.
 
+**Relationship between M and the inertia constant H (from standards):**  
+The classical per-unit swing equation is $\frac{2H}{\omega_s}\frac{d\omega}{dt} = P_m - P_e$, with $H$ in **seconds** (stored kinetic energy at synchronous speed per MVA), $\omega_s = 2\pi f_0$ synchronous angular frequency in rad/s ($f_0$ = 50 or 60 Hz), and $\omega$ rotor speed deviation in rad/s. So the coefficient of $d\omega/dt$ is $2H/\omega_s$, i.e. **$M_{\mathrm{std}} = 2H/\omega_s$**. Hence $H = M_{\mathrm{std}}\, \omega_s/2$. For $\omega_s = 2\pi\times 50$ rad/s, $M_{\mathrm{std}} = 2H/(2\pi\times 50) \approx H/157$; so $H = 157\, M_{\mathrm{std}}$ (with $M_{\mathrm{std}}$ in s²/rad). (Note: $\omega_s = 2\pi f_0$ is never 1; $f_0$ is 50 or 60 Hz.) In our code we use $M$ as the direct coefficient in $M\,\dot{\omega}_i = \ldots$; the numerical range $M \in [0.3, 2.0]$ is a **normalized equivalent inertia** (same role as $2H/\omega_s$ with $\omega_s = 2\pi f_0$). See e.g. Kundur [1], Wikipedia “Swing equation.”
+
 ### 2.3 Planning-level control and security
 
 Control: $u^{\text{ctrl}}_{\gamma,i}(t) = \gamma\, g_i\, \omega_i(t)$, with $\sum_i g_i = 1$, $g_i \ge 0$.

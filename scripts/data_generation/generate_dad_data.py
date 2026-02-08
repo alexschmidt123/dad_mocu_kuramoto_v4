@@ -148,7 +148,7 @@ def perform_probe_experiment(B, P_m, D, M_true, K_true, g, probe_bus, probe_ampl
         print(f"[WARNING] Probe experiment failed: {e}")
         return {
             'ROCOF_max': 0.0,
-            'f_min': 50.0,
+            'f_min': 60.0,
             't_settle': T
         }
 
@@ -181,9 +181,9 @@ def update_bounds(M_lower, M_upper, K_lower, K_upper, observation, probe_bus,
     K_upper_new = float(K_upper)
     
     rocof_max = observation.get('ROCOF_max', 0.0)
-    f_min = observation.get('f_min', 50.0)
+    f_min = observation.get('f_min', 60.0)
     rocof_normalized = min(rocof_max / 1.0, 1.0)
-    f_min_normalized = max((49.5 - f_min) / 0.5, 0.0)
+    f_min_normalized = max((59.5 - f_min) / 0.5, 0.0)  # 60 Hz nominal: band 59.5-60.5 Hz
     
     M_base_range = M_upper_base - M_lower_base
     K_base_range = K_upper_base - K_lower_base

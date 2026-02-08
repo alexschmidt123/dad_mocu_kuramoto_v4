@@ -92,7 +92,7 @@ if __name__ == '__main__':
         K_lower_base = swing_params.get('K_lower', 0.05)
         K_upper_base = swing_params.get('K_upper', 0.50)
         r_max = swing_params.get('r_max', 0.5)
-        f_min = swing_params.get('f_min', 49.5)
+        f_min = swing_params.get('f_min', 59.5)
         probe_duration = swing_params.get('probe_duration', 2.0)
         probe_amplitudes = swing_params.get('probe_amplitudes', [0.5, 1.0, 2.0])
     else:
@@ -114,7 +114,7 @@ if __name__ == '__main__':
         K_lower_base = 0.05
         K_upper_base = 0.50
         r_max = 0.5
-        f_min = 49.5
+        f_min = 59.5
         probe_duration = 2.0
         probe_amplitudes = [0.5, 1.0, 2.0]
     

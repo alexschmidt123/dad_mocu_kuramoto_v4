@@ -101,7 +101,7 @@ if __name__ == '__main__':
         )
         B, P_m, D, g = system_params['B'], system_params['P_m'], system_params['D'], system_params['g']
         r_max = swing_params.get('r_max', 0.5)
-        f_min = swing_params.get('f_min', 49.5)
+        f_min = swing_params.get('f_min', 59.5)
         probe_duration = swing_params.get('probe_duration', 2.0)
         probe_amplitudes = swing_params.get('probe_amplitudes', [0.5, 1.0, 2.0])
         device = 'cuda' if torch.cuda.is_available() else 'cpu'

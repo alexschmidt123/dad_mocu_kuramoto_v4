@@ -47,7 +47,7 @@ class ODE_Method(OEDMethod):
     def __init__(self, N, K_max, deltaT, MReal, TReal, it_idx,
                  B=None, P_m=None, D=None, g=None,
                  probe_amplitudes=None, probe_duration=2.0,
-                 r_max=0.5, f_min=49.5, gpu_id=0):
+                 r_max=0.5, f_min=59.5, gpu_id=0):
         """
         Args:
             N: Number of buses
@@ -63,7 +63,7 @@ class ODE_Method(OEDMethod):
             probe_amplitudes: List of probe amplitude options (default: [0.5, 1.0, 2.0])
             probe_duration: Probe duration T (default: 2.0s)
             r_max: Maximum ROCOF constraint (default: 0.5 Hz/s)
-            f_min: Minimum frequency constraint (default: 49.5 Hz)
+            f_min: Minimum frequency constraint (default: 59.5 Hz for 60 Hz nominal)
             gpu_id: GPU device ID
         """
         super().__init__(N, K_max, deltaT, MReal, TReal, it_idx)

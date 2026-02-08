@@ -17,7 +17,7 @@ from .swing_equation_mocu import binary_search_gamma_star
 __all__ = ['gamma_star']
 
 
-def gamma_star(theta, B, P_m, D, g, r_max=0.5, f_min=49.5,
+def gamma_star(theta, B, P_m, D, g, r_max=0.5, f_min=59.5,
                h=1.0/160.0, T=10.0, M_steps=None,
                gamma_min=0.0, gamma_max=100.0, max_iterations=20, tol=0.01,
                device='cuda'):

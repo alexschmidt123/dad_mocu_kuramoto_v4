@@ -229,6 +229,7 @@ def test_design_comparison_table_saved(ieee14_params, prior_bounds, simulation_s
                 B, P_m, D, g, h, T, device=device, timeout=timeout,
             )
             _, _, var_M_post = marginal_M(p_grid, M_vals)
+            _, _, var_K_post = marginal_K(p_grid, K_vals)
             # Discrete entropy: H = -sum p log p; prior uniform H_prior = log(n_points)
             n_points = p_grid.size
             p_flat = p_grid.ravel()
@@ -239,6 +240,7 @@ def test_design_comparison_table_saved(ieee14_params, prior_bounds, simulation_s
             info_gain = H_prior - H_post
         except Exception:
             var_M_post = np.nan
+            var_K_post = np.nan
             info_gain = np.nan
         rows.append({
             "bus": probe_bus,
@@ -246,28 +248,31 @@ def test_design_comparison_table_saved(ieee14_params, prior_bounds, simulation_s
             "ROCOF_max": obs.get("ROCOF_max", np.nan),
             "f_min": obs.get("f_min", np.nan),
             "var_M_post": var_M_post,
+            "var_K_post": var_K_post,
             "info_gain": info_gain,
         })
 
     # Save CSV
     table_path = OUTPUT_DIR / "design_comparison_table.csv"
     with open(table_path, "w") as f:
-        f.write("bus,amplitude,ROCOF_max,f_min,var_M_post,info_gain\n")
+        f.write("bus,amplitude,ROCOF_max,f_min,var_M_post,var_K_post,info_gain\n")
         for r in rows:
-            v = r["var_M_post"]
+            v_m = r["var_M_post"]
+            v_k = r["var_K_post"]
             i = r["info_gain"]
-            v_str = f"{v:.10g}" if not np.isnan(v) else "nan"
+            v_m_str = f"{v_m:.10g}" if not np.isnan(v_m) else "nan"
+            v_k_str = f"{v_k:.10g}" if not np.isnan(v_k) else "nan"
             i_str = f"{i:.10g}" if not np.isnan(i) else "nan"
-            f.write(f"{r['bus']},{r['amplitude']},{r['ROCOF_max']:.6f},{r['f_min']:.6f},{v_str},{i_str}\n")
+            f.write(f"{r['bus']},{r['amplitude']},{r['ROCOF_max']:.6f},{r['f_min']:.6f},{v_m_str},{v_k_str},{i_str}\n")
 
     assert len(rows) == 140, "Table must have 140 rows (14 B × 10 A)"
     rocofs = [r["ROCOF_max"] for r in rows]
     assert len(set(np.round(np.asarray(rocofs), 6))) >= 2, "Expected at least 2 distinct ROCOF_max across designs"
 
 
-# Design sets for ROCOF plots: B in {1,4,7,10,13,14}, A in 6 values
+# Design sets for ROCOF plots: B in {1,4,7,10,13,14}, A in 6 values (aligned with Parameter_references_table.md: tests up to 0.5)
 ROCOF_BUSES = [1, 4, 7, 10, 13, 14]
-ROCOF_AMPLITUDES = [0.05, 0.1, 0.2, 0.3, 0.4, 0.6]
+ROCOF_AMPLITUDES = [0.05, 0.1, 0.2, 0.3, 0.4, 0.5]
 
 
 def _highlight_probe_interval(ax, probe_duration, T):
