@@ -61,10 +61,11 @@ The system state at time $t$ is $\mathbf{x}(t) = [\boldsymbol{\theta}(t), \bolds
 For each bus $i \in \mathcal{V}$:
 
 $$
-\begin{aligned}
-\dot{\theta}_i(t) &= \omega_i(t) \\
-M_i \dot{\omega}_i(t) &= P_{m,i} - P_{e,i}(\boldsymbol{\theta}(t)) - (D_i + K_i)\omega_i(t) + u_i(t)
-\end{aligned}
+\dot{\theta}_i(t) = \omega_i(t)
+$$
+
+$$
+M_i \dot{\omega}_i(t) = P_{m,i} - P_{e,i}(\boldsymbol{\theta}(t)) - (D_i + K_i)\omega_i(t) + u_i(t)
 $$
 
 **Where the electrical power flow $P_{e,i}$ is:**
@@ -89,7 +90,7 @@ $$
 
 ### 2.4 Latent Space Prior
 The parameter vector $\vartheta = (M, K)$ is drawn from a uniform prior $p(\vartheta)$ over physically validated ranges for a 60 Hz system. **$M$ is the effective inertia coefficient** in the swing equation, related to the inertia constant $H$ (seconds) by $M = 2H/\omega_s$ with $\omega_s = 2\pi f_0$.
-* **Inertia ($M$):** $[0.01,\, 0.06]$ $s^2/\text{rad}$. This corresponds to $H \in [2.3,\, 5.0]$ s via $M = 2H/\omega_s$ at $\omega_s = 2\pi\times 60$ rad/s (Kundur; typical synchronous machine range).
+* **Inertia ($M$):** $[0.01,\, 0.06]$ $s^2/\mathrm{rad}$. This corresponds to $H \in [2.3,\, 5.0]$ s via $M = 2H/\omega_s$ at $\omega_s = 2\pi\times 60$ rad/s (Kundur; typical synchronous machine range).
 * **Droop gain ($K$):** $[0.05,\, 0.50]$ p.u. (primary frequency response; literature often reports droop in %, e.g. 4–6%.)
 
 ---
