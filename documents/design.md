@@ -10,7 +10,7 @@
 
 ## 1. Introduction and Goal
 
-This document describes the design of a **sequential Bayesian optimal experimental design (sBOED)** framework for power systems. The system is modeled by the **second-order Kuramoto (swing) equation** on an IEEE-14 bus network. The goal is to design **active probing experiments** that reduce uncertainty in a **decision-relevant quantity**—the minimal safe gain $\gamma^*(M,K)$—rather than estimating parameters $(M,K)$ for their own sake. The framework uses **Mean Objective Cost of Uncertainty (MOCU)** as the utility and trains a **Deep Adaptive Design (DAD)** policy to select probes non-myopically.
+This document describes the design of a **sequential Bayesian optimal experimental design (sBOED)** framework for power systems. The system is modeled by the **second-order Kuramoto (swing) equation** on an IEEE-14 bus network. The goal is to design **active probing experiments** that reduce uncertainty in a **decision-relevant quantity**—the minimal safe gain $\gamma^{\ast}(M,K)$—rather than estimating parameters $(M,K)$ for their own sake. The framework uses **Mean Objective Cost of Uncertainty (MOCU)** as the utility and trains a **Deep Adaptive Design (DAD)** policy to select probes non-myopically.
 
 ---
 
@@ -97,10 +97,10 @@ The parameter vector $\vartheta = (M, K)$ is drawn from a uniform prior $p(\vart
 
 ## 3. Decision Objective: Minimal Safe Gain
 
-We aim to estimate the **Minimal Safe Gain** $\gamma^*$, defined as the smallest control effort required to maintain system security under a reference contingency (e.g., load step).
+We aim to estimate the **Minimal Safe Gain** $\gamma^{\ast}$, defined as the smallest control effort required to maintain system security under a reference contingency (e.g., load step).
 
 $$
-\gamma^*(\vartheta) = \inf \left\lbrace \gamma \in \mathbb{R}_+ \mid \forall t:\; \lvert \dot{f}(t) \rvert \le r_{\max} \land f(t) \ge f_{\min} \right\rbrace
+\gamma^{\ast}(\vartheta) = \inf \left\lbrace \gamma \in \mathbb{R}_+ \mid \forall t:\; \lvert \dot{f}(t) \rvert \le r_{\max} \land f(t) \ge f_{\min} \right\rbrace
 $$
 
 **Security Constraints:**
@@ -160,7 +160,7 @@ $$
 
 ## 5. Bayesian Inference and MOCU Objective
 
-This section defines how the observation $y$ is used to update our belief about $\vartheta$ and how we quantify the uncertainty in the decision $\gamma^*$.
+This section defines how the observation $y$ is used to update our belief about $\vartheta$ and how we quantify the uncertainty in the decision $\gamma^{\ast}$.
 
 ### 5.1 Likelihood Function
 The likelihood describes the probability of observing a specific peak ROCOF value $y$ given a hypothesized parameter set $\vartheta$ and the applied probe $\xi$. Since we model the error as Gaussian:
@@ -178,20 +178,20 @@ $$
 
 ### 5.3 Mean Objective Cost of Uncertainty (MOCU)
 
-**1. The Bayes-Optimal Decision $\hat{\gamma}^*$**
+**1. The Bayes-Optimal Decision $\hat{\gamma}^{\ast}$**
 Given a belief $p(\vartheta)$, the optimal estimator for the safe gain is the one that minimizes the expected loss. For absolute error loss ($L_1$), this is the **median** of the predicted safe gains:
 $$
-\hat{\gamma}^*(p) = \mathrm{median}_{\vartheta \sim p} [\gamma^*(\vartheta)]
+\hat{\gamma}^{\ast}(p) = \mathrm{median}_{\vartheta \sim p} [\gamma^{\ast}(\vartheta)]
 $$
 
 **2. MOCU (Current Uncertainty)**
 The MOCU $J(p)$ quantifies the expected decision error we would incur if we stopped experimenting now.
 $$
-J(p) = \mathbb{E}_{\vartheta \sim p} \left[ \lvert \gamma^*(\vartheta) - \hat{\gamma}^*(p) \rvert \right]
+J(p) = \mathbb{E}_{\vartheta \sim p} \left[ \lvert \gamma^{\ast}(\vartheta) - \hat{\gamma}^{\ast}(p) \rvert \right]
 $$
 
 **3. Expected Remaining MOCU (The Design Objective)**
-To select the optimal next probe $\xi^*$, we calculate the expected MOCU after the experiment. This is the **risk function** $\mathcal{R}(\xi)$ we minimize:
+To select the optimal next probe $\xi^{\ast}$, we calculate the expected MOCU after the experiment. This is the **risk function** $\mathcal{R}(\xi)$ we minimize:
 
 $$
 \mathcal{R}(\xi; p_t) = \mathbb{E}_{y \sim p(y \mid p_t, \xi)} \left[ J\left( \mathrm{Posterior}(p_t, \xi, y) \right) \right]
@@ -215,9 +215,9 @@ $$
 * **Output:** Distribution over candidate buses $\mathcal{B}$ and amplitudes $\mathcal{A}$.
 
 ### 6.2 Optimization Objective
-The network is trained to minimize the **Terminal MOCU** over the entire experimental horizon $T$. We find parameters $\phi^*$ such that:
+The network is trained to minimize the **Terminal MOCU** over the entire experimental horizon $T$. We find parameters $\phi^{\ast}$ such that:
 $$
-\phi^* = \arg\min_\phi \mathbb{E}_{\vartheta \sim p(\vartheta),\; y_{1:T} \sim p(y \mid \vartheta, \pi_\phi)} \left[ J(p_T) \right]
+\phi^{\ast} = \arg\min_\phi \mathbb{E}_{\vartheta \sim p(\vartheta),\; y_{1:T} \sim p(y \mid \vartheta, \pi_\phi)} \left[ J(p_T) \right]
 $$
 This end-to-end objective ensures the policy learns **non-myopic** strategies (e.g., probing different areas of the grid to disambiguate coupled parameters).
 
@@ -225,7 +225,7 @@ This end-to-end objective ensures the policy learns **non-myopic** strategies (e
 
 ## 7. Fast MOCU Estimation via MPNN
 
-Calculating the true MOCU $J(p)$ requires integrating over the expensive $\gamma^*(\vartheta)$ landscape (which involves binary search over ODE solutions). To accelerate training, we replace this with a neural surrogate.
+Calculating the true MOCU $J(p)$ requires integrating over the expensive $\gamma^{\ast}(\vartheta)$ landscape (which involves binary search over ODE solutions). To accelerate training, we replace this with a neural surrogate.
 
 ### 7.1 The MPNN Estimator
 We use a **Message Passing Neural Network (MPNN)** that leverages the graph structure of the IEEE-14 bus system ($B_{ij}$) to estimate MOCU directly.
