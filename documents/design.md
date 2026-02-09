@@ -2,7 +2,9 @@
 
 **Sequential Optimal Experimental Design for Power Systems**
 
-*Gaoming Lin · Advisor: Dr. Byung-Jun Yoon* *January 2026*
+*Gaoming Lin · Advisor: Dr. Byung-Jun Yoon · January 2026*
+
+*This document is the prototype for the project paper.*
 
 ---
 
@@ -52,7 +54,7 @@ In the swing-equation model used here, every bus has phase and frequency dynamic
 
 **Experiment design preference:** For maximum information (M/K estimation), prefer high-degree buses: **4** (hub), then **2, 5, 6, 9**. To cover node types use **1** (slack), **2** or **3** (gen), **4** (load hub), **7** (load), and **10** or **14** (load). For minimal redundancy, use one from each symmetric pair (e.g. 10 and 13, or 14 and 11).
 
-### 2.2 Physical Evolution Laws (Swing Equation)
+### 2.2 Swing Equation (Second-Order Kuramoto Model)
 
 The system state at time $t$ is $\mathbf{x}(t) = [\boldsymbol{\theta}(t), \boldsymbol{\omega}(t)]^\top \in \mathbb{R}^{2N}$. The dynamics follow the **Second-Order Kuramoto Model** (Swing Equation), adapted for structure-preserving power networks.
 
@@ -71,7 +73,7 @@ P_{e,i}(\boldsymbol{\theta}(t)) = \sum_{j \in \mathcal{N}_i} B_{ij} \sin\bigl(\t
 $$
 *(Note: $\mathcal{N}_i = \lbrace j \mid (i, j) \in \mathcal{E} \rbrace$ denotes the set of neighbors for bus $i$.)*
 
-### 2.3 Variable Definitions and Units
+### 2.3 Notation and Units
 
 | Symbol | Definition | Unit / Domain |
 | :--- | :--- | :--- |
@@ -110,7 +112,7 @@ $$
 
 This section details how a probe $\xi$ is transformed into a scalar observation $y$. The process involves three mapping stages: **Dynamics ($\Phi$)**, **Sampling ($\mathcal{S}$)**, and **Feature Extraction ($\Psi$)**.
 
-### 4.1 Process Flow Diagram
+### 4.1 Pipeline Overview
 
 ```text
        [1. Dynamics]               [2. Sampling]              [3. Feature Extraction]
@@ -122,7 +124,7 @@ This section details how a probe $\xi$ is transformed into a scalar observation 
         Parameters (M,K)          Noise (eta)                  Max(|df/dt|)
 ```
 
-### 4.2 Mathematical Definition of Stages
+### 4.2 Dynamics, Sampling, and Feature Extraction
 
 **Stage 1: Dynamics (The Solution Map $\Phi$)**
 Given parameters $\vartheta$ and probe $\xi$, we solve the ODE system to get the continuous angular frequency trajectory $\omega(t)$.
@@ -139,11 +141,12 @@ $$
 
 **Stage 3: Feature Extraction (The Reduction Map $\Psi$)**
 We compute the discrete Rate of Change of Frequency (ROCOF) and pool it into a single scalar statistic $y$.
-1.  **Finite Difference:** $\text{ROCOF}_i[n] = (\tilde{f}_i[n] - \tilde{f}_i[n-1]) / \Delta t$
+1.  **Finite Difference:** $\mathrm{ROCOF}_i[n] = (\tilde{f}_i[n] - \tilde{f}_i[n-1]) / \Delta t$
 2.  **Max-Pooling:**
-    $$
-    y = \Psi(\tilde{\mathbf{f}}) = \max_{i, n} \lvert \mathrm{ROCOF}_i[n] \rvert
-    $$
+
+$$
+y = \Psi(\tilde{\mathbf{f}}) = \max_{i, n} \lvert \mathrm{ROCOF}_i[n] \rvert
+$$
 
 ### 4.3 The Forward Model $\mathcal{M}$
 We define the composite forward model $\mathcal{M}(\vartheta, \xi)$ as the deterministic output of this entire pipeline (excluding noise). The final observation $y$ is:
@@ -190,7 +193,7 @@ $$
 To select the optimal next probe $\xi^*$, we calculate the expected MOCU after the experiment. This is the **risk function** $\mathcal{R}(\xi)$ we minimize:
 
 $$
-\mathcal{R}(\xi; p_t) = \mathbb{E}_{y \sim p(y \mid p_t, \xi)} \left[ J\bigl( \mathrm{Posterior}(p_t, \xi, y) \bigr) \right]
+\mathcal{R}(\xi; p_t) = \mathbb{E}_{y \sim p(y \mid p_t, \xi)} \left[ J\left( \mathrm{Posterior}(p_t, \xi, y) \right) \right]
 $$
 
 * **Inner term:** The MOCU of the hypothetical future posterior.
@@ -213,7 +216,7 @@ $$
 ### 6.2 Optimization Objective
 The network is trained to minimize the **Terminal MOCU** over the entire experimental horizon $T$. We find parameters $\phi^*$ such that:
 $$
-\phi^* = \arg\min_\phi \mathbb{E}_{\vartheta \sim p(\vartheta), y_{1:T} \sim p(y \mid \vartheta, \pi_\phi)} \left[ J(p_T) \right]
+\phi^* = \arg\min_\phi \mathbb{E}_{\vartheta \sim p(\vartheta),\; y_{1:T} \sim p(y \mid \vartheta, \pi_\phi)} \left[ J(p_T) \right]
 $$
 This end-to-end objective ensures the policy learns **non-myopic** strategies (e.g., probing different areas of the grid to disambiguate coupled parameters).
 
@@ -231,18 +234,18 @@ $$
 $$
 
 * **Graph Input ($\mathcal{G}$):** Admittance matrix nodes and edges.
-* **State Input ($\text{State}_t$):** Summary statistics of the current belief $p_t$ (e.g., bounds or moments of marginal distributions for $M_i, K_i$).
+* **State Input ($\mathrm{State}_t$):** Summary statistics of the current belief $p_t$ (e.g., bounds or moments of marginal distributions for $M_i, K_i$).
 * **Output:** Predicted scalar MOCU value.
 
 ### 7.2 Training the Surrogate
 The MPNN is pre-trained or co-trained via supervised learning to match the ground-truth MOCU computed by the physics simulator:
 $$
-\mathcal{L}_{\psi} = \lVert \hat{J}_{\mathrm{MPNN}}(p) - J_{\mathrm{Physics}}(p) \rVert^2
+\mathcal{L}_{\psi} = \left\lVert \hat{J}_{\mathrm{MPNN}}(p) - J_{\mathrm{Physics}}(p) \right\rVert^2
 $$
 
 ---
 
-## 8. Sequential Experiment Overview (Execution Loop)
+## 8. Sequential Execution Loop
 
 The complete **sBOED** loop proceeds as follows for $t = 1$ to $T_{horizon}$:
 
@@ -253,7 +256,7 @@ The complete **sBOED** loop proceeds as follows for $t = 1$ to $T_{horizon}$:
 
 ---
 
-## 9. Probing Parameter Table (Fixed Design Choices)
+## 9. Probe and Observation Parameters
 
 | Parameter | Symbol | Value / Set | Justification |
 |-----------|--------|-------------|----------------|
