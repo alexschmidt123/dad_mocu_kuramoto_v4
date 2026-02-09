@@ -2,257 +2,242 @@
 
 **Sequential Optimal Experimental Design for Power Systems**
 
-*Gaoming Lin · Advisor: Dr. Byung-Jun Yoon*  
-*January 2026*
+*Gaoming Lin · Advisor: Dr. Byung-Jun Yoon* *January 2026*
 
 ---
 
 ## 1. Introduction and Goal
 
-This document describes the full design of a **sequential Bayesian optimal experimental design (sBOED)** framework for power systems. The system is modeled by the **second-order Kuramoto (swing) equation** on an IEEE-14 bus network. The goal is to design **active probing experiments** that reduce uncertainty in a **decision-relevant quantity**—the minimal safe gain $\gamma^*(M,K)$—rather than estimating parameters $(M,K)$ for their own sake. The framework uses **Mean Objective Cost of Uncertainty (MOCU)** as the utility and trains a **Deep Adaptive Design (DAD)** policy to select probes non-myopically.
+This document describes the design of a **sequential Bayesian optimal experimental design (sBOED)** framework for power systems. The system is modeled by the **second-order Kuramoto (swing) equation** on an IEEE-14 bus network. The goal is to design **active probing experiments** that reduce uncertainty in a **decision-relevant quantity**—the minimal safe gain $\gamma^*(M,K)$—rather than estimating parameters $(M,K)$ for their own sake. The framework uses **Mean Objective Cost of Uncertainty (MOCU)** as the utility and trains a **Deep Adaptive Design (DAD)** policy to select probes non-myopically.
 
 ---
 
-## 2. System Model, Latent Uncertainty, and Decision Objective
+## 2. System Model and Dynamics
 
-### 2.1 Dynamics (network-coupled swing equation)
+### 2.1 Network Topology (IEEE 14-Bus Standard)
 
-For each bus $i=1,\dots,N$:
+The system topology is fixed and defined by the standard IEEE 14-bus test case.
+* **Bus Set ($\mathcal{V}$):** The set of $N=14$ buses, indexed $i \in \{1, \dots, 14\}$.
+* **Branch Set ($\mathcal{E}$):** The specific set of 20 transmission lines and transformers as defined in the standard IEEE 14-bus data. A physical line exists between bus $i$ and $j$ if $(i, j) \in \mathcal{E}$.
+* **Coupling Structure:** The network connectivity is encoded in the **Susceptance Matrix** $\mathbf{B} \in \mathbb{R}^{N \times N}$. The entry $B_{ij} > 0$ represents the magnitude of the line susceptance if $(i, j) \in \mathcal{E}$, and $B_{ij} = 0$ otherwise.
 
-$$
-\dot{\theta}_i(t) = \omega_i(t),
-$$
-$$
-M\,\dot{\omega}_i(t) = P_{m,i} - \sum_{j=1}^{N} B_{ij} \sin\bigl(\theta_i(t)-\theta_j(t)\bigr) - (D+K)\omega_i(t) + u^{\text{probe}}_{\xi,i}(t) + u^{\text{ctrl}}_{\gamma,i}(t).
-$$
+### 2.2 Physical Evolution Laws (Swing Equation)
 
-- $i$ indexes the bus; $j$ indexes buses coupled to $i$; $B_{ij}=0$ if no line.
-- Summation is the electrical power exchange with neighbors.
+The system state at time $t$ is $\mathbf{x}(t) = [\boldsymbol{\theta}(t), \boldsymbol{\omega}(t)]^\top \in \mathbb{R}^{2N}$. The dynamics follow the **Second-Order Kuramoto Model** (Swing Equation), adapted for structure-preserving power networks.
 
-### 2.2 Latent parameters
+For each bus $i \in \mathcal{V}$:
 
 $$
-\vartheta = (M,K) \sim p(\vartheta), \quad \vartheta \in \mathbb{R}_+^2,
+\begin{aligned}
+\dot{\theta}_i(t) &= \omega_i(t) \\
+M_i \dot{\omega}_i(t) &= P_{m,i} - P_{e,i}(\boldsymbol{\theta}(t)) - (D_i + K_i)\omega_i(t) + u_i(t)
+\end{aligned}
 $$
 
-where $M$ is equivalent system inertia and $K$ is aggregate fast frequency response (droop-like gain). Network $B_{ij}$ (IEEE-14), damping $D$, and nominal injections $P_{m,i}$ are known and fixed.
-
-**Relationship between M and the inertia constant H (from standards):**  
-The classical per-unit swing equation is $\frac{2H}{\omega_s}\frac{d\omega}{dt} = P_m - P_e$, with $H$ in **seconds** (stored kinetic energy at synchronous speed per MVA), $\omega_s = 2\pi f_0$ synchronous angular frequency in rad/s ($f_0$ = 50 or 60 Hz), and $\omega$ rotor speed deviation in rad/s. So the coefficient of $d\omega/dt$ is $2H/\omega_s$, i.e. **$M_{\mathrm{std}} = 2H/\omega_s$**. Hence $H = M_{\mathrm{std}}\, \omega_s/2$. For $\omega_s = 2\pi\times 50$ rad/s, $M_{\mathrm{std}} = 2H/(2\pi\times 50) \approx H/157$; so $H = 157\, M_{\mathrm{std}}$ (with $M_{\mathrm{std}}$ in s²/rad). (Note: $\omega_s = 2\pi f_0$ is never 1; $f_0$ is 50 or 60 Hz.) In our code we use $M$ as the direct coefficient in $M\,\dot{\omega}_i = \ldots$; the numerical range $M \in [0.3, 2.0]$ is a **normalized equivalent inertia** (same role as $2H/\omega_s$ with $\omega_s = 2\pi f_0$). See e.g. Kundur [1], Wikipedia “Swing equation.”
-
-### 2.3 Planning-level control and security
-
-Control: $u^{\text{ctrl}}_{\gamma,i}(t) = \gamma\, g_i\, \omega_i(t)$, with $\sum_i g_i = 1$, $g_i \ge 0$.
-
-Security-constrained optimal gain:
-
+**Where the electrical power flow $P_{e,i}$ is:**
 $$
-\gamma^*(\vartheta) = \min_{\gamma} \quad \text{s.t.} \quad \max_t |\dot{f}(t)| \le r_{\max},\;\; \min_t f(t) \ge f_{\min}.
+P_{e,i}(\boldsymbol{\theta}(t)) = \sum_{j \in \mathcal{N}_i} B_{ij} \sin\bigl(\theta_i(t) - \theta_j(t)\bigr)
 $$
+*(Note: $\mathcal{N}_i = \{j \mid (i, j) \in \mathcal{E}\}$ denotes the set of neighbors for bus $i$.)*
 
-**Goal:** Design probing experiments that reduce uncertainty in $\gamma^*(M,K)$ [1], [2].
+### 2.3 Variable Definitions and Units
+
+| Symbol | Definition | Unit / Domain |
+| :--- | :--- | :--- |
+| $\theta_i$ | Voltage phase angle at bus $i$. | Rad |
+| $\omega_i$ | Angular frequency deviation from synchronous speed $\omega_s$. | Rad/s |
+| $P_{m,i}$ | Net mechanical power injection (Generation - Load). | p.u. |
+| $B_{ij}$ | Line susceptance magnitude between bus $i$ and $j$. | p.u. |
+| $D_i$ | Load-damping coefficient (frequency sensitivity). | p.u. |
+| $u_i(t)$ | Total external control/probing injection. | p.u. |
+| **Latent $\vartheta$** | **Uncertain Parameters** | |
+| $M_i$ | **Effective Inertia Coefficient.** Related to inertia constant $H$ by $M = 2H/\omega_s$. | $s^2/\text{rad}$ |
+| $K_i$ | **Primary frequency response (droop) gain.** Aggregate governor/FFR gain; power response proportional to frequency deviation. | p.u. |
+
+### 2.4 Latent Space Prior
+The parameter vector $\vartheta = (M, K)$ is drawn from a uniform prior $p(\vartheta)$ over physically validated ranges for a 60 Hz system. **$M$ is the effective inertia coefficient** in the swing equation, related to the inertia constant $H$ (seconds) by $M = 2H/\omega_s$ with $\omega_s = 2\pi f_0$.
+* **Inertia ($M$):** $[0.01,\, 0.06]$ $s^2/\text{rad}$. This corresponds to $H \in [2.3,\, 5.0]$ s via $M = 2H/\omega_s$ at $\omega_s = 2\pi\times 60$ rad/s (Kundur; typical synchronous machine range).
+* **Droop gain ($K$):** $[0.05,\, 0.50]$ p.u. (primary frequency response; literature often reports droop in %, e.g. 4–6%.)
 
 ---
 
-## 3. Finite-Horizon Sequential Probing Experiment
+## 3. Decision Objective: Minimal Safe Gain
 
-Episode: $\vartheta \sim p(\vartheta)$ is drawn once and fixed; steps $t=1,\dots,T$.
-
-At step $t$, the experimenter chooses a probing design
+We aim to estimate the **Minimal Safe Gain** $\gamma^*$, defined as the smallest control effort required to maintain system security under a reference contingency (e.g., load step).
 
 $$
-\xi_t = (b_t, A_t, T_p) \in \Xi = \mathcal{B} \times \mathcal{A} \times \{T_p\}.
+\gamma^*(\vartheta) = \inf \left\{ \gamma \in \mathbb{R}_+ \mid \forall t: |\dot{f}(t)| \le r_{\max} \land f(t) \ge f_{\min} \right\}
 $$
 
-### 3.1 Active probing signal (IBR-style injection)
-
-$$
-u^{\text{probe}}_{\xi,i}(\tau) =
-\begin{cases}
-A_t\, s(\tau; T_p), & i = b_t, \\
-0, & i \neq b_t,
-\end{cases}
-\qquad
-s(\tau; T_p) = \frac{1}{2}\biggl(1 - \cos \frac{2\pi\tau}{T_p}\biggr).
-$$
-
-The probe is a smooth active-power pulse at bus $b_t$ to excite inertial and primary-frequency dynamics within operational limits.
-
-### 3.2 Observation and history
-
-Simulate the swing equation under $(\vartheta, \xi_t)$, measure frequency response, and compute observation $y_t$. The designer has history
-
-$$
-h_t = \{(\xi_1, y_1), \dots, (\xi_t, y_t)\},
-$$
-
-while $(M,K)$ remain unobserved [3], [4].
+**Security Constraints:**
+* **ROCOF Limit ($r_{\max}$):** 0.1 Hz/s. (Tightened for non-trivial control; standard withstand is higher, e.g. 0.5–2 Hz/s.)
+* **Nadir Limit ($f_{\min}$):** 59.8 Hz. (60 Hz nominal; normal band 59.5–60.5 Hz; we use 59.8 for stricter constraint.)
 
 ---
 
-## 4. Probing Parameter Table (Fixed Design Choices)
+## 4. The Experiment-to-Observation Pipeline
+
+This section details how a probe $\xi$ is transformed into a scalar observation $y$. The process involves three mapping stages: **Dynamics ($\Phi$)**, **Sampling ($\mathcal{S}$)**, and **Feature Extraction ($\Psi$)**.
+
+### 4.1 Process Flow Diagram
+
+```text
+       [1. Dynamics]               [2. Sampling]              [3. Feature Extraction]
+      (Continuous ODE)           (Discrete Measurement)           (Max-Pooling)
+
+ u(t) ---> [ SYSTEM ] -- w(t) --> [ PMU SENSOR ] -- f[n] --> [ CALCULATE ROCOF ] -- y -->
+             ^                         ^                            ^
+             |                         |                            |
+        Parameters (M,K)          Noise (eta)                  Max(|df/dt|)
+```
+
+### 4.2 Mathematical Definition of Stages
+
+**Stage 1: Dynamics (The Solution Map $\Phi$)**
+Given parameters $\vartheta$ and probe $\xi$, we solve the ODE system to get the continuous angular frequency trajectory $\omega(t)$.
+$$
+\mathbf{x}(t) = \Phi_t(\mathbf{x}_0, \vartheta, u^{\text{probe}}_{\xi}) \quad \text{for } t \in [0, T_{obs}]
+$$
+
+**Stage 2: Discrete Sampling (The Measurement Map $\mathcal{S}$)**
+We sample the frequency deviation $\Delta f_i(t) = \omega_i(t)/2\pi$ at $f_s = 12$ Hz.
+$$
+\tilde{f}_i[n] = \Delta f_i(n \cdot \Delta t) + \eta_n, \quad \Delta t = 1/f_s
+$$
+* $\eta_n$: Measurement noise (negligible).
+
+**Stage 3: Feature Extraction (The Reduction Map $\Psi$)**
+We compute the discrete Rate of Change of Frequency (ROCOF) and pool it into a single scalar statistic $y$.
+1.  **Finite Difference:** $\text{ROCOF}_i[n] = (\tilde{f}_i[n] - \tilde{f}_i[n-1]) / \Delta t$
+2.  **Max-Pooling:**
+    $$
+    y = \Psi(\tilde{\mathbf{f}}) = \max_{i, n} \left| \text{ROCOF}_i[n] \right|
+    $$
+
+### 4.3 The Forward Model $\mathcal{M}$
+We define the composite forward model $\mathcal{M}(\vartheta, \xi)$ as the deterministic output of this entire pipeline (excluding noise). The final observation $y$ is:
+$$
+y = \mathcal{M}(\vartheta, \xi) + \epsilon, \quad \epsilon \sim \mathcal{N}(0, \sigma_{feat}^2)
+$$
+* **$\sigma_{feat}$:** 0.05 Hz/s (Aggregate uncertainty from numerical error and PMU noise).
+
+---
+
+## 5. Bayesian Inference and MOCU Objective
+
+This section defines how the observation $y$ is used to update our belief about $\vartheta$ and how we quantify the uncertainty in the decision $\gamma^*$.
+
+### 5.1 Likelihood Function
+The likelihood describes the probability of observing a specific peak ROCOF value $y$ given a hypothesized parameter set $\vartheta$ and the applied probe $\xi$. Since we model the error as Gaussian:
+
+$$
+p(y \mid \vartheta, \xi) = \frac{1}{\sqrt{2\pi\sigma_{feat}^2}} \exp \left( -\frac{\bigl(y - \mathcal{M}(\vartheta, \xi)\bigr)^2}{2\sigma_{feat}^2} \right)
+$$
+
+### 5.2 Posterior Update
+We maintain a belief state $p_t(\vartheta)$ (represented by a set of weighted particles). Upon collecting a new observation $y_{obs}$ from experiment $\xi$, the belief is updated via Bayes' rule:
+
+$$
+p_{t+1}(\vartheta) = \frac{p(y_{obs} \mid \vartheta, \xi) \cdot p_t(\vartheta)}{\int p(y_{obs} \mid \vartheta', \xi) p_t(\vartheta') \, d\vartheta'}
+$$
+
+### 5.3 Mean Objective Cost of Uncertainty (MOCU)
+
+**1. The Bayes-Optimal Decision $\hat{\gamma}^*$**
+Given a belief $p(\vartheta)$, the optimal estimator for the safe gain is the one that minimizes the expected loss. For absolute error loss ($L_1$), this is the **median** of the predicted safe gains:
+$$
+\hat{\gamma}^*(p) = \text{median}_{\vartheta \sim p} [\gamma^*(\vartheta)]
+$$
+
+**2. MOCU (Current Uncertainty)**
+The MOCU $J(p)$ quantifies the expected decision error we would incur if we stopped experimenting now.
+$$
+J(p) = \mathbb{E}_{\vartheta \sim p} \left[ \left| \gamma^*(\vartheta) - \hat{\gamma}^*(p) \right| \right]
+$$
+
+**3. Expected Remaining MOCU (The Design Objective)**
+To select the optimal next probe $\xi^*$, we calculate the expected MOCU after the experiment. This is the **risk function** $\mathcal{R}(\xi)$ we minimize:
+
+$$
+\mathcal{R}(\xi; p_t) = \mathbb{E}_{y \sim p(y \mid p_t, \xi)} \left[ J\bigl( \text{Posterior}(p_t, \xi, y) \bigr) \right]
+$$
+
+* **Inner term:** The MOCU of the hypothetical future posterior.
+* **Outer expectation:** Averaged over all possible observation outcomes $y$ predicted by the current prior.
+
+
+
+## 6. Deep Adaptive Design (DAD) Framework
+
+We implement **Deep Adaptive Design** to amortize the cost of finding optimal experiments. Instead of optimizing $\xi$ via gradient descent at runtime (which is slow), we train a **policy network** $\pi_\phi$.
+
+### 6.1 Design Policy
+The policy $\pi_\phi$ maps the current experiment history $h_{t-1}$ to the next optimal design:
+$$
+\xi_t = \pi_\phi(h_{t-1})
+$$
+* **Input:** History embedding (encoding previous probes $\xi_{1:t-1}$ and observations $y_{1:t-1}$).
+* **Output:** Distribution over candidate buses $\mathcal{B}$ and amplitudes $\mathcal{A}$.
+
+### 6.2 Optimization Objective
+The network is trained to minimize the **Terminal MOCU** over the entire experimental horizon $T$. We find parameters $\phi^*$ such that:
+$$
+\phi^* = \arg\min_\phi \mathbb{E}_{\vartheta \sim p(\vartheta), y_{1:T} \sim p(y \mid \vartheta, \pi_\phi)} \left[ J(p_T) \right]
+$$
+This end-to-end objective ensures the policy learns **non-myopic** strategies (e.g., probing different areas of the grid to disambiguate coupled parameters).
+
+---
+
+## 7. Fast MOCU Estimation via MPNN
+
+Calculating the true MOCU $J(p)$ requires integrating over the expensive $\gamma^*(\vartheta)$ landscape (which involves binary search over ODE solutions). To accelerate training, we replace this with a neural surrogate.
+
+### 7.1 The MPNN Estimator
+We use a **Message Passing Neural Network (MPNN)** that leverages the graph structure of the IEEE-14 bus system ($B_{ij}$) to estimate MOCU directly.
+
+$$
+\hat{J}(p_t) \approx \text{MPNN}_{\psi}(\text{State}_t, \mathcal{G})
+$$
+
+* **Graph Input ($\mathcal{G}$):** Admittance matrix nodes and edges.
+* **State Input ($\text{State}_t$):** Summary statistics of the current belief $p_t$ (e.g., bounds or moments of marginal distributions for $M_i, K_i$).
+* **Output:** Predicted scalar MOCU value.
+
+### 7.2 Training the Surrogate
+The MPNN is pre-trained or co-trained via supervised learning to match the ground-truth MOCU computed by the physics simulator:
+$$
+\mathcal{L}_{\psi} = || \hat{J}_{\text{MPNN}}(p) - J_{\text{Physics}}(p) ||^2
+$$
+
+---
+
+## 8. Sequential Experiment Overview (Execution Loop)
+
+The complete **sBOED** loop proceeds as follows for $t = 1$ to $T_{horizon}$:
+
+1.  **Policy Step:** The DAD network observes history $h_{t-1}$ and outputs $\xi_t$.
+2.  **Experiment:** Execute $\xi_t$ on the system, measure $y_t$.
+3.  **Inference:** Update belief $p_t(\vartheta)$ using the likelihood $p(y_t \mid \vartheta, \xi_t)$.
+4.  **Evaluation:** (Optional) Estimate current MOCU using the MPNN for progress tracking.
+
+---
+
+## 9. Probing Parameter Table (Fixed Design Choices)
 
 | Parameter | Symbol | Value / Set | Justification |
 |-----------|--------|-------------|----------------|
-| Probe location | $b_t$ | $\mathcal{B} \subset \{1,\dots,14\}$ | Buses with IBR actuation and high observability [3], [4]. |
-| Probe amplitude | $A_t$ | $\mathcal{A} = \{A_1, A_2, A_3\}$ | ROCOF above PMU noise, below security limits; PHIL-validated [3], [4]. |
-| Probe duration | $T_p$ | 2 s | Excites inertial/FFR dynamics; avoids slower secondary control [3]. |
-| Probe shape | $s(t)$ | Hann window | Smooth, band-limited; widely used in probing [3]. |
-| Sampling rate | $f_s$ | 12 Hz | PMU/ROCOF standards [5], [12]. |
-| Observation window | $T_{\mathrm{obs}}$ | [0,10] s | ROCOF peak and early transient [5], [6]. |
-
----
-
-## 5. Observation Model and Feature Extraction (ROCOF-only)
-
-PMU-like frequency: $\Delta f_i(t) = \omega_i(t)/(2\pi)$, $t = n\Delta t$, $\Delta t = 1/f_s$.
-
-ROCOF-only observation used in this work:
-
-$$
-\widehat{\dot{f}}(n) = \frac{\Delta f((n+1)\Delta t) - \Delta f(n\Delta t)}{\Delta t},
-\qquad
-y_t = \mathrm{ROCOF}_{\max} = \max_{n \in \mathcal{W}_t} |\widehat{\dot{f}}(n)|.
-$$
-
-ROCOF is directly governed by inertia and fast frequency response and is the primary observable in inertia monitoring and probing studies [4], [5], [6].
-
----
-
-## 6. Likelihood Modeling and Why DAD (not iDAD)
-
-The swing equation is *deterministic*; uncertainty enters via measurement noise and unmodeled dynamics. We define an explicit likelihood at the *measurement level*.
-
-Simulator-to-feature map: $\mu(\vartheta, \xi_t) = \mathrm{ROCOF}_{\max}(\Delta f(\cdot; \vartheta, \xi_t))$.
-
-Explicit measurement likelihood:
-
-$$
-y_t = \mu(\vartheta, \xi_t) + \varepsilon_t, \quad \varepsilon_t \sim \mathcal{N}(0, \sigma^2),
-\qquad
-p(y_t \mid \vartheta, \xi_t) = \mathcal{N}(\mu(\vartheta, \xi_t), \sigma^2).
-$$
-
-The induced feature $y_t$ admits a tractable probabilistic noise model even though the ODE has no closed-form likelihood.
-
-**Why DAD:** DAD requires numerical evaluation of $\log p(y \mid \vartheta, \xi)$, not an analytic physics likelihood. An explicit, testable likelihood exists at the feature level; the iDAD framework states that DAD should be used when such a likelihood is available [7], [8].
-
----
-
-## 7. DAD Training, MOCU, and End-to-End Workflow
-
-Design policy (finite-horizon, non-myopic): $\xi_t = \pi_\phi(h_{t-1})$, $t=1,\dots,T$.
-
-History update: $h_t = h_{t-1} \cup \{(\xi_t, y_t)\}$.
-
-Offline posterior (for evaluation): $p(\vartheta \mid h_T) \propto p(\vartheta) \prod_{t=1}^T p(y_t \mid \vartheta, \xi_t)$.
-
-**Mean Objective Cost of Uncertainty (MOCU):**
-
-$$
-\mathrm{MOCU}(h_T) = \mathbb{E}_{\vartheta \sim p(\vartheta \mid h_T)} \bigl[ \gamma^*(\mathcal{A}_T) - \gamma^*(\vartheta) \bigr],
-$$
-
-where $\mathcal{A}_T$ is the credible set of $p(\vartheta \mid h_T)$.
-
-Training objective (decision-aware DAD): $\phi^* = \arg\min_\phi \mathbb{E}[\mathrm{MOCU}(h_T)]$.
-
-**Workflow:** Offline—simulate episodes, evaluate likelihood, train $\pi_\phi$ to minimize terminal MOCU. Online—apply $\pi_\phi$ sequentially using observed history only. Baselines are myopic; DAD optimizes the full probing sequence.
-
----
-
-## 8. Implementation: Computational Acceleration
-
-### 8.1 Batched ODE solver
-
-Refactor the swing-equation simulator to handle state tensors of shape [Batch, 2N] and use `torchdiffeq.odeint` for all posterior particles on GPU, removing $O(N)$ Python-loop overhead and giving large speedups for ground-truth MOCU.
-
-### 8.2 Fast MOCU estimator (neural surrogate)
-
-An MPNN uses the IEEE-14 graph $B_{ij}$ to map latent bounds $(\vartheta_{\mathrm{low}}, \vartheta_{\mathrm{up}})$ and probe $\xi_t$ to MOCU. Optional axiom loss: $L_{\mathrm{axiom}} = \max(0, \mathrm{MOCU}_{t+1} - \mathrm{MOCU}_t)$ so the surrogate respects that experiments do not increase uncertainty.
-
-### 8.3 DAD policy integration
-
-The DAD policy uses the fast estimator to compute the expected MOCU matrix (R-matrix) for candidate actions. Final evaluation of all methods uses the batched ODE solver for physics-validated MOCU.
-
----
-
-## 9. Parameter List and Sequential Design Pseudocode
-
-### 9.1 Fixed probe and observation settings
-
-*Paper-grounded fixed probe settings [3], [9].*
-
-```python
-PROBE = {
-    "waveform": "hann",       # 0.5 * (1 - cos(2*pi*t/T))
-    "T_p": 2.0,              # Duration: 2 s
-    "A_set": [0.05, 0.1, 0.2],
-    "fs_hz": 12.0,
-    "T_obs": 10.0,
-    "sigma": 0.01
-}
-```
-
-### 9.2 Sequential design loop (DAD-MOCU)
-
-**Algorithm: DAD sequential design (non-myopic, terminal MOCU)**
-
-1. **Input:** $T_{\mathrm{horizon}}$, candidate buses, prior particles
-2. Initialize history $h_0 \gets \emptyset$; particles $\gets$ prior
-3. **For** $t = 1$ to $T_{\mathrm{horizon}}$:
-   - Action scores $\gets$ `fast_mocu_estimator`(particles, history, buses, PROBE)
-   - $(b_t, A_t) \gets$ `select_action_from_policy`(scores)
-   - $\xi_t \gets (b_t, A_t, T_p)$
-   - Run swing ODE with $\xi_t$, true $\vartheta$; get $\omega(\cdot)$
-   - $y_t \gets$ `extract_max_rocof`($\omega$, $f_s$, $T_{\mathrm{obs}}$)
-   - Append $(\xi_t, y_t)$ to history
-   - Update particles via likelihood: $p(\vartheta \mid h_t)$
-   - (Optional) Compute current MOCU for logging
-4. **return** particles (or terminal MOCU)
-
-ROCOF extraction: $\Delta f = \omega/(2\pi)$; discrete derivative over $\Delta t = 1/f_s$; $y_t = \max_n |\widehat{\dot{f}}(n)|$. The fast MOCU estimator takes current credible-set bounds and history, and returns expected MOCU for each candidate $(b, A)$ via the neural surrogate (MPNN), bypassing expensive $\gamma^*$ binary search.
-
----
-
-## 10. Literature Grounding of Parameters
-
-- **[3] Peng et al. (NREL 2024):** IBR probing; amplitude must exceed noise and stay within security; duration long enough for inertial transient, short vs. secondary control; defines design variable $u = \{A, T, \omega\}$ and ROCOF sensitivity to inertia.
-
-- **[9] Jia et al. (IREC 2023 / NREL):** Real-time inertia estimation tool using probing signals; PHIL validation; motivates sequential probing and small active-power pulses within security limits.
-
-- **[10] Du et al. (2022):** Approximations for optimal experimental design in power system parameter estimation; baseline for how excitation would be chosen for estimation alone; motivates MOCU-based utility instead of FIM for decision-relevant probing.
-
-- **[11] Stanojev et al. (Energies 2021):** Perturbation-based methodology to estimate equivalent inertia of an area monitored by PMUs; supports observation model and ROCOF-based inference.
-
-- **[13] Chakraborty et al. (2025):** Practical inertia estimation using ambient synchrophasor data; swing-equation-based; supports observation model and Bayesian updates.
+| Probe location | $b_t$ | $\mathcal{B} \subset \{1,\dots,14\}$ | Buses with IBR actuation. |
+| Probe amplitude | $A_t$ | $\{0.05, 0.1, 0.2\}$ | ROCOF above PMU noise. |
+| Probe duration | $T_p$ | 2 s | Excites inertial dynamics. |
+| Sampling rate | $f_s$ | 12 Hz | PMU/ROCOF reporting standards. |
+| Observation window | $T_{\mathrm{obs}}$ | [0,10] s | Captures ROCOF peak. |
 
 ---
 
 ## References
 
-[1] P. Kundur, *Power System Stability and Control*. New York, NY, USA: McGraw-Hill, 1994.
-
-[2] F. Dörfler and F. Bullo, "Synchronization in complex networks of phase oscillators: A survey," *Automatica*, vol. 50, no. 6, pp. 1539–1564, 2014.
-
-[3] J. Peng et al., "Probing signal-based inertia and frequency response estimation for power systems with high penetration of inverter-based resources," in *Proc. IEEE PES General Meeting*, Seattle, WA, USA, 2024; NREL/CP-5D00-87925.
-
-[4] Y. Zhang et al., "Synchrophasor data-based inertia estimation for regional grids in interconnected power systems," *Frontiers Energy Res.*, vol. 10, 2022, Art. 989430.
-
-[5] ENTSO-E, "Inertia and rate of change of frequency (RoCoF)," ENTSO-E, Brussels, Belgium, Dec. 2020.
-
-[6] J. Tan et al., "Power system inertia estimation: Review of methods and the impacts of converter-interfaced generations," *Int. J. Electr. Power Energy Syst.*, vol. 134, Jan. 2022, Art. 107362.
-
-[7] A. Foster et al., "Deep adaptive design: Amortizing sequential Bayesian experimental design," in *Proc. Int. Conf. Mach. Learn. (ICML)*, 2021, pp. 3384–3395.
-
-[8] D. R. Ivanova et al., "Implicit deep adaptive design: Policy-based experimental design without likelihoods," in *Proc. Adv. Neural Inf. Process. Syst. (NeurIPS)*, vol. 34, 2021, pp. 25785–25798.
-
-[9] X. Jia et al., "Real-time inertia estimation tool implementation based on probing signals," in *Proc. 14th Int. Renewable Energy Congr. (IREC)*, 2023; NREL/CP-5000-89049.
-
-[10] Y. Du, A. Engelmann, T. Faulwasser, and B. Houska, "Approximations for optimal experimental design in power system parameter estimation," *arXiv:2203.14011*, 2022.
-
-[11] M. Stanojev et al., "A perturbation-based methodology to estimate the equivalent inertia of an area monitored by PMUs," *Energies*, vol. 14, no. 24, 2021, Art. 8477.
-
-[12] NASPI, "Phasors or waveforms: Considerations for choosing measurements to match your application," PNNL-31215, Apr. 2021.
-
-[13] T. Chakraborty et al., "A practical approach towards inertia estimation using ambient synchrophasor data," *arXiv:2505.02978*, 2025.
+[1] P. Kundur, *Power System Stability and Control*. McGraw-Hill, 1994.
+[2] F. Dörfler and F. Bullo, *Automatica*, 2014.
+[3] J. Peng et al., *NREL/CP-5D00-87925*, 2024.
+[4] Foster et al., "Deep Adaptive Design: Amortizing Sequential Bayesian Experimental Design," *ICML*, 2021.
+[5] ENTSO-E, "Inertia and rate of change of frequency (RoCoF)," 2020.

@@ -94,8 +94,8 @@ if __name__ == '__main__':
             coupling_strength=swing_params.get('coupling_strength', 1.0),
             damping=swing_params.get('damping', 0.1),
             base_power=swing_params.get('base_power', 1.0),
-            M_lower=swing_params.get('M_lower', 0.3),
-            M_upper=swing_params.get('M_upper', 2.0),
+            M_lower=swing_params.get('M_lower', 0.01),
+            M_upper=swing_params.get('M_upper', 0.06),
             K_lower=swing_params.get('K_lower', 0.05),
             K_upper=swing_params.get('K_upper', 0.50),
         )

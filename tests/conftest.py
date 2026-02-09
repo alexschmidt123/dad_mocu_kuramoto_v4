@@ -5,7 +5,7 @@ Provides IEEE-14 bus system parameters, prior uncertainty bounds, and simulation
 No MOCU calculation is performed in these fixtures.
 
 Parameter values align with documents/Parameter_references_table.md:
-  M ∈ [0.3, 2.0], K ∈ [0.05, 0.50], D = 0.1, f_s = 12 Hz, T_p = 2 s, probe A up to 0.5, σ = 0.05 (tests).
+  M ∈ [0.01, 0.06] (from M = 2H/ω_s, H from literature), K ∈ [0.05, 0.50], D = 0.1, f_s = 12 Hz, T_p = 2 s, probe A up to 0.5, σ = 0.05 (tests).
   f_0 = 60 Hz and f_min = 59.8 Hz are set in configs and in src/core/swing_equation_ode.py (f_nominal).
 """
 
@@ -31,8 +31,8 @@ def ieee14_params():
         coupling_strength=1.0,
         damping=0.1,
         base_power=1.0,
-        M_lower=0.3,
-        M_upper=2.0,
+        M_lower=0.01,
+        M_upper=0.06,
         K_lower=0.05,
         K_upper=0.50,
     )

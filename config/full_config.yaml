@@ -31,8 +31,8 @@ swing_equation:
   coupling_strength: 1.0       # Base coupling strength for B matrix
   damping: 0.1                # Damping coefficient D
   base_power: 1.0             # Base mechanical power P_m
-  M_lower: 0.3                # Inertia lower bound (IBR systems have reduced inertia)
-  M_upper: 2.0                # Inertia upper bound (mixed systems)
+  M_lower: 0.01               # M = 2H/ω_s; H ∈ [2.3, 5] s (Kundur)
+  M_upper: 0.06               # Inertia upper bound (physical range)
   K_lower: 0.05               # Control gain lower bound (5% droop equivalent)
   K_upper: 0.50               # Control gain upper bound (50% response)
   r_max: 0.1                  # Maximum ROCOF constraint (Hz/s) - tightened for non-trivial control

@@ -22,8 +22,8 @@ swing_equation:
   coupling_strength: 1.0
   damping: 0.1
   base_power: 1.0
-  M_lower: 0.3
-  M_upper: 2.0
+  M_lower: 0.01                # M = 2H/ω_s; H ∈ [2.3, 5] s (Kundur)
+  M_upper: 0.06
   K_lower: 0.05
   K_upper: 0.50
   r_max: 0.1                   # Maximum ROCOF constraint (Hz/s) - tightened for non-trivial control

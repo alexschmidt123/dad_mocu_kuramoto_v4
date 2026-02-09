@@ -206,8 +206,8 @@ def get_default_swing_equation_params(N: int,
                                      coupling_strength: float = 1.0,
                                      damping: float = 0.1,
                                      base_power: float = 1.0,
-                                     M_lower: float = 0.3,
-                                     M_upper: float = 2.0,
+                                     M_lower: float = 0.01,
+                                     M_upper: float = 0.06,
                                      K_lower: float = 0.05,
                                      K_upper: float = 0.50) -> dict:
     """
