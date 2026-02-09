@@ -1,15 +1,19 @@
 # DAD-MOCU: Deep Adaptive Design for Optimal Experimental Design
 
-Sequential optimal experimental design for power systems using the second-order Kuramoto (swing equation) model with active probing. The framework learns probe-selection policies to minimize MOCU (Mean Objective Cost of Uncertainty) for estimating uncertain parameters (M, K) (inertia and control gain).
+Sequential optimal experimental design for power systems using the second-order Kuramoto (swing equation) model with active probing. The framework learns probe-selection policies to minimize **MOCU** (Mean Objective Cost of Uncertainty) for estimating uncertain parameters $(M, K)$ (inertia and droop gain).
+
+---
 
 ## Experimental Design
 
-- **Model**: Second-order Kuramoto (swing equation) on IEEE-14 bus network.
-- **Uncertain parameters**: (M, K) — inertia and control gain.
-- **Actions**: Probe signals ξ = (b, A, T_p): bus b, amplitude A, T_p = 2 s fixed.
-- **Observations**: ROCOF-only y_t = ROCOF_max (12 Hz).
-- **Objective**: Minimize MOCU via sequential probe selection (reduce uncertainty in (M,K)).
-- **Methods**: Baselines RANDOM, ENTROPY, ODE, iNN, NN; learned policy DAD.
+- **Model:** Second-order Kuramoto (swing equation) on IEEE-14 bus network.
+- **Uncertain parameters:** $(M, K)$ — inertia and primary frequency response (droop) gain.
+- **Actions:** Probe signals $\xi = (b, A, T_p)$: bus $b$, amplitude $A$, $T_p = 2$ s fixed.
+- **Observations:** ROCOF-only, $y_t = \mathrm{ROCOF}_{\max}$ at 12 Hz sampling.
+- **Objective:** Minimize MOCU via sequential probe selection (reduce uncertainty in $(M, K)$).
+- **Methods:** Baselines RANDOM, ENTROPY, ODE, iNN, NN; learned policy DAD.
+
+---
 
 ## Installation
 
@@ -23,6 +27,8 @@ pip install torch-geometric torch-scatter torch-sparse torch-cluster torch-splin
 pip install openpyxl torchdiffeq
 ```
 
+---
+
 ## Running
 
 From the project root, run the full pipeline (data generation, training, evaluation) with a config file:
@@ -34,3 +40,9 @@ bash run.sh config/fast_config.yaml
 
 Results are written to `experiments/<config>_<timestamp>/`.
 
+---
+
+## Documentation
+
+- **Design and parameters:** `documents/design.md`, `documents/Parameter_references_table.md`
+- **Tests:** `tests/README_tests.md` (if present) or `tests/test_experiment_design_pipeline.py`
