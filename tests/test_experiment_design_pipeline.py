@@ -271,14 +271,18 @@ def test_design_comparison_table_saved(ieee14_params, prior_bounds, simulation_s
 
 
 # Design sets for ROCOF plots: B in {1,4,7,10,13,14}, A in 6 values (aligned with Parameter_references_table.md: tests up to 0.5)
-ROCOF_BUSES = [1, 4, 7, 10, 13, 14]
+# IEEE 14 node types: 1=slack, 2,3,6,8=gen, 4,5,7,9,10,11,12,13,14=load; bus 4 is hub (degree 5). See documents/design.md.
+ROCOF_BUSES = [1, 4, 7, 10, 13, 14]  # slack(1), hub load(4), load(7), symmetric load pair (10,13), plus 14 redundant with 10
 ROCOF_AMPLITUDES = [0.05, 0.1, 0.2, 0.3, 0.4, 0.5]
+# Reference ROCOF limit (Hz/s) for plot; open-loop limit from design (e.g. r_max)
+ROCOF_REF_HZ_S = 0.1
 
 
 def _highlight_probe_interval(ax, probe_duration, T):
     """Blue shaded region and text for ROCOF plots: first 2 s is probing time. No legend entry."""
     ax.axvspan(0, probe_duration, alpha=0.25, color="steelblue", zorder=0)
     ax.axvline(probe_duration, color="gray", linestyle="--", linewidth=0.8, alpha=0.7)
+    ax.axhline(ROCOF_REF_HZ_S, color="red", linestyle=":", alpha=0.7, linewidth=1, label="r_max ref")
     # Label centered over blue region, fixed at top of axes
     from matplotlib.transforms import blended_transform_factory
     trans = blended_transform_factory(ax.transData, ax.transAxes)
@@ -328,7 +332,7 @@ def test_rocof_timeseries_by_bus_plot(ieee14_params, prior_bounds, simulation_se
         ax.grid(True, alpha=0.3)
     handles, labels = axes[0].get_legend_handles_labels()
     fig.legend(handles, labels, loc="center left", bbox_to_anchor=(1.02, 0.5), fontsize=8, frameon=True)
-    fig.suptitle(f"ROCOF(t): same A, different B (probe on 0..{probe_duration} s, T={T} s)")
+    fig.suptitle(f"ROCOF(t): same A, different B (probe 0..{probe_duration}s, T={T}s) | M_true={M_true:.4f}, K_true={K_true:.4f}")
     fig.tight_layout(rect=[0, 0, 0.92, 0.96])  # tight; legend on the right in small margin
     fig.savefig(OUTPUT_DIR / "rocof_timeseries_by_bus.png", dpi=150, bbox_inches="tight")
     plt.close(fig)
@@ -375,7 +379,7 @@ def test_rocof_timeseries_by_amplitude_plot(ieee14_params, prior_bounds, simulat
         ax.grid(True, alpha=0.3)
     handles, labels = axes[0].get_legend_handles_labels()
     fig.legend(handles, labels, loc="center left", bbox_to_anchor=(1.02, 0.5), fontsize=8, frameon=True)
-    fig.suptitle(f"ROCOF(t): same B, different A (probe on 0..{probe_duration} s, T={T} s)")
+    fig.suptitle(f"ROCOF(t): same B, different A (probe 0..{probe_duration}s, T={T}s) | M_true={M_true:.4f}, K_true={K_true:.4f}")
     fig.tight_layout(rect=[0, 0, 0.92, 0.96])  # tight; legend on the right in small margin
     fig.savefig(OUTPUT_DIR / "rocof_timeseries_by_amplitude.png", dpi=150, bbox_inches="tight")
     plt.close(fig)
@@ -448,6 +452,7 @@ def test_posterior_sharpens_plot(ieee14_params, prior_bounds, simulation_setting
 
     # Prior: uniform density over [lower, upper]
     ax_m.hlines(prior_density_M, M_lower, M_upper, colors="gray", linestyles="--", label="Prior")
+    ax_m.axvline(M_true, color="black", linestyle=":", alpha=0.8, linewidth=1.5, label="M_true")
     ax_m.set_xlabel("M (inertia)")
     ax_m.set_ylabel("Probability density")
     ax_m.set_title("Prior vs posterior p(M|y,ξ)")
@@ -455,6 +460,7 @@ def test_posterior_sharpens_plot(ieee14_params, prior_bounds, simulation_setting
     ax_m.set_ylim(bottom=0)
 
     ax_k.hlines(prior_density_K, K_lower, K_upper, colors="gray", linestyles="--", label="Prior")
+    ax_k.axvline(K_true, color="black", linestyle=":", alpha=0.8, linewidth=1.5, label="K_true")
     ax_k.set_xlabel("K (gain)")
     ax_k.set_ylabel("Probability density")
     ax_k.set_title("Prior vs posterior p(K|y,ξ)")
@@ -463,12 +469,72 @@ def test_posterior_sharpens_plot(ieee14_params, prior_bounds, simulation_setting
 
     handles, labels = ax_m.get_legend_handles_labels()
     fig.legend(handles, labels, loc="center left", bbox_to_anchor=(1.02, 0.5), fontsize=9, frameon=True)
-    fig.suptitle("Prior vs posterior marginals for different designs")
+    fig.suptitle(f"Prior vs posterior marginals (M_true={M_true:.4f}, K_true={K_true:.4f})")
     fig.tight_layout(rect=[0, 0, 0.92, 0.96])  # tight; legend on the right in small margin
     fig.savefig(OUTPUT_DIR / "posterior_marginals_by_design.png", dpi=150, bbox_inches="tight")
     plt.close(fig)
 
     assert at_least_one_sharper, "Posterior variance < prior variance for at least one design (M or K)"
+
+
+def test_posterior_2d_heatmap_one_design(ieee14_params, prior_bounds, simulation_settings):
+    """Optional: 2D heatmap p(M,K|y,xi) for one design; mark (M_true, K_true). Saves posterior_2d_design1.png."""
+    if not HAS_MATPLOTLIB:
+        pytest.skip("matplotlib required for plots")
+    B = ieee14_params["B"]
+    P_m = ieee14_params["P_m"]
+    D = ieee14_params["D"]
+    g = ieee14_params["g"]
+    M_true = prior_bounds["M_true"]
+    K_true = prior_bounds["K_true"]
+    M_lower = prior_bounds["M_lower"]
+    M_upper = prior_bounds["M_upper"]
+    K_lower = prior_bounds["K_lower"]
+    K_upper = prior_bounds["K_upper"]
+    h = simulation_settings["h"]
+    T = simulation_settings["T"]
+    device = simulation_settings["device"]
+    timeout = simulation_settings["timeout"]
+    probe_duration = simulation_settings["probe_duration"]
+    n_grid = 41
+    sigma = 0.05
+    probe_bus, probe_amplitude = 1, 0.3
+
+    obs, _ = run_single_design(
+        B, P_m, D, g, M_true, K_true,
+        probe_bus=probe_bus,
+        probe_amplitude=probe_amplitude,
+        probe_duration=probe_duration,
+        h=h, T=T, device=device, timeout=timeout,
+        use_fallback=True,
+    )
+    y_obs = obs.get("ROCOF_max", 0.0)
+    xi = (probe_bus, probe_amplitude, probe_duration)
+    p_grid, M_vals, K_vals = posterior_on_grid(
+        y_obs, xi, M_lower, M_upper, K_lower, K_upper, n_grid, sigma,
+        B, P_m, D, g, h, T, device=device, timeout=timeout,
+    )
+
+    fig, ax = plt.subplots(1, 1, figsize=(6, 5))
+    # p_grid is (n_grid, n_grid) with M on rows (axis 0), K on cols (axis 1)
+    im = ax.pcolormesh(M_vals, K_vals, p_grid.T, shading="auto", cmap="viridis")
+    plt.colorbar(im, ax=ax, label="p(M,K|y,xi)")
+    ax.plot(M_true, K_true, "r*", markersize=14, markeredgecolor="white", markeredgewidth=1.5, label="(M_true, K_true)")
+    ax.set_xlabel("M (inertia)")
+    ax.set_ylabel("K (gain)")
+    ax.set_title(f"Posterior p(M,K|y,xi) for B={probe_bus}, A={probe_amplitude}")
+    ax.legend(loc="upper right")
+    ax.set_xlim(M_lower, M_upper)
+    ax.set_ylim(K_lower, K_upper)
+    fig.tight_layout()
+    fig.savefig(OUTPUT_DIR / "posterior_2d_design1.png", dpi=150, bbox_inches="tight")
+    plt.close(fig)
+
+
+# IEEE 14 node types for diagram: 1=slack, 2,3,6,8=generator, rest=load (see design.md)
+IEEE14_SLACK_BUSES = [1]
+IEEE14_GEN_BUSES = [2, 3, 6, 8]
+IEEE14_LOAD_BUSES = [4, 5, 7, 9, 10, 11, 12, 13, 14]
 
 
 def test_ieee14_diagram_plot():
@@ -501,17 +567,32 @@ def test_ieee14_diagram_plot():
         13: (2.5, 0),
         14: (3, 0),
     }
+    # Colors by node type (design.md): slack, generator, load
+    color_slack = "gold"
+    color_gen = "forestgreen"
+    color_load = "steelblue"
+    edge_color = "navy"
+
     fig, ax = plt.subplots(1, 1, figsize=(9, 7))
     for (i, j) in edges:
         xi, yi = pos[i]
         xj, yj = pos[j]
         ax.plot([xi, xj], [yi, yj], "k-", linewidth=2, zorder=0)
-    # Larger circles and numbers for readability
     node_markersize = 22
+    # Plot nodes by type so legend reflects colors
+    for bus in IEEE14_SLACK_BUSES:
+        x, y = pos[bus]
+        ax.plot(x, y, "o", markersize=node_markersize, color=color_slack, markeredgecolor=edge_color, markeredgewidth=2, zorder=1, label="Slack" if bus == IEEE14_SLACK_BUSES[0] else None)
+    for bus in IEEE14_GEN_BUSES:
+        x, y = pos[bus]
+        ax.plot(x, y, "o", markersize=node_markersize, color=color_gen, markeredgecolor=edge_color, markeredgewidth=2, zorder=1, label="Generator (PV)" if bus == IEEE14_GEN_BUSES[0] else None)
+    for bus in IEEE14_LOAD_BUSES:
+        x, y = pos[bus]
+        ax.plot(x, y, "o", markersize=node_markersize, color=color_load, markeredgecolor=edge_color, markeredgewidth=2, zorder=1, label="Load (PQ)" if bus == IEEE14_LOAD_BUSES[0] else None)
     for bus in range(1, N + 1):
         x, y = pos[bus]
-        ax.plot(x, y, "o", markersize=node_markersize, color="steelblue", markeredgecolor="navy", markeredgewidth=2, zorder=1)
         ax.text(x, y, str(bus), ha="center", va="center", fontsize=14, fontweight="bold", color="white", zorder=2)
+    ax.legend(loc="upper left", frameon=True, fontsize=10)
     ax.set_aspect("equal")
     ax.axis("off")
     ax.set_title("IEEE 14-bus network (project / published topology)")

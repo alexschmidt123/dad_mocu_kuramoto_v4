@@ -21,6 +21,37 @@ The system topology is fixed and defined by the standard IEEE 14-bus test case.
 * **Branch Set ($\mathcal{E}$):** The specific set of 20 transmission lines and transformers as defined in the standard IEEE 14-bus data. A physical line exists between bus $i$ and $j$ if $(i, j) \in \mathcal{E}$.
 * **Coupling Structure:** The network connectivity is encoded in the **Susceptance Matrix** $\mathbf{B} \in \mathbb{R}^{N \times N}$. The entry $B_{ij} > 0$ represents the magnitude of the line susceptance if $(i, j) \in \mathcal{E}$, and $B_{ij} = 0$ otherwise.
 
+**Node types (standard power-system classification):**
+
+| Type | Buses | Role |
+|------|--------|------|
+| **Slack** | 1 | Reference (angle/frequency); balances real/reactive power. |
+| **Generator (PV)** | 2, 3, 6, 8 | Voltage-controlled; inject real power. |
+| **Load (PQ)** | 4, 5, 7, 9, 10, 11, 12, 13, 14 | Consume P and Q. |
+
+In the swing-equation model used here, every bus has phase and frequency dynamics; the types above are the conventional classification and guide where to probe or observe.
+
+**Connectivity (degree and neighbors, 1-based bus labels):** Bus 4 is the only degree-5 node (hub); buses 2, 5, 6, 9 have degree 4. Symmetric pairs: (10, 14) and (11, 13) have identical connectivity and yield identical design outcomes for the same probe amplitude.
+
+| Bus | Degree | Neighbors |
+|-----|--------|-----------|
+| 1 | 2 | 2, 5 |
+| 2 | 4 | 1, 3, 4, 5 |
+| 3 | 2 | 2, 4 |
+| 4 | **5** | 2, 3, 5, 7, 9 |
+| 5 | 4 | 1, 2, 4, 6 |
+| 6 | 4 | 5, 11, 12, 13 |
+| 7 | 3 | 4, 8, 9 |
+| 8 | 1 | 7 |
+| 9 | 4 | 4, 7, 10, 14 |
+| 10 | 2 | 9, 11 |
+| 11 | 2 | 6, 10 |
+| 12 | 2 | 6, 13 |
+| 13 | 3 | 6, 12, 14 |
+| 14 | 2 | 9, 13 |
+
+**Experiment design preference:** For maximum information (M/K estimation), prefer high-degree buses: **4** (hub), then **2, 5, 6, 9**. To cover node types use **1** (slack), **2** or **3** (gen), **4** (load hub), **7** (load), and **10** or **14** (load). For minimal redundancy, use one from each symmetric pair (e.g. 10 and 13, or 14 and 11).
+
 ### 2.2 Physical Evolution Laws (Swing Equation)
 
 The system state at time $t$ is $\mathbf{x}(t) = [\boldsymbol{\theta}(t), \boldsymbol{\omega}(t)]^\top \in \mathbb{R}^{2N}$. The dynamics follow the **Second-Order Kuramoto Model** (Swing Equation), adapted for structure-preserving power networks.

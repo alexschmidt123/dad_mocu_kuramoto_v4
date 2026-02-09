@@ -40,9 +40,3 @@ bash run.sh config/fast_config.yaml
 
 Results are written to `experiments/<config>_<timestamp>/`.
 
----
-
-## Documentation
-
-- **Design and parameters:** `documents/design.md`, `documents/Parameter_references_table.md`
-- **Tests:** `tests/README_tests.md` (if present) or `tests/test_experiment_design_pipeline.py`
