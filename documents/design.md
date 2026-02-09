@@ -69,7 +69,7 @@ $$
 $$
 P_{e,i}(\boldsymbol{\theta}(t)) = \sum_{j \in \mathcal{N}_i} B_{ij} \sin\bigl(\theta_i(t) - \theta_j(t)\bigr)
 $$
-*(Note: $\mathcal{N}_i = \{j \mid (i, j) \in \mathcal{E}\}$ denotes the set of neighbors for bus $i$.)*
+*(Note: $\mathcal{N}_i = \lbrace j \mid (i, j) \in \mathcal{E} \rbrace$ denotes the set of neighbors for bus $i$.)*
 
 ### 2.3 Variable Definitions and Units
 
@@ -82,7 +82,7 @@ $$
 | $D_i$ | Load-damping coefficient (frequency sensitivity). | p.u. |
 | $u_i(t)$ | Total external control/probing injection. | p.u. |
 | **Latent $\vartheta$** | **Uncertain Parameters** | |
-| $M_i$ | **Effective Inertia Coefficient.** Related to inertia constant $H$ by $M = 2H/\omega_s$. | $s^2/\text{rad}$ |
+| $M_i$ | **Effective Inertia Coefficient.** Related to inertia constant $H$ by $M = 2H/\omega_s$. | $s^2/\mathrm{rad}$ |
 | $K_i$ | **Primary frequency response (droop) gain.** Aggregate governor/FFR gain; power response proportional to frequency deviation. | p.u. |
 
 ### 2.4 Latent Space Prior
@@ -97,7 +97,7 @@ The parameter vector $\vartheta = (M, K)$ is drawn from a uniform prior $p(\vart
 We aim to estimate the **Minimal Safe Gain** $\gamma^*$, defined as the smallest control effort required to maintain system security under a reference contingency (e.g., load step).
 
 $$
-\gamma^*(\vartheta) = \inf \left\{ \gamma \in \mathbb{R}_+ \mid \forall t: |\dot{f}(t)| \le r_{\max} \land f(t) \ge f_{\min} \right\}
+\gamma^*(\vartheta) = \inf \left\lbrace \gamma \in \mathbb{R}_+ \mid \forall t:\; \lvert \dot{f}(t) \rvert \le r_{\max} \land f(t) \ge f_{\min} \right\rbrace
 $$
 
 **Security Constraints:**
@@ -127,7 +127,7 @@ This section details how a probe $\xi$ is transformed into a scalar observation 
 **Stage 1: Dynamics (The Solution Map $\Phi$)**
 Given parameters $\vartheta$ and probe $\xi$, we solve the ODE system to get the continuous angular frequency trajectory $\omega(t)$.
 $$
-\mathbf{x}(t) = \Phi_t(\mathbf{x}_0, \vartheta, u^{\text{probe}}_{\xi}) \quad \text{for } t \in [0, T_{obs}]
+\mathbf{x}(t) = \Phi_t(\mathbf{x}_0, \vartheta, u^{\mathrm{probe}}_{\xi}) \quad \mathrm{for}\; t \in [0, T_{\mathrm{obs}}]
 $$
 
 **Stage 2: Discrete Sampling (The Measurement Map $\mathcal{S}$)**
@@ -142,7 +142,7 @@ We compute the discrete Rate of Change of Frequency (ROCOF) and pool it into a s
 1.  **Finite Difference:** $\text{ROCOF}_i[n] = (\tilde{f}_i[n] - \tilde{f}_i[n-1]) / \Delta t$
 2.  **Max-Pooling:**
     $$
-    y = \Psi(\tilde{\mathbf{f}}) = \max_{i, n} \left| \text{ROCOF}_i[n] \right|
+    y = \Psi(\tilde{\mathbf{f}}) = \max_{i, n} \lvert \mathrm{ROCOF}_i[n] \rvert
     $$
 
 ### 4.3 The Forward Model $\mathcal{M}$
@@ -177,20 +177,20 @@ $$
 **1. The Bayes-Optimal Decision $\hat{\gamma}^*$**
 Given a belief $p(\vartheta)$, the optimal estimator for the safe gain is the one that minimizes the expected loss. For absolute error loss ($L_1$), this is the **median** of the predicted safe gains:
 $$
-\hat{\gamma}^*(p) = \text{median}_{\vartheta \sim p} [\gamma^*(\vartheta)]
+\hat{\gamma}^*(p) = \mathrm{median}_{\vartheta \sim p} [\gamma^*(\vartheta)]
 $$
 
 **2. MOCU (Current Uncertainty)**
 The MOCU $J(p)$ quantifies the expected decision error we would incur if we stopped experimenting now.
 $$
-J(p) = \mathbb{E}_{\vartheta \sim p} \left[ \left| \gamma^*(\vartheta) - \hat{\gamma}^*(p) \right| \right]
+J(p) = \mathbb{E}_{\vartheta \sim p} \left[ \lvert \gamma^*(\vartheta) - \hat{\gamma}^*(p) \rvert \right]
 $$
 
 **3. Expected Remaining MOCU (The Design Objective)**
 To select the optimal next probe $\xi^*$, we calculate the expected MOCU after the experiment. This is the **risk function** $\mathcal{R}(\xi)$ we minimize:
 
 $$
-\mathcal{R}(\xi; p_t) = \mathbb{E}_{y \sim p(y \mid p_t, \xi)} \left[ J\bigl( \text{Posterior}(p_t, \xi, y) \bigr) \right]
+\mathcal{R}(\xi; p_t) = \mathbb{E}_{y \sim p(y \mid p_t, \xi)} \left[ J\bigl( \mathrm{Posterior}(p_t, \xi, y) \bigr) \right]
 $$
 
 * **Inner term:** The MOCU of the hypothetical future posterior.
@@ -227,7 +227,7 @@ Calculating the true MOCU $J(p)$ requires integrating over the expensive $\gamma
 We use a **Message Passing Neural Network (MPNN)** that leverages the graph structure of the IEEE-14 bus system ($B_{ij}$) to estimate MOCU directly.
 
 $$
-\hat{J}(p_t) \approx \text{MPNN}_{\psi}(\text{State}_t, \mathcal{G})
+\hat{J}(p_t) \approx \mathrm{MPNN}_{\psi}(\mathrm{State}_t, \mathcal{G})
 $$
 
 * **Graph Input ($\mathcal{G}$):** Admittance matrix nodes and edges.
@@ -237,7 +237,7 @@ $$
 ### 7.2 Training the Surrogate
 The MPNN is pre-trained or co-trained via supervised learning to match the ground-truth MOCU computed by the physics simulator:
 $$
-\mathcal{L}_{\psi} = || \hat{J}_{\text{MPNN}}(p) - J_{\text{Physics}}(p) ||^2
+\mathcal{L}_{\psi} = \lVert \hat{J}_{\mathrm{MPNN}}(p) - J_{\mathrm{Physics}}(p) \rVert^2
 $$
 
 ---
@@ -257,8 +257,8 @@ The complete **sBOED** loop proceeds as follows for $t = 1$ to $T_{horizon}$:
 
 | Parameter | Symbol | Value / Set | Justification |
 |-----------|--------|-------------|----------------|
-| Probe location | $b_t$ | $\mathcal{B} \subset \{1,\dots,14\}$ | Buses with IBR actuation. |
-| Probe amplitude | $A_t$ | $\{0.05, 0.1, 0.2\}$ | ROCOF above PMU noise. |
+| Probe location | $b_t$ | $\mathcal{B} \subset \lbrace 1,\dots,14 \rbrace$ | Buses with IBR actuation. |
+| Probe amplitude | $A_t$ | $\lbrace 0.05, 0.1, 0.2 \rbrace$ | ROCOF above PMU noise. |
 | Probe duration | $T_p$ | 2 s | Excites inertial dynamics. |
 | Sampling rate | $f_s$ | 12 Hz | PMU/ROCOF reporting standards. |
 | Observation window | $T_{\mathrm{obs}}$ | [0,10] s | Captures ROCOF peak. |
@@ -268,7 +268,11 @@ The complete **sBOED** loop proceeds as follows for $t = 1$ to $T_{horizon}$:
 ## References
 
 [1] P. Kundur, *Power System Stability and Control*. McGraw-Hill, 1994.
+
 [2] F. Dörfler and F. Bullo, *Automatica*, 2014.
+
 [3] J. Peng et al., *NREL/CP-5D00-87925*, 2024.
+
 [4] Foster et al., "Deep Adaptive Design: Amortizing Sequential Bayesian Experimental Design," *ICML*, 2021.
+
 [5] ENTSO-E, "Inertia and rate of change of frequency (RoCoF)," 2020.
