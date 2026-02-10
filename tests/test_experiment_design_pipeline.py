@@ -592,7 +592,7 @@ def test_ieee14_diagram_plot():
     for bus in range(1, N + 1):
         x, y = pos[bus]
         ax.text(x, y, str(bus), ha="center", va="center", fontsize=14, fontweight="bold", color="white", zorder=2)
-    ax.legend(loc="upper left", frameon=True, fontsize=10)
+    ax.legend(loc="upper left", frameon=True, fontsize=10, markerscale=0.5)
     ax.set_aspect("equal")
     ax.axis("off")
     ax.set_title("IEEE 14-bus network (project / published topology)")
