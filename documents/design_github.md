@@ -23,7 +23,7 @@ This document describes the design of a **sequential Bayesian optimal experiment
 The system topology is fixed and defined by the standard IEEE 14-bus test case. We assume **homogeneous** uncertain parameters: $M\_i = M$ and $K\_i = K$ for all buses $i$, so the latent parameter vector is $\vartheta = (M, K)$ (scalar $M$, $K$).
 * **Bus Set ($\mathcal{V}$):** The set of $N=14$ buses, indexed $i \in \{1, \dots, 14\}$.
 * **Branch Set ($\mathcal{E}$):** The specific set of 20 transmission lines and transformers as defined in the standard IEEE 14-bus data. A physical line exists between bus $i$ and $j$ if $(i, j) \in \mathcal{E}$.
-* **Coupling Structure:** The network connectivity is encoded in the **Susceptance Matrix** $\mathbf{B} \in \mathbb{R}^{N \times N}$. The entry $B\_{ij} > 0$ represents the magnitude of the line susceptance if $(i, j) \in \mathcal{E}$, and $B\_{ij} = 0$ otherwise.
+* **Coupling Structure:** The network connectivity is encoded in the **Susceptance Matrix** $\mathbf{B} \in \mathbb{R}^{N \times N}$. The entry $B\_ {ij} > 0$ represents the magnitude of the line susceptance if $(i, j) \in \mathcal{E}$, and $B\_ {ij} = 0$ otherwise.
 
 **Node types (standard power-system classification):**
 
@@ -47,12 +47,18 @@ The system state at time $t$ is $\mathbf{x}(t) = [\boldsymbol{\theta}(t), \bolds
 
 For each bus $i \in \mathcal{V}$:
 
-$$ \dot{\theta}\_i(t) = \omega\_i(t) $$
+```math
+\dot{\theta}_i(t) = \omega_i(t)
+```
 
-$$ M\_i \dot{\omega}\_i(t) = P\_{m,i} - P\_{e,i}(\boldsymbol{\theta}(t)) - (D\_i + K\_i)\omega\_i(t) + u\_i(t) $$
+```math
+M_i \dot{\omega}_i(t) = P_{m,i} - P_{e,i}(\boldsymbol{\theta}(t)) - (D_i + K_i)\omega_i(t) + u_i(t)
+```
 
-**Where the electrical power flow $P\_{e,i}$ is:**
-$$ P\_{e,i}(\boldsymbol{\theta}(t)) = \sum\_{j \in \mathcal{N}\_i} B\_{ij} \sin\bigl(\theta\_i(t) - \theta\_j(t)\bigr) $$
+**Where the electrical power flow $P\_ {e,i}$ is:**
+```math
+P_{e,i}(\boldsymbol{\theta}(t)) = \sum_{j \in \mathcal{N}_i} B_{ij} \sin\bigl(\theta_i(t) - \theta_j(t)\bigr)
+```
 *(Note: $\mathcal{N}\_i = \lbrace j \mid (i, j) \in \mathcal{E} \rbrace$ denotes the set of neighbors for bus $i$.)*
 
 ### 2.3 Notation and Units
@@ -61,8 +67,8 @@ $$ P\_{e,i}(\boldsymbol{\theta}(t)) = \sum\_{j \in \mathcal{N}\_i} B\_{ij} \sin\
 | :--- | :--- | :--- |
 | $\theta\_i$ | Voltage phase angle at bus $i$. | Rad |
 | $\omega\_i$ | Angular frequency deviation from synchronous speed $\omega\_s$. | Rad/s |
-| $P\_{m,i}$ | Net mechanical power injection (Generation - Load). | p.u. |
-| $B\_{ij}$ | Line susceptance magnitude between bus $i$ and $j$. | p.u. |
+| $P\_ {m,i}$ | Net mechanical power injection (Generation - Load). | p.u. |
+| $B\_ {ij}$ | Line susceptance magnitude between bus $i$ and $j$. | p.u. |
 | $D\_i$ | Load-damping coefficient (frequency sensitivity). | p.u. |
 | $u\_i(t)$ | Total external control/probing injection. | p.u. |
 | **Latent $\vartheta$** | **Uncertain Parameters** | |
@@ -80,11 +86,13 @@ The (homogeneous) parameter vector $\vartheta = (M, K)$ is drawn from a uniform 
 
 We aim to estimate the **Minimal Safe Gain** $\gamma^{\ast}$, defined as the smallest control effort required to maintain system security under a reference contingency (e.g., load step). Here $f(t)$ and $\dot{f}(t)$ denote (e.g.) the system frequency and ROCOF at a reference bus or the worst case over buses.
 
-$$ \gamma^{\ast}(\vartheta) = \inf \left\lbrace \gamma \in \mathbb{R}\_+ \mid \forall t:\; \lvert \dot{f}(t) \rvert \le r\_{\max} \land f(t) \ge f\_{\min} \right\rbrace $$
+```math
+\gamma^{\ast}(\vartheta) = \inf \left\lbrace \gamma \in \mathbb{R}_+ \mid \forall t:\; \lvert \dot{f}(t) \rvert \le r_{\max} \land f(t) \ge f_{\min} \right\rbrace
+```
 
 **Security Constraints:**
-* **ROCOF Limit ($r\_{\max}$):** 0.1 Hz/s. (Tightened for non-trivial control; standard withstand is higher, e.g. 0.5–2 Hz/s.)
-* **Nadir Limit ($f\_{\min}$):** 59.8 Hz. (60 Hz nominal; normal band 59.5–60.5 Hz; we use 59.8 for stricter constraint.)
+* **ROCOF Limit ($r\_ {\max}$):** 0.1 Hz/s. (Tightened for non-trivial control; standard withstand is higher, e.g. 0.5–2 Hz/s.)
+* **Nadir Limit ($f\_ {\min}$):** 59.8 Hz. (60 Hz nominal; normal band 59.5–60.5 Hz; we use 59.8 for stricter constraint.)
 
 ---
 
@@ -108,11 +116,15 @@ This section details how a **probe** $\xi = (b, A, T\_p)$ (bus $b$, amplitude $A
 
 **Stage 1: Dynamics (The Solution Map $\Phi$)**
 Given parameters $\vartheta$ and probe $\xi$, we solve the ODE system to get the continuous angular frequency trajectory $\omega(t)$.
-$$ \mathbf{x}(t) = \Phi\_t(\mathbf{x}\_0, \vartheta, u^{\mathrm{probe}}\_{\xi}) \quad \mathrm{for}\; t \in [0, T\_{\mathrm{obs}}] $$
+```math
+\mathbf{x}(t) = \Phi_t(\mathbf{x}_0, \vartheta, u^{\mathrm{probe}}_{\xi}) \quad \mathrm{for}\; t \in [0, T_{\mathrm{obs}}]
+```
 
 **Stage 2: Discrete Sampling (The Measurement Map $\mathcal{S}$)**
 We sample the frequency deviation $\Delta f\_i(t) = \omega\_i(t)/2\pi$ at $f\_s = 12$ Hz.
-$$ \tilde{f}\_i[n] = \Delta f\_i(n \cdot \Delta t) + \eta\_n, \quad \Delta t = 1/f\_s $$
+```math
+\tilde{f}_i[n] = \Delta f_i(n \cdot \Delta t) + \eta_n, \quad \Delta t = 1/f_s
+```
 * $\eta\_n$: Measurement noise (negligible).
 
 **Stage 3: Feature Extraction (The Reduction Map $\Psi$)**
@@ -120,12 +132,16 @@ We compute the discrete Rate of Change of Frequency (ROCOF) and pool it into a s
 1.  **Finite Difference:** $\mathrm{ROCOF}\_i[n] = (\tilde{f}\_i[n] - \tilde{f}\_i[n-1]) / \Delta t$
 2.  **Max-Pooling:**
 
-$$ y = \Psi(\tilde{\mathbf{f}}) = \max\_{i, n} \lvert \mathrm{ROCOF}\_i[n] \rvert $$
+```math
+y = \Psi(\tilde{\mathbf{f}}) = \max_{i, n} \lvert \mathrm{ROCOF}_i[n] \rvert
+```
 
 ### 4.3 The Forward Model $\mathcal{M}$
 We define the composite forward model $\mathcal{M}(\vartheta, \xi)$ as the deterministic output of this entire pipeline (excluding noise). The final observation $y$ is:
-$$ y = \mathcal{M}(\vartheta, \xi) + \epsilon, \quad \epsilon \sim \mathcal{N}(0, \sigma\_{feat}^2) $$
-* **$\sigma\_{feat}$:** 0.05 Hz/s (Aggregate uncertainty from numerical error and PMU noise).
+```math
+y = \mathcal{M}(\vartheta, \xi) + \epsilon, \quad \epsilon \sim \mathcal{N}(0, \sigma_{feat}^2)
+```
+* **$\sigma\_ {feat}$:** 0.05 Hz/s (Aggregate uncertainty from numerical error and PMU noise).
 
 ---
 
@@ -136,27 +152,37 @@ This section defines how the observation $y$ is used to update our belief about 
 ### 5.1 Likelihood Function
 The likelihood describes the probability of observing a specific peak ROCOF value $y$ given a hypothesized parameter set $\vartheta$ and the applied probe $\xi$. Since we model the error as Gaussian:
 
-$$ p(y \mid \vartheta, \xi) = \frac{1}{\sqrt{2\pi\sigma\_{feat}^2}} \exp \left( -\frac{\bigl(y - \mathcal{M}(\vartheta, \xi)\bigr)^2}{2\sigma\_{feat}^2} \right) $$
+```math
+p(y \mid \vartheta, \xi) = \frac{1}{\sqrt{2\pi\sigma_{feat}^2}} \exp \left( -\frac{\bigl(y - \mathcal{M}(\vartheta, \xi)\bigr)^2}{2\sigma_{feat}^2} \right)
+```
 
 ### 5.2 Posterior Update
-We maintain a belief state $p\_t(\vartheta)$ (represented by a set of weighted particles). Upon collecting a new observation $y\_{obs}$ from experiment $\xi$, the belief is updated via Bayes' rule:
+We maintain a belief state $p\_t(\vartheta)$ (represented by a set of weighted particles). Upon collecting a new observation $y\_ {obs}$ from experiment $\xi$, the belief is updated via Bayes' rule:
 
-$$ p\_{t+1}(\vartheta) = \frac{p(y\_{obs} \mid \vartheta, \xi) \cdot p\_t(\vartheta)}{\int p(y\_{obs} \mid \vartheta', \xi) p\_t(\vartheta') \, d\vartheta'} $$
+```math
+p_{t+1}(\vartheta) = \frac{p(y_{obs} \mid \vartheta, \xi) \cdot p_t(\vartheta)}{\int p(y_{obs} \mid \vartheta', \xi) p_t(\vartheta') \, d\vartheta'}
+```
 
 ### 5.3 Mean Objective Cost of Uncertainty (MOCU)
 
 **1. The Bayes-Optimal Decision $\hat{\gamma}^{\ast}$**
 Given a belief $p(\vartheta)$, the optimal estimator for the safe gain is the one that minimizes the expected loss. For absolute error loss ($L\_1$), this is the **median** of the predicted safe gains:
-$$ \hat{\gamma}^{\ast}(p) = \mathrm{median}\_{\vartheta \sim p} [\gamma^{\ast}(\vartheta)] $$
+```math
+\hat{\gamma}^{\ast}(p) = \mathrm{median}_{\vartheta \sim p} [\gamma^{\ast}(\vartheta)]
+```
 
 **2. MOCU (Current Uncertainty)**
 The MOCU $J(p)$ quantifies the expected decision error we would incur if we stopped experimenting now.
-$$ J(p) = \mathbb{E}\_{\vartheta \sim p} \left[ \lvert \gamma^{\ast}(\vartheta) - \hat{\gamma}^{\ast}(p) \rvert \right] $$
+```math
+J(p) = \mathbb{E}_{\vartheta \sim p} \left[ \lvert \gamma^{\ast}(\vartheta) - \hat{\gamma}^{\ast}(p) \rvert \right]
+```
 
 **3. Expected Remaining MOCU (The Design Objective)**
 To select the optimal next probe $\xi^{\ast}$, we calculate the expected MOCU after the experiment. This is the **risk function** $\mathcal{R}(\xi)$ we minimize:
 
-$$ \mathcal{R}(\xi; p\_t) = \mathbb{E}\_{y \sim p(y \mid p\_t, \xi)} \left[ J\left( \mathrm{Posterior}(p\_t, \xi, y) \right) \right] $$
+```math
+\mathcal{R}(\xi; p_t) = \mathbb{E}_{y \sim p(y \mid p_t, \xi)} \left[ J\left( \mathrm{Posterior}(p_t, \xi, y) \right) \right]
+```
 
 * **Inner term:** The MOCU of the hypothetical future posterior (after updating with $\xi$ and $y$).
 * **Outer expectation:** Over the predictive distribution of $y$ given the current prior and design $\xi$.
@@ -168,14 +194,18 @@ $$ \mathcal{R}(\xi; p\_t) = \mathbb{E}\_{y \sim p(y \mid p\_t, \xi)} \left[ J\le
 We implement **Deep Adaptive Design** to amortize the cost of finding optimal experiments. Instead of optimizing $\xi$ via gradient descent at runtime (which is slow), we train a **policy network** $\pi\_\phi$.
 
 ### 6.1 Design Policy
-The policy $\pi\_\phi$ maps the current experiment history $h\_{t-1}$ to the next optimal design:
-$$ \xi\_t = \pi\_\phi(h\_{t-1}) $$
-* **Input:** History embedding (encoding previous probes $\xi\_{1:t-1}$ and observations $y\_{1:t-1}$).
+The policy $\pi\_\phi$ maps the current experiment history $h\_ {t-1}$ to the next optimal design:
+```math
+\xi_t = \pi_\phi(h_{t-1})
+```
+* **Input:** History embedding (encoding previous probes $\xi\_ {1:t-1}$ and observations $y\_ {1:t-1}$).
 * **Output:** Distribution over candidate buses $\mathcal{B}$ and amplitudes $\mathcal{A}$.
 
 ### 6.2 Optimization Objective
 The network is trained to minimize the **Terminal MOCU** over the entire experimental horizon $T$. We find parameters $\phi^{\ast}$ such that:
-$$ \phi^{\ast} = \arg\min\_\phi \mathbb{E}\_{\vartheta \sim p(\vartheta),\; y\_{1:T} \sim p(y \mid \vartheta, \pi\_\phi)} \left[ J(p\_T) \right] $$
+```math
+\phi^{\ast} = \arg\min_\phi \mathbb{E}_{\vartheta \sim p(\vartheta),\; y_{1:T} \sim p(y \mid \vartheta, \pi_\phi)} \left[ J(p_T) \right]
+```
 This end-to-end objective ensures the policy learns **non-myopic** strategies (e.g., probing different areas of the grid to disambiguate coupled parameters).
 
 ---
@@ -185,9 +215,11 @@ This end-to-end objective ensures the policy learns **non-myopic** strategies (e
 Calculating the true MOCU $J(p)$ requires integrating over the expensive $\gamma^{\ast}(\vartheta)$ landscape (which involves binary search over ODE solutions). To accelerate training, we replace this with a neural surrogate.
 
 ### 7.1 The MPNN Estimator
-We use a **Message Passing Neural Network (MPNN)** that leverages the graph structure of the IEEE-14 bus system ($B\_{ij}$) to estimate MOCU directly.
+We use a **Message Passing Neural Network (MPNN)** that leverages the graph structure of the IEEE-14 bus system ($B\_ {ij}$) to estimate MOCU directly.
 
-$$ \hat{J}(p\_t) \approx \mathrm{MPNN}\_{\psi}(\mathrm{State}\_t, \mathcal{G}) $$
+```math
+\hat{J}(p_t) \approx \mathrm{MPNN}_{\psi}(\mathrm{State}_t, \mathcal{G})
+```
 
 * **Graph Input ($\mathcal{G}$):** Admittance matrix nodes and edges.
 * **State Input ($\mathrm{State}\_t$):** Summary statistics of the current belief $p\_t$ (e.g., bounds or moments of marginal distributions for $M\_i, K\_i$).
@@ -195,15 +227,17 @@ $$ \hat{J}(p\_t) \approx \mathrm{MPNN}\_{\psi}(\mathrm{State}\_t, \mathcal{G}) $
 
 ### 7.2 Training the Surrogate
 The MPNN is pre-trained or co-trained via supervised learning to match the ground-truth MOCU computed by the physics simulator:
-$$ \mathcal{L}\_{\psi} = \left\lVert \hat{J}\_{\mathrm{MPNN}}(p) - J\_{\mathrm{Physics}}(p) \right\rVert^2 $$
+```math
+\mathcal{L}_{\psi} = \left\lVert \hat{J}_{\mathrm{MPNN}}(p) - J_{\mathrm{Physics}}(p) \right\rVert^2
+```
 
 ---
 
 ## 8. Sequential Execution Loop
 
-The complete **sBOED** loop proceeds as follows for $t = 1$ to $T\_{horizon}$:
+The complete **sBOED** loop proceeds as follows for $t = 1$ to $T\_ {horizon}$:
 
-1.  **Policy Step:** The DAD network observes history $h\_{t-1}$ and outputs $\xi\_t$.
+1.  **Policy Step:** The DAD network observes history $h\_ {t-1}$ and outputs $\xi\_t$.
 2.  **Experiment:** Execute $\xi\_t$ on the system, measure $y\_t$.
 3.  **Inference:** Update belief $p\_t(\vartheta)$ using the likelihood $p(y\_t \mid \vartheta, \xi\_t)$.
 4.  **Evaluation:** (Optional) Estimate current MOCU using the MPNN for progress tracking.
@@ -218,7 +252,7 @@ The complete **sBOED** loop proceeds as follows for $t = 1$ to $T\_{horizon}$:
 | Probe amplitude | $A\_t$ | $\lbrace 0.05, 0.1, 0.2, \dots \rbrace$ (e.g. up to 0.5) | ROCOF above PMU noise. |
 | Probe duration | $T\_p$ | 2 s | Excites inertial dynamics. |
 | Sampling rate | $f\_s$ | 12 Hz | PMU/ROCOF reporting standards. |
-| Observation window | $T\_{\mathrm{obs}}$ | [0,10] s | Captures ROCOF peak. |
+| Observation window | $T\_ {\mathrm{obs}}$ | [0,10] s | Captures ROCOF peak. |
 
 ---
 

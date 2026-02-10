@@ -24,15 +24,18 @@ OLD_IMAGE_PATTERN = re.compile(r"\.\./tests/output/ieee14_diagram\.png", re.IGNO
 
 
 def escape_underscores_in_math(text: str) -> str:
-    return text.replace("_", "\\_")
+    """Escape _ for GitHub inline math (avoid markdown emphasis); space before { for GitHub #1575."""
+    s = text.replace("_", "\\_")
+    s = s.replace("\\_{", "\\_ {")
+    return s
 
 
 def process_display_math(content: str) -> str:
+    """Use ```math code blocks so GitHub does not parse underscores as markdown; LaTeX subscripts render correctly."""
     def replace_block(m: re.Match) -> str:
         inner = m.group(1)
-        inner = escape_underscores_in_math(inner)
-        inner = " ".join(inner.split())
-        return "$$ " + inner + " $$"
+        inner = " ".join(inner.split())  # single line
+        return "```math\n" + inner + "\n```"
     return re.sub(r"\$\$\s*([\s\S]*?)\s*\$\$", replace_block, content)
 
 
