@@ -1,12 +1,11 @@
 # DAD-MOCU: Design Document
 
-*GitHub version. Keep in sync with design.md. Run: `python3 documents/update_design_for_github.py`*
 
 **Sequential Optimal Experimental Design for Power Systems**
 
 *Gaoming Lin · Advisor: Dr. Byung-Jun Yoon · January 2026*
 
-*This document is the prototype for the project paper. Keep design_github.md in sync when editing.*
+
 
 ---
 
