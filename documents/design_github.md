@@ -20,7 +20,7 @@ This document describes the design of a **sequential Bayesian optimal experiment
 
 ### 2.1 Network Topology (IEEE 14-Bus Standard)
 
-The system topology is fixed and defined by the standard IEEE 14-bus test case. We assume **homogeneous** uncertain parameters: $M\_i = M$ and $K\_i = K$ for all buses $i$, so the latent parameter vector is $\vartheta = (M, K)$ (scalar $M$, $K$).
+The system topology is fixed and defined by the standard IEEE 14-bus test case (Texas A&M University, n.d.). We assume **homogeneous** uncertain parameters: $M\_i = M$ and $K\_i = K$ for all buses $i$, so the latent parameter vector is $\vartheta = (M, K)$ (scalar $M$, $K$).
 * **Bus Set ($\mathcal{V}$):** The set of $N=14$ buses, indexed $i \in \{1, \dots, 14\}$.
 * **Branch Set ($\mathcal{E}$):** The specific set of 20 transmission lines and transformers as defined in the standard IEEE 14-bus data. A physical line exists between bus $i$ and $j$ if $(i, j) \in \mathcal{E}$.
 * **Coupling Structure:** The network connectivity is encoded in the **Susceptance Matrix** $\mathbf{B} \in \mathbb{R}^{N \times N}$. The entry $B\_ {ij} > 0$ represents the magnitude of the line susceptance if $(i, j) \in \mathcal{E}$, and $B\_ {ij} = 0$ otherwise.
@@ -61,7 +61,11 @@ M_i \dot{\omega}_i(t) = P_{m,i} - P_{e,i}(\boldsymbol{\theta}(t)) - (D_i + K_i)\
 ```math
 P_{e,i}(\boldsymbol{\theta}(t)) = \sum_{j \in \mathcal{N}_i} B_{ij} \sin\bigl(\theta_i(t) - \theta_j(t)\bigr)
 ```
-*(Note: $\mathcal{N}\_i = \lbrace j \mid (i, j) \in \mathcal{E} \rbrace$ denotes the set of neighbors for bus $i$.)*
+*(Note: the set of neighbors for bus $i$ is*
+```math
+\mathcal{N}_i = \lbrace j \mid (i, j) \in \mathcal{E} \rbrace
+```
+*.)*
 
 ### 2.3 Notation and Units
 
@@ -79,8 +83,8 @@ P_{e,i}(\boldsymbol{\theta}(t)) = \sum_{j \in \mathcal{N}_i} B_{ij} \sin\bigl(\t
 
 ### 2.4 Latent Space Prior
 The (homogeneous) parameter vector $\vartheta = (M, K)$ is drawn from a uniform prior $p(\vartheta)$ over physically validated ranges for a 60 Hz system. **$M$ is the effective inertia coefficient** in the swing equation, related to the inertia constant $H$ (seconds) by $M = 2H/\omega\_s$ with $\omega\_s = 2\pi f\_0$.
-* **Inertia ($M$):** $[0.01,\, 0.06]$ $s^2/\mathrm{rad}$. This corresponds to $H \in [2.3,\, 5.0]$ s via $M = 2H/\omega\_s$ at $\omega\_s = 2\pi\times 60$ rad/s (Kundur; typical synchronous machine range).
-* **Droop gain ($K$):** $[0.05,\, 0.50]$ p.u. (primary frequency response; literature often reports droop in %, e.g. 4–6%.)
+* **Inertia ($M$):** $[0.01,\, 0.06]$ $s^2/\mathrm{rad}$. This corresponds to $H \in [2.3,\, 5.0]$ s via $M = 2H/\omega\_s$ at $\omega\_s = 2\pi\times 60$ rad/s (Kundur, 1994; typical synchronous machine range).
+* **Droop gain ($K$):** $[0.05,\, 0.50]$ p.u. (primary frequency response; Dörfler & Bullo, 2012; NERC/ERCOT droop 4–6%.)
 
 ---
 
@@ -94,7 +98,7 @@ We aim to estimate the **Minimal Safe Gain** $\gamma^{\ast}$, defined as the sma
 
 **Security Constraints:**
 * **ROCOF Limit ($r\_ {\max}$):** 0.1 Hz/s. (Tightened for non-trivial control; standard withstand is higher, e.g. 0.5–2 Hz/s.)
-* **Nadir Limit ($f\_ {\min}$):** 59.8 Hz. (60 Hz nominal; normal band 59.5–60.5 Hz; we use 59.8 for stricter constraint.)
+* **Nadir Limit ($f\_ {\min}$):** 59.8 Hz (60 Hz nominal; normal band 59.5–60.5 Hz; we use 59.8 for stricter constraint.)
 
 ---
 
@@ -143,7 +147,7 @@ We define the composite forward model $\mathcal{M}(\vartheta, \xi)$ as the deter
 ```math
 y = \mathcal{M}(\vartheta, \xi) + \epsilon, \quad \epsilon \sim \mathcal{N}(0, \sigma_{feat}^2)
 ```
-* **$\sigma\_ {feat}$:** 0.05 Hz/s (Aggregate uncertainty from numerical error and PMU noise).
+* **$\sigma\_ {feat}$:** 0.05 Hz/s (aggregate uncertainty from numerical error and PMU noise; NASPI, 2021).
 
 ---
 
@@ -193,7 +197,7 @@ To select the optimal next probe $\xi^{\ast}$, we calculate the expected MOCU af
 
 ## 6. Deep Adaptive Design (DAD) Framework
 
-We implement **Deep Adaptive Design** to amortize the cost of finding optimal experiments. Instead of optimizing $\xi$ via gradient descent at runtime (which is slow), we train a **policy network** $\pi\_\phi$.
+We implement **Deep Adaptive Design** (Foster et al., 2021) to amortize the cost of finding optimal experiments. Instead of optimizing $\xi$ via gradient descent at runtime (which is slow), we train a **policy network** $\pi\_\phi$.
 
 ### 6.1 Design Policy
 The policy $\pi\_\phi$ maps the current experiment history $h\_ {t-1}$ to the next optimal design:
@@ -252,7 +256,7 @@ The complete **sBOED** loop proceeds as follows for $t = 1$ to $T\_ {horizon}$:
 |-----------|--------|-------------|----------------|
 | Probe location | $b\_t$ | $\mathcal{B} \subset \lbrace 1,\dots,14 \rbrace$ | Buses with IBR actuation. |
 | Probe amplitude | $A\_t$ | $\lbrace 0.05, 0.1, 0.2, \dots \rbrace$ (e.g. up to 0.5) | ROCOF above PMU noise. |
-| Probe duration | $T\_p$ | 2 s | Excites inertial dynamics. |
+| Probe duration | $T\_p$ | 2 s | Excites inertial dynamics (Peng et al., 2024). |
 | Sampling rate | $f\_s$ | 12 Hz | PMU/ROCOF reporting standards. |
 | Observation window | $T\_ {\mathrm{obs}}$ | [0,10] s | Captures ROCOF peak. |
 
@@ -260,12 +264,18 @@ The complete **sBOED** loop proceeds as follows for $t = 1$ to $T\_ {horizon}$:
 
 ## References
 
-[1] P. Kundur, *Power System Stability and Control*. McGraw-Hill, 1994.
+Dörfler, F., & Bullo, F. (2012). Synchronization in complex oscillator networks and power grids. *Automatica*, *48*(3), 653–660. https://arxiv.org/abs/0910.5673
 
-[2] F. Dörfler and F. Bullo, *Automatica*, 2014.
+ENTSO-E. (2020). *Inertia and rate of change of frequency (RoCoF)*. https://www.entsoe.eu/
 
-[3] J. Peng et al., *NREL/CP-5D00-87925*, 2024.
+Foster, A., Ivanova, D. R., Malik, I., & Rainforth, T. (2021). Deep adaptive design: Amortizing sequential Bayesian experimental design. *Proceedings of the 38th International Conference on Machine Learning (ICML)* (pp. 3384–3395). PMLR.
 
-[4] Foster et al., "Deep Adaptive Design: Amortizing Sequential Bayesian Experimental Design," *ICML*, 2021.
+IEEE. (2011). *IEEE Standard for Synchrophasor Measurements for Power Systems* (IEEE Std C37.118.1-2011). https://standards.ieee.org/ieee/C37.118.1/4902/
 
-[5] ENTSO-E, "Inertia and rate of change of frequency (RoCoF)," 2020.
+Kundur, P. (1994). *Power system stability and control*. McGraw-Hill.
+
+NASPI. (2021). *PMU and measurement quality*. North American SynchroPhasor Initiative. https://www.naspi.org/node/899
+
+Peng, J., et al. (2024). *Grid-forming inverters and frequency response* (NREL/CP-5D00-87925). National Renewable Energy Laboratory. https://docs.nrel.gov/docs/fy24osti/87925.pdf
+
+Texas A&M University. (n.d.). *IEEE 14-bus system*. Electric Grid Test Cases. https://electricgrids.engr.tamu.edu/electric-grid-test-cases/ieee-14-bus-system/

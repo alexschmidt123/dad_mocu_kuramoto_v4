@@ -68,8 +68,33 @@ def update_image_path(text: str) -> str:
 
 
 def apply_github_image_display(text: str) -> str:
-    """Replace image markdown with 60% width, centered HTML for design_github.md."""
+    """Replace image markdown with 60% width, centered HTML for design_github.md (no-op if already HTML)."""
     return IMAGE_MARKDOWN_PATTERN.sub(GITHUB_IMAGE_HTML, text)
+
+
+NEIGHBOR_NOTE_GITHUB = """*(Note: the set of neighbors for bus $i$ is*
+```math
+\\mathcal{N}_i = \\lbrace j \\mid (i, j) \\in \\mathcal{E} \\rbrace
+```
+*.)*"""
+
+
+def fix_neighbor_note_for_github(text: str) -> str:
+    """Replace inline-math neighbor note with ```math block so it renders on GitHub."""
+    if "denotes the set of neighbors for bus" not in text:
+        return text
+    # Replace any line containing the neighbor note (escaped inline math) with display-math version
+    lines = text.split("\n")
+    out = []
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        if "denotes the set of neighbors for bus" in line and "(Note:" in line:
+            out.append(NEIGHBOR_NOTE_GITHUB)
+        else:
+            out.append(line)
+        i += 1
+    return "\n".join(out)
 
 
 def main() -> None:
@@ -79,6 +104,7 @@ def main() -> None:
     text = process_inline_math(text)
     text = update_image_path(text)
     text = apply_github_image_display(text)
+    text = fix_neighbor_note_for_github(text)
     lines = text.split("\n")
     if len(lines) >= 2:
         head = [lines[0], "", "*GitHub version. Keep in sync with design.md. Run: `python3 documents/update_design_for_github.py`*", ""]
