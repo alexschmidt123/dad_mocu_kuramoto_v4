@@ -140,12 +140,17 @@ Experiment/
 !requirements.txt
 !README.txt
 
-# Plots and figures
+# Plots and figures (track only documents/images/*.png for design_github.md)
 *.png
 *.jpg
 *.jpeg
 *.pdf
 *.svg
+!documents/images/*.png
+# Do not track readme in documents/images
+documents/images/README*
+documents/images/readme_design_github*
+documents/image/
 
 # Logs
 *.log
