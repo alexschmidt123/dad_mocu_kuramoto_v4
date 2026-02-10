@@ -61,7 +61,7 @@ M_i \dot{\omega}_i(t) = P_{m,i} - P_{e,i}(\boldsymbol{\theta}(t)) - (D_i + K_i)\
 ```math
 P_{e,i}(\boldsymbol{\theta}(t)) = \sum_{j \in \mathcal{N}_i} B_{ij} \sin\bigl(\theta_i(t) - \theta_j(t)\bigr)
 ```
-(Note: the set of neighbors for bus ```math i``` is```math \mathcal{N}_i = \lbrace j \mid (i, j) \in \mathcal{E} \rbrace ```.)
+(Note: the set of neighbors for bus $i$ is $\mathcal{N}_i = \lbrace j \mid (i, j) \in \mathcal{E} \rbrace $.)
 
 ### 2.3 Notation and Units
 
