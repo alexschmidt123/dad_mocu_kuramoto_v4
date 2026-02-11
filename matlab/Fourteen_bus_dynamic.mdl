@@ -319,7 +319,7 @@ Model {
 	  FcnCallInpInsideContextMsg "Enable All"
 	  SignalLabelMismatchMsg  "none"
 	  UnconnectedInputMsg	  "warning"
-	  UnconnectedOutputMsg	  "warning"
+	  UnconnectedOutputMsg	  "none"
 	  UnconnectedLineMsg	  "warning"
 	  SFcnCompatibilityMsg	  "none"
 	  FrameProcessingCompatibilityMsg "warning"
