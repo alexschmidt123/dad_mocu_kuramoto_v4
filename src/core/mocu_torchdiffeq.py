@@ -121,7 +121,7 @@ def MOCU_torchdiffeq(K_max: int, B: np.ndarray, P_m: np.ndarray, D: float,
         seed: Random seed (0 = no seed)
         device: 'cuda' or 'cpu'
         r_max: Maximum ROCOF constraint (Hz/s, default 0.5)
-        f_min: Minimum frequency constraint (Hz, default 59.5 for 60 Hz)
+        f_min: Minimum frequency constraint (Hz, default 49.5 for 50 Hz)
     
     Returns:
         MOCU value (float)

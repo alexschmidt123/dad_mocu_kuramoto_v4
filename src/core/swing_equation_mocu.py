@@ -28,7 +28,7 @@ except ImportError:
 
 
 def binary_search_gamma_star(B, P_m, D, M, K, g, 
-                             r_max=0.5, f_min=59.5,  # Frequency constraints (Hz, 60 Hz nominal)
+                             r_max=0.5, f_min=49.5,  # Frequency constraints (Hz, 50 Hz nominal, aligned with MATLAB .mdl)
                              h=1.0/160.0, T=10.0, M_steps=None,
                              gamma_min=0.0, gamma_max=100.0, 
                              max_iterations=20, tol=0.01,
@@ -48,7 +48,7 @@ def binary_search_gamma_star(B, P_m, D, M, K, g,
         K: Control gain (scalar)
         g: Control allocation [N] (numpy array, sum to 1)
         r_max: Maximum ROCOF constraint (Hz/s, default 0.5)
-        f_min: Minimum frequency constraint (Hz, default 59.5 for 60 Hz)
+        f_min: Minimum frequency constraint (Hz, default 49.5 for 50 Hz)
         h: Time step (float)
         T: Time horizon (float, default 10.0s)
         M_steps: Number of time steps (int, optional)
@@ -170,7 +170,7 @@ def binary_search_gamma_star(B, P_m, D, M, K, g,
 
 
 def binary_search_gamma_star_batch(M_batch, K_batch, B, P_m, D, g,
-                                   r_max=0.5, f_min=59.5,
+                                   r_max=0.5, f_min=49.5,
                                    h=1.0/160.0, T=10.0, M_steps=None,
                                    gamma_min=0.0, gamma_max=100.0,
                                    max_iterations=20, tol=0.01,
@@ -226,7 +226,7 @@ def binary_search_gamma_star_batch(M_batch, K_batch, B, P_m, D, g,
 
 def MOCU_swing_equation(K_max: int, B: np.ndarray, P_m: np.ndarray, D: float,
                        M_lower: float, M_upper: float, K_lower: float, K_upper: float,
-                       g: np.ndarray, r_max=0.5, f_min=59.5,
+                       g: np.ndarray, r_max=0.5, f_min=49.5,
                        h=1.0/160.0, T=10.0, M_steps=None,
                        seed: int = 0, device: str = 'cuda') -> float:
     """
@@ -249,7 +249,7 @@ def MOCU_swing_equation(K_max: int, B: np.ndarray, P_m: np.ndarray, D: float,
         K_lower, K_upper: Control gain bounds (scalars)
         g: Control allocation [N] (numpy array, known/fixed, sum to 1)
         r_max: Maximum ROCOF constraint (Hz/s, default 0.5)
-        f_min: Minimum frequency constraint (Hz, default 59.5 for 60 Hz)
+        f_min: Minimum frequency constraint (Hz, default 49.5 for 50 Hz)
         h: Time step (float)
         T: Time horizon (float, default 10.0s)
         M_steps: Number of time steps (int, optional)

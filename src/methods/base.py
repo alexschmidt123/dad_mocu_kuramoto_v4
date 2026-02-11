@@ -168,7 +168,7 @@ class OEDMethod(ABC):
             probe_amplitudes: List of probe amplitude options
             probe_duration: Probe duration T (seconds)
             r_max: Maximum ROCOF constraint (Hz/s, default 0.5)
-            f_min: Minimum frequency constraint (Hz, default 59.5 for 60 Hz)
+            f_min: Minimum frequency constraint (Hz, default 49.5 for 50 Hz)
             update_cnt: Number of experiments to perform
             initial_mocu: Pre-computed initial MOCU (optional)
         

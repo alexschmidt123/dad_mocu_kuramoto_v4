@@ -147,7 +147,7 @@ Model {
 	  $ObjectID		  4
 	  Version		  "1.11.1"
 	  StartTime		  "0.0"
-	  StopTime		  "10"
+	  StopTime		  "5"
 	  AbsTol		  "1e-6"
 	  FixedStep		  "0.2"
 	  InitialStep		  "auto"
@@ -821,7 +821,7 @@ Model {
 	LineWidths		"[0.5 0.5 0.5 0.5 0.5 0.5]"
 	MarkerStyles		"none|none|none|none|none|none"
       }
-      TimeRange		      "10"
+      TimeRange		      "5"
       YMin		      "-1.75"
       YMax		      "1.75"
       SaveToWorkspace	      on
@@ -887,7 +887,7 @@ Model {
 	LineWidths		"[0.5 0.5 0.5 0.5 0.5 0.5]"
 	MarkerStyles		"none|none|none|none|none|none"
       }
-      TimeRange		      "10"
+      TimeRange		      "5"
       YMin		      "-1.5"
       YMax		      "1.5"
       SaveToWorkspace	      on
@@ -954,7 +954,7 @@ Model {
 	LineWidths		"[0.5 0.5 0.5 0.5 0.5 0.5]"
 	MarkerStyles		"none|none|none|none|none|none"
       }
-      TimeRange		      "10"
+      TimeRange		      "5"
       YMin		      "-1.25"
       YMax		      "1.25"
       SaveToWorkspace	      on
@@ -1020,7 +1020,7 @@ Model {
 	LineWidths		"[0.5 0.5 0.5 0.5 0.5 0.5]"
 	MarkerStyles		"none|none|none|none|none|none"
       }
-      TimeRange		      "10"
+      TimeRange		      "5"
       YMin		      "-1.25"
       YMax		      "1.25"
       SaveToWorkspace	      on
@@ -1086,7 +1086,7 @@ Model {
 	LineWidths		"[0.5 0.5 0.5 0.5 0.5 0.5]"
 	MarkerStyles		"none|none|none|none|none|none"
       }
-      TimeRange		      "10"
+      TimeRange		      "5"
       YMin		      "-1.25"
       YMax		      "1.25"
       SaveToWorkspace	      on
@@ -1152,7 +1152,7 @@ Model {
 	LineWidths		"[0.5 0.5 0.5 0.5 0.5 0.5]"
 	MarkerStyles		"none|none|none|none|none|none"
       }
-      TimeRange		      "10"
+      TimeRange		      "5"
       YMin		      "-1.25"
       YMax		      "1.25"
       SaveToWorkspace	      on
@@ -1218,7 +1218,7 @@ Model {
 	LineWidths		"[0.5 0.5 0.5 0.5 0.5 0.5]"
 	MarkerStyles		"none|none|none|none|none|none"
       }
-      TimeRange		      "10"
+      TimeRange		      "5"
       YMin		      "-1.75"
       YMax		      "1.75"
       SaveToWorkspace	      on
@@ -1284,7 +1284,7 @@ Model {
 	LineWidths		"[0.5 0.5 0.5 0.5 0.5 0.5]"
 	MarkerStyles		"none|none|none|none|none|none"
       }
-      TimeRange		      "10"
+      TimeRange		      "5"
       YMin		      "-1.75"
       YMax		      "1.75"
       SaveToWorkspace	      on
@@ -1350,7 +1350,7 @@ Model {
 	LineWidths		"[0.5 0.5 0.5 0.5 0.5 0.5]"
 	MarkerStyles		"none|none|none|none|none|none"
       }
-      TimeRange		      "10"
+      TimeRange		      "5"
       YMin		      "-1.25"
       YMax		      "1.25"
       SaveToWorkspace	      on
@@ -1417,7 +1417,7 @@ Model {
 	LineWidths		"[0.5 0.5 0.5 0.5 0.5 0.5]"
 	MarkerStyles		"none|none|none|none|none|none"
       }
-      TimeRange		      "10"
+      TimeRange		      "5"
       YMin		      "-1.75"
       YMax		      "2"
       SaveToWorkspace	      on
@@ -1483,7 +1483,7 @@ Model {
 	LineWidths		"[0.5 0.5 0.5 0.5 0.5 0.5]"
 	MarkerStyles		"none|none|none|none|none|none"
       }
-      TimeRange		      "10"
+      TimeRange		      "5"
       YMin		      "-1.75"
       YMax		      "1.75"
       SaveToWorkspace	      on
@@ -1549,7 +1549,7 @@ Model {
 	LineWidths		"[0.5 0.5 0.5 0.5 0.5 0.5]"
 	MarkerStyles		"none|none|none|none|none|none"
       }
-      TimeRange		      "10"
+      TimeRange		      "5"
       YMin		      "-1.25"
       YMax		      "1.25"
       SaveToWorkspace	      on
@@ -1615,7 +1615,7 @@ Model {
 	LineWidths		"[0.5 0.5 0.5 0.5 0.5 0.5]"
 	MarkerStyles		"none|none|none|none|none|none"
       }
-      TimeRange		      "10"
+      TimeRange		      "5"
       YMin		      "-1.1"
       YMax		      "1.1"
       SaveToWorkspace	      on
@@ -1681,7 +1681,7 @@ Model {
 	LineWidths		"[0.5 0.5 0.5 0.5 0.5 0.5]"
 	MarkerStyles		"none|none|none|none|none|none"
       }
-      TimeRange		      "10"
+      TimeRange		      "5"
       YMin		      "-1"
       YMax		      "0.9"
       SaveToWorkspace	      on

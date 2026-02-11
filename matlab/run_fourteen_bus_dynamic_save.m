@@ -1,4 +1,4 @@
-%% Run Fourteen_bus_dynamic (10 s) and save all results to CSV, TXT, PNG
+%% Run Fourteen_bus_dynamic (5 s) and save all results to CSV, TXT, PNG
 % Usage: run('run_fourteen_bus_dynamic_save.m')
 % Outputs: results/fourteen_bus_dynamic/*.csv, *.txt, *.png
 
@@ -9,7 +9,7 @@ outDir = fullfile(scriptDir, 'results', 'fourteen_bus_dynamic');
 if ~isfolder(outDir), mkdir(outDir); end
 
 model = 'Fourteen_bus_dynamic';
-fprintf('Running Fourteen_bus_dynamic (10 s)...\n');
+fprintf('Running Fourteen_bus_dynamic (5 s)...\n');
 load_system(model);
 set_param(model, 'UnconnectedOutputMsg', 'none');
 sim(model);

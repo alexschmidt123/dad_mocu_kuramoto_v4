@@ -6,7 +6,7 @@ No MOCU calculation is performed in these fixtures.
 
 Parameter values align with documents/Parameter_references_table.md:
   M ∈ [0.01, 0.06] (from M = 2H/ω_s, H from literature), K ∈ [0.05, 0.50], D = 0.1, f_s = 12 Hz, T_p = 2 s, probe A up to 0.5, σ = 0.05 (tests).
-  f_0 = 60 Hz and f_min = 59.8 Hz are set in configs and in src/core/swing_equation_ode.py (f_nominal).
+  f_0 = 50 Hz and f_min = 49.8 Hz are set in configs and in src/core/swing_equation_ode.py (f_nominal); aligned with MATLAB .mdl.
 """
 
 import sys

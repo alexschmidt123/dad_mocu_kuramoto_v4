@@ -39,8 +39,8 @@ swing_equation:
                                # Reference: ENTSO-E grid codes use 0.5-1.0 Hz/s for protection
                                # We use 0.1 Hz/s (stricter) to ensure control is needed for meaningful MOCU
                                # design_part1.tex table: r_max; we tighten for research rigor
-  f_min: 59.8                 # Minimum frequency constraint (Hz), 60 Hz nominal (USA)
-                               # Normal band 59.5-60.5 Hz; we use 59.8 (stricter) to require control
+  f_min: 49.8                 # Minimum frequency constraint (Hz), 50 Hz nominal (aligned with MATLAB .mdl / ENTSO-E)
+                               # Normal band 49.5-50.5 Hz; we use 49.8 (stricter) to require control
   probe_duration: 2.0         # T_p = 2 s (design_part1.tex Section 3, Peng et al.)
   probe_amplitudes: [0.05, 0.1, 0.2]  # A_set; match Parameter_references_table.md and balanced/fast configs
   # Observation (design_part1.tex Section 4 & table; documents/pseucocode _parameter_list.txt)

@@ -516,8 +516,8 @@ Based on design_part1.tex Section 4:
     
     # Minimum absolute frequency (from downsampled observations)
     # freq_trajectory_obs is frequency deviation Δf, so absolute frequency = f_nominal + Δf
-    # 60 Hz nominal (USA): f_absolute = 60.0 + Δf
-    f_nominal = 60.0  # Nominal frequency (Hz)
+    # 50 Hz nominal (aligned with MATLAB .mdl / ENTSO-E): f_absolute = 50.0 + Δf
+    f_nominal = 50.0  # Nominal frequency (Hz)
     f_absolute_trajectory = f_nominal + freq_trajectory_obs  # [M_obs, N]
     f_min = np.min(f_absolute_trajectory)  # Minimum absolute frequency
     
@@ -568,7 +568,7 @@ def extract_frequency_features_batch(omega_trajectory, h, fs=12.0):
     M_obs = freq_trajectory_obs.shape[0]
     rocof = np.gradient(freq_trajectory_obs, axis=0) / h_obs
     rocof_max = np.max(np.abs(rocof), axis=(0, 2))  # [batch]
-    f_nominal = 60.0
+    f_nominal = 50.0
     f_absolute = f_nominal + freq_trajectory_obs
     f_min = np.min(f_absolute, axis=(0, 2))  # [batch]
     return {'ROCOF_max': rocof_max, 'f_min': f_min}

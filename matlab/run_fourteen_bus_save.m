@@ -85,4 +85,5 @@ if exist('tout', 'var') && exist('yout', 'var')
     close(f);
 end
 
+close_system('Fourteen_bus', 0);
 fprintf('Results saved to: %s\n', outDir);
