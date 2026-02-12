@@ -149,6 +149,50 @@ $$
 
 This section defines how the observation $y$ is used to update our belief about $\vartheta$ and how we quantify the uncertainty in the decision $\gamma^{\ast}$.
 
+### 5.0 Observation → Posterior: Mathematical and Computational Flow
+
+We give a **step-by-step** description of how a single observation $y$ (scalar ROCOF_max) and design $\xi$ lead to the posterior $p(\vartheta \mid y, \xi)$. This is the core inference step used in the pipeline and in MOCU-based design.
+
+**Step 1 — Observation model (forward map and likelihood)**  
+The scalar observation is
+$$
+y = \mathcal{M}(\vartheta, \xi) + \epsilon, \quad \epsilon \sim \mathcal{N}(0, \sigma_{\mathrm{feat}}^2).
+$$
+Here $\mathcal{M}(\vartheta, \xi)$ is the **deterministic forward map**: for a given $\vartheta = (M, K)$ and design $\xi = (b, A, T_p)$, we (i) solve the swing ODE with that $(M, K)$ and probe $\xi$, (ii) obtain the trajectory $\omega(t)$, (iii) form $\Delta f = \omega/(2\pi)$, sample at $f_s = 12$ Hz, (iv) compute ROCOF and take the maximum over time and buses. So $\mathcal{M}(\vartheta, \xi) = \mathrm{ROCOF}_{\max}$ from the simulator. The likelihood is Gaussian:
+$$
+p(y \mid \vartheta, \xi) = \mathcal{N}\bigl(y;\, \mathcal{M}(\vartheta, \xi),\, \sigma_{\mathrm{feat}}^2\bigr) = \frac{1}{\sqrt{2\pi\sigma_{\mathrm{feat}}^2}} \exp\left( -\frac{\bigl(y - \mathcal{M}(\vartheta, \xi)\bigr)^2}{2\sigma_{\mathrm{feat}}^2} \right).
+$$
+
+**Step 2 — Prior**  
+We take a **uniform prior** over the feasible set: $p(\vartheta) = \mathrm{Uniform}([M_{\min}, M_{\max}] \times [K_{\min}, K_{\max}])$, so $p(\vartheta)$ is constant on that rectangle and zero outside.
+
+**Step 3 — Bayes' rule (posterior)**  
+After observing $y_{\mathrm{obs}}$ under design $\xi$, the posterior is
+$$
+p(\vartheta \mid y_{\mathrm{obs}}, \xi) = \frac{p(y_{\mathrm{obs}} \mid \vartheta, \xi)\, p(\vartheta)}{Z}, \quad Z = \int p(y_{\mathrm{obs}} \mid \vartheta', \xi)\, p(\vartheta')\, d\vartheta'.
+$$
+Because the prior is uniform on the rectangle, $p(\vartheta \mid y_{\mathrm{obs}}, \xi) \propto p(y_{\mathrm{obs}} \mid \vartheta, \xi)$ on that set; the normalizing constant $Z$ is the integral of the likelihood over the prior support.
+
+**Step 4 — Computation on a grid**  
+We approximate the continuous posterior by a **discrete distribution on a regular grid** over $(M, K)$:
+
+1. **Grid:** Choose $n_{\mathrm{grid}} \times n_{\mathrm{grid}}$ points $(M_i, K_j)$ with $M_i \in [M_{\min}, M_{\max}]$, $K_j \in [K_{\min}, K_{\max}]$ (e.g. $n_{\mathrm{grid}} = 7$ for design comparison, or 41–55 for plots).
+2. **Log-likelihood:** For each grid point $\vartheta_{ij} = (M_i, K_j)$, run the forward map to get $\mathcal{M}(\vartheta_{ij}, \xi)$ (one ODE solve per point, or a batched solve), then compute $\log p(y_{\mathrm{obs}} \mid \vartheta_{ij}, \xi) = -\frac{(y_{\mathrm{obs}} - \mathcal{M}(\vartheta_{ij}, \xi))^2}{2\sigma_{\mathrm{feat}}^2} - \frac{1}{2}\log(2\pi\sigma_{\mathrm{feat}}^2)$.
+3. **Numerical stability:** Work in log space; subtract the maximum: $\ell_{ij} = \log p(y_{\mathrm{obs}} \mid \vartheta_{ij}, \xi) - \max_{i,j} \log p(y_{\mathrm{obs}} \mid \vartheta_{ij}, \xi)$.
+4. **Unnormalized posterior:** $q_{ij} = \exp(\ell_{ij})$ (prior is constant so absorbed into the constant that we normalize away).
+5. **Normalization:** $p_{ij} = q_{ij} / \sum_{i,j} q_{ij}$. Then $\{p_{ij}\}$ is the discrete posterior $p(M_i, K_j \mid y_{\mathrm{obs}}, \xi)$ on the grid.
+6. **Marginals (optional):** $p(M_i \mid y_{\mathrm{obs}}, \xi) = \sum_j p_{ij}$, $p(K_j \mid y_{\mathrm{obs}}, \xi) = \sum_i p_{ij}$, each renormalized to sum to 1. From these we compute posterior means, variances, and information gain $H(\mathrm{prior}) - H(\mathrm{posterior})$.
+
+**Summary (logic flow)**  
+$$
+\boxed{
+\text{Design } \xi \;\rightarrow\; \text{Experiment} \;\rightarrow\; \text{Observe } y_{\mathrm{obs}} \;\rightarrow\; \text{Likelihood } p(y_{\mathrm{obs}}|\vartheta,\xi) \;\rightarrow\; \text{Bayes} \;\rightarrow\; \text{Posterior } p(\vartheta|y_{\mathrm{obs}},\xi)
+}
+$$
+Implementation: `mu_theta_xi` (or batched ODE) evaluates $\mathcal{M}(\vartheta,\xi)$; `log_likelihood_batch` returns $\log p(y|\vartheta,\xi)$; form $\exp(\log p - \mathrm{max})$, normalize → posterior on grid; marginalize for $p(M|y,\xi)$, $p(K|y,\xi)$.
+
+---
+
 ### 5.1 Likelihood Function
 The likelihood describes the probability of observing a specific peak ROCOF value $y$ given a hypothesized parameter set $\vartheta$ and the applied probe $\xi$. Since we model the error as Gaussian:
 
@@ -157,11 +201,12 @@ p(y \mid \vartheta, \xi) = \frac{1}{\sqrt{2\pi\sigma_{feat}^2}} \exp \left( -\fr
 $$
 
 ### 5.2 Posterior Update
-We maintain a belief state $p_t(\vartheta)$ (represented by a set of weighted particles). Upon collecting a new observation $y_{obs}$ from experiment $\xi$, the belief is updated via Bayes' rule:
+We maintain a belief state $p_t(\vartheta)$ (represented by a set of weighted particles or a grid). Upon collecting a new observation $y_{obs}$ from experiment $\xi$, the belief is updated via Bayes' rule:
 
 $$
 p_{t+1}(\vartheta) = \frac{p(y_{obs} \mid \vartheta, \xi) \cdot p_t(\vartheta)}{\int p(y_{obs} \mid \vartheta', \xi) p_t(\vartheta') \, d\vartheta'}
 $$
+For a uniform prior $p_t(\vartheta)$ over the parameter rectangle, the posterior is proportional to the likelihood on that set; the denominator is the normalizing constant (implemented as the sum over the grid in Step 4 above).
 
 ### 5.3 Mean Objective Cost of Uncertainty (MOCU)
 
