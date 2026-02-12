@@ -32,7 +32,7 @@ The system topology is fixed and defined by the standard IEEE 14-bus test case (
 | **Generator (PV)** | 2, 3, 6, 8 | Voltage-controlled; inject real power. *PV* = real power P and voltage magnitude V specified. |
 | **Load (PQ)** | 4, 5, 7, 9, 10, 11, 12, 13, 14 | Consume P and Q. *PQ* = real and reactive power (P, Q) specified. |
 
-**Background (P and Q):** In AC power systems, **P** denotes **real (active) power** (MW or p.u.) and **Q** denotes **reactive power** (MVAr or p.u.). Real power P is the component that does useful work (e.g. drives motors); reactive power Q is the component that sustains magnetic and electric fields and supports voltage levels but does not average to net work over a cycle. In steady-state power-flow analysis, each bus has four quantities: voltage magnitude $|V|$, voltage angle $\theta$, injected real power $P$, and injected reactive power $Q$. Two of these are specified and two are solved. At a **PV bus** (generator), $P$ and $|V|$ are specified (e.g. setpoint and voltage control); at a **PQ bus** (load), $P$ and $Q$ are specified (demand). The **slack** bus specifies $|V|$ and $\theta$ (reference) and solves for $P$ and $Q$ to balance the system. In the swing-equation model used here, we focus on frequency dynamics; the above classification is the conventional one and guides where to probe or observe.
+**Background (P and Q):** In AC power systems, **P** (real power) does useful work; **Q** (reactive power) supports voltage and fields. In power-flow, at a **PV bus** (generator) $P$ and $|V|$ are specified; at a **PQ bus** (load) $P$ and $Q$ are specified; the **slack** bus sets $|V|$ and $\theta$ and solves for $P$, $Q$ to balance the system. The swing-equation model below focuses on frequency dynamics; the above classification guides where to probe.
 
 **Connectivity:** The IEEE 14-bus topology is shown below. Bus 4 is the only degree-5 node (hub); buses 2, 5, 6, 9 have degree 4. Symmetric pairs (10, 14) and (11, 13) have identical connectivity and yield identical design outcomes for the same probe amplitude. Node colors: gold = slack (bus 1), green = generator (2, 3, 6, 8), blue = load (rest).
 
@@ -77,9 +77,9 @@ P_{e,i}(\boldsymbol{\theta}(t)) = \sum_{j \in \mathcal{N}_i} B_{ij} \sin\bigl(\t
 | $K\_i$ ($K$) | **Primary frequency response (droop) gain** (homogeneous $K\_i{=}K$). Governor/FFR gain. | p.u. |
 
 ### 2.4 Latent Space Prior
-The (homogeneous) parameter vector $\vartheta = (M, K)$ is drawn from a uniform prior $p(\vartheta)$ over physically validated ranges for a 60 Hz system. **$M$ is the effective inertia coefficient** in the swing equation, related to the inertia constant $H$ (seconds) by $M = 2H/\omega\_s$ with $\omega\_s = 2\pi f\_0$.
-* **Inertia ($M$):** $[0.01,\, 0.06]$ $s^2/\mathrm{rad}$. This corresponds to $H \in [2.3,\, 5.0]$ s via $M = 2H/\omega\_s$ at $\omega\_s = 2\pi\times 60$ rad/s (Kundur, 1994; typical synchronous machine range).
-* **Droop gain ($K$):** $[0.05,\, 0.50]$ p.u. (primary frequency response; Dörfler & Bullo, 2012; NERC/ERCOT droop 4–6%.)
+The parameter vector $\vartheta = (M, K)$ has a **uniform prior** $p(\vartheta)$ over a physically validated rectangle. Here $M$ is the effective inertia coefficient, $M = 2H/\omega\_s$ with $\omega\_s = 2\pi f\_0$ (nominal frequency; implementation uses 50 Hz, ENTSO-E).
+* **Inertia ($M$):** $[0.01,\, 0.06]$ $s^2/\mathrm{rad}$ (corresponds to $H \in [2.3,\, 5.0]$ s at $\omega\_s = 2\pi f\_0$; Kundur, 1994).
+* **Droop gain ($K$):** $[0.05,\, 0.50]$ p.u. (Dörfler & Bullo, 2012; NERC/ERCOT.)
 
 ---
 
@@ -91,9 +91,7 @@ We aim to estimate the **Minimal Safe Gain** $\gamma^{\ast}$, defined as the sma
 \gamma^{\ast}(\vartheta) = \inf \left\lbrace \gamma \in \mathbb{R}_+ \mid \forall t:\; \lvert \dot{f}(t) \rvert \le r_{\max} \land f(t) \ge f_{\min} \right\rbrace
 ```
 
-**Security Constraints:**
-* **ROCOF Limit ($r\_ {\max}$):** 0.1 Hz/s. (Tightened for non-trivial control; standard withstand is higher, e.g. 0.5–2 Hz/s.)
-* **Nadir Limit ($f\_ {\min}$):** 59.8 Hz (60 Hz nominal; normal band 59.5–60.5 Hz; we use 59.8 for stricter constraint.)
+**Security constraints:** ROCOF limit $r\_ {\max} = 0.1$ Hz/s; frequency nadir $f(t) \ge f\_ {\min}$ (e.g. $f\_ {\min} = 49.8$ Hz at 50 Hz nominal, or 59.8 Hz at 60 Hz).
 
 ---
 
@@ -115,10 +113,10 @@ This section details how a **probe** $\xi = (b, A, T\_p)$ (bus $b$, amplitude $A
 
 ### 4.2 Dynamics, Sampling, and Feature Extraction
 
-**Stage 1: Dynamics (The Solution Map $\Phi$)**
-Given parameters $\vartheta$ and probe $\xi$, we solve the ODE system to get the continuous angular frequency trajectory $\omega(t)$.
+**Stage 1: Dynamics (solution map $\Phi$)**  
+Given $\vartheta$ and $\xi = (b, A, T\_p)$, the probe at bus $b$ is $u\_b(t) = A \cdot \tfrac{1}{2}(1 - \cos(2\pi t/T\_p))$ for $t \le T\_p$, and $0$ elsewhere (Hann window); $u\_i(t)=0$ for $i \neq b$. We solve the swing ODE to get $\mathbf{x}(t) = [\boldsymbol{\theta}(t), \boldsymbol{\omega}(t)]^\top$:
 ```math
-\mathbf{x}(t) = \Phi_t(\mathbf{x}_0, \vartheta, u^{\mathrm{probe}}_{\xi}) \quad \mathrm{for}\; t \in [0, T_{\mathrm{obs}}]
+\mathbf{x}(t) = \Phi_t(\mathbf{x}_0, \vartheta, u^{\mathrm{probe}}_{\xi}), \quad t \in [0, T_{\mathrm{obs}}].
 ```
 
 **Stage 2: Discrete Sampling (The Measurement Map $\mathcal{S}$)**
@@ -137,75 +135,59 @@ We compute the discrete Rate of Change of Frequency (ROCOF) and pool it into a s
 y = \Psi(\tilde{\mathbf{f}}) = \max_{i, n} \lvert \mathrm{ROCOF}_i[n] \rvert
 ```
 
-### 4.3 The Forward Model $\mathcal{M}$
-We define the composite forward model $\mathcal{M}(\vartheta, \xi)$ as the deterministic output of this entire pipeline (excluding noise). The final observation $y$ is:
+### 4.3 The Forward Map (Map)
+We define the composite forward map $\mathrm{Map}(\vartheta, \xi)$ as the deterministic output of this entire pipeline (excluding noise). The final observation $y$ is:
 ```math
-y = \mathcal{M}(\vartheta, \xi) + \epsilon, \quad \epsilon \sim \mathcal{N}(0, \sigma_{feat}^2)
+y = \mathrm{Map}(\vartheta, \xi) + \epsilon, \quad \epsilon \sim \mathcal{N}(0, \sigma_{\mathrm{feat}}^2)
 ```
-* **$\sigma\_ {feat}$:** 0.05 Hz/s (aggregate uncertainty from numerical error and PMU noise; NASPI, 2021).
+* **$\sigma\_ {\mathrm{feat}}$:** Observation noise (Hz/s); default 0.05 (aggregate numerical and PMU uncertainty; NASPI, 2021). Defined in §9.
 
 ---
 
 ## 5. Bayesian Inference and MOCU Objective
 
-This section defines how the observation $y$ is used to update our belief about $\vartheta$ and how we quantify the uncertainty in the decision $\gamma^{\ast}$.
+This section defines the **observation → posterior** math and the MOCU design objective. Logic flow: **Design $\xi$ → Experiment → Observe $y$ → Likelihood $p(y|\vartheta,\xi)$ → Bayes → Posterior $p(\vartheta|y,\xi)$.**
 
-### 5.0 Observation → Posterior: Mathematical and Computational Flow
+### 5.1 Observation model and likelihood
 
-We give a **step-by-step** description of how a single observation $y$ (scalar ROCOF_max) and design $\xi$ lead to the posterior $p(\vartheta \mid y, \xi)$. This is the core inference step used in the pipeline and in MOCU-based design.
-
-**Step 1 — Observation model (forward map and likelihood)**  
-The scalar observation is
+The observation is $y = \mathrm{Map}(\vartheta, \xi) + \epsilon$ with $\epsilon \sim \mathcal{N}(0, \sigma\_ {\mathrm{feat}}^2)$ (see §4.3). So the likelihood is Gaussian:
 ```math
-y = \mathcal{M}(\vartheta, \xi) + \epsilon, \quad \epsilon \sim \mathcal{N}(0, \sigma_{\mathrm{feat}}^2).
+p(y \mid \vartheta, \xi) = \frac{1}{\sqrt{2\pi\sigma_{\mathrm{feat}}^2}} \exp\left( -\frac{\bigl(y - \mathrm{Map}(\vartheta, \xi)\bigr)^2}{2\sigma_{\mathrm{feat}}^2} \right).
 ```
-Here $\mathcal{M}(\vartheta, \xi)$ is the **deterministic forward map**: for a given $\vartheta = (M, K)$ and design $\xi = (b, A, T_p)$, we (i) solve the swing ODE with that $(M, K)$ and probe $\xi$, (ii) obtain the trajectory $\omega(t)$, (iii) form $\Delta f = \omega/(2\pi)$, sample at $f_s = 12$ Hz, (iv) compute ROCOF and take the maximum over time and buses. So $\mathcal{M}(\vartheta, \xi) = \mathrm{ROCOF}_{\max}$ from the simulator. The likelihood is Gaussian:
+Implementation: $\mathrm{Map}(\vartheta, \xi)$ is computed by solving the swing ODE and then applying the sampling and ROCOF max-pool in §4.2–4.3 (`mu_theta_xi` or batched ODE).
+
+### 5.2 Prior
+
+$p(\vartheta)$ is uniform over $[M\_ {\min}, M\_ {\max}] \times [K\_ {\min}, K\_ {\max}]$ (see §2.4). So $p(\vartheta)$ is constant on that rectangle and zero outside.
+
+### 5.3 Bayes' rule (posterior)
+
+After observing $y\_ {\mathrm{obs}}$ under design $\xi$:
 ```math
-p(y \mid \vartheta, \xi) = \mathcal{N}\bigl(y;\, \mathcal{M}(\vartheta, \xi),\, \sigma_{\mathrm{feat}}^2\bigr) = \frac{1}{\sqrt{2\pi\sigma_{\mathrm{feat}}^2}} \exp\left( -\frac{\bigl(y - \mathcal{M}(\vartheta, \xi)\bigr)^2}{2\sigma_{\mathrm{feat}}^2} \right).
+p(\vartheta \mid y_{\mathrm{obs}}, \xi) = \frac{p(y_{\mathrm{obs}} \mid \vartheta, \xi)\, p(\vartheta)}{Z}, \qquad Z = \int p(y_{\mathrm{obs}} \mid \vartheta', \xi)\, p(\vartheta')\, d\vartheta'.
 ```
+With a uniform prior, $p(\vartheta \mid y\_ {\mathrm{obs}}, \xi) \propto p(y\_ {\mathrm{obs}} \mid \vartheta, \xi)$ on the prior support; $Z$ is the normalizing integral.
 
-**Step 2 — Prior**  
-We take a **uniform prior** over the feasible set: $p(\vartheta) = \mathrm{Uniform}([M_{\min}, M_{\max}] \times [K_{\min}, K_{\max}])$, so $p(\vartheta)$ is constant on that rectangle and zero outside.
+### 5.4 Posterior computation on a grid
 
-**Step 3 — Bayes' rule (posterior)**  
-After observing $y_{\mathrm{obs}}$ under design $\xi$, the posterior is
+We approximate the posterior by a discrete distribution on an $n\_ {\mathrm{grid}} \times n\_ {\mathrm{grid}}$ grid over $(M, K)$:
+
+1. **Grid:** $(M\_i, K\_j)$ with $M\_i \in [M\_ {\min}, M\_ {\max}]$, $K\_j \in [K\_ {\min}, K\_ {\max}]$.
+2. **Log-likelihood:** For each $(M\_i, K\_j)$, compute $\mathrm{Map}(\vartheta\_ {ij}, \xi)$ (ODE solve), then $\ell\_ {ij} = \log p(y\_ {\mathrm{obs}} \mid \vartheta\_ {ij}, \xi)$.
+3. **Stability:** $\ell\_ {ij} \leftarrow \ell\_ {ij} - \max\_ {i,j} \ell\_ {ij}$.
+4. **Unnormalized:** $q\_ {ij} = \exp(\ell\_ {ij})$.
+5. **Normalize:** $p\_ {ij} = q\_ {ij} / \sum\_ {i,j} q\_ {ij}$ → discrete posterior $p(M\_i, K\_j \mid y\_ {\mathrm{obs}}, \xi)$.
+6. **Marginals:** $p(M\_i \mid y, \xi) = \sum\_j p\_ {ij}$, $p(K\_j \mid y, \xi) = \sum\_i p\_ {ij}$ (each renormalized); from these we get posterior variances and information gain.
+
+### 5.5 Sequential belief update
+
+At step $t$, after observing $y\_t$ from design $\xi\_t$, the belief updates via Bayes:
 ```math
-p(\vartheta \mid y_{\mathrm{obs}}, \xi) = \frac{p(y_{\mathrm{obs}} \mid \vartheta, \xi)\, p(\vartheta)}{Z}, \quad Z = \int p(y_{\mathrm{obs}} \mid \vartheta', \xi)\, p(\vartheta')\, d\vartheta'.
+p_{t+1}(\vartheta) = \frac{p(y_t \mid \vartheta, \xi_t)\, p_t(\vartheta)}{\int p(y_t \mid \vartheta', \xi_t)\, p_t(\vartheta')\, d\vartheta'}.
 ```
-Because the prior is uniform on the rectangle, $p(\vartheta \mid y_{\mathrm{obs}}, \xi) \propto p(y_{\mathrm{obs}} \mid \vartheta, \xi)$ on that set; the normalizing constant $Z$ is the integral of the likelihood over the prior support.
+For a uniform prior (or grid representation), the denominator is the sum of the likelihood over the grid (as in §5.4).
 
-**Step 4 — Computation on a grid**  
-We approximate the continuous posterior by a **discrete distribution on a regular grid** over $(M, K)$:
-
-1. **Grid:** Choose $n_{\mathrm{grid}} \times n_{\mathrm{grid}}$ points $(M_i, K_j)$ with $M_i \in [M_{\min}, M_{\max}]$, $K_j \in [K_{\min}, K_{\max}]$ (e.g. $n_{\mathrm{grid}} = 7$ for design comparison, or 41–55 for plots).
-2. **Log-likelihood:** For each grid point $\vartheta_{ij} = (M_i, K_j)$, run the forward map to get $\mathcal{M}(\vartheta_{ij}, \xi)$ (one ODE solve per point, or a batched solve), then compute $\log p(y_{\mathrm{obs}} \mid \vartheta_{ij}, \xi) = -\frac{(y_{\mathrm{obs}} - \mathcal{M}(\vartheta_{ij}, \xi))^2}{2\sigma_{\mathrm{feat}}^2} - \frac{1}{2}\log(2\pi\sigma_{\mathrm{feat}}^2)$.
-3. **Numerical stability:** Work in log space; subtract the maximum: $\ell_{ij} = \log p(y_{\mathrm{obs}} \mid \vartheta_{ij}, \xi) - \max_{i,j} \log p(y_{\mathrm{obs}} \mid \vartheta_{ij}, \xi)$.
-4. **Unnormalized posterior:** $q_{ij} = \exp(\ell_{ij})$ (prior is constant so absorbed into the constant that we normalize away).
-5. **Normalization:** $p_{ij} = q_{ij} / \sum_{i,j} q_{ij}$. Then $\{p_{ij}\}$ is the discrete posterior $p(M_i, K_j \mid y_{\mathrm{obs}}, \xi)$ on the grid.
-6. **Marginals (optional):** $p(M_i \mid y_{\mathrm{obs}}, \xi) = \sum_j p_{ij}$, $p(K_j \mid y_{\mathrm{obs}}, \xi) = \sum_i p_{ij}$, each renormalized to sum to 1. From these we compute posterior means, variances, and information gain $H(\mathrm{prior}) - H(\mathrm{posterior})$.
-
-**Summary (logic flow)**  
-Design $\xi$ → Experiment → Observe $y_{\mathrm{obs}}$ → Likelihood $p(y_{\mathrm{obs}}|\vartheta,\xi)$ → Bayes → Posterior $p(\vartheta|y_{\mathrm{obs}},\xi)$.  
-Implementation: `mu_theta_xi` (or batched ODE) evaluates $\mathcal{M}(\vartheta,\xi)$; `log_likelihood_batch` returns $\log p(y|\vartheta,\xi)$; form $\exp(\log p - \mathrm{max})$, normalize → posterior on grid; marginalize for $p(M|y,\xi)$, $p(K|y,\xi)$.
-
----
-
-### 5.1 Likelihood Function
-The likelihood describes the probability of observing a specific peak ROCOF value $y$ given a hypothesized parameter set $\vartheta$ and the applied probe $\xi$. Since we model the error as Gaussian:
-
-```math
-p(y \mid \vartheta, \xi) = \frac{1}{\sqrt{2\pi\sigma_{feat}^2}} \exp \left( -\frac{\bigl(y - \mathcal{M}(\vartheta, \xi)\bigr)^2}{2\sigma_{feat}^2} \right)
-```
-
-### 5.2 Posterior Update
-We maintain a belief state $p\_t(\vartheta)$ (represented by a set of weighted particles or a grid). Upon collecting a new observation $y\_ {obs}$ from experiment $\xi$, the belief is updated via Bayes' rule:
-
-```math
-p_{t+1}(\vartheta) = \frac{p(y_{obs} \mid \vartheta, \xi) \cdot p_t(\vartheta)}{\int p(y_{obs} \mid \vartheta', \xi) p_t(\vartheta') \, d\vartheta'}
-```
-For a uniform prior $p_t(\vartheta)$ over the parameter rectangle, the posterior is proportional to the likelihood on that set; the denominator is the normalizing constant (implemented as the sum over the grid in Step 4 above).
-
-### 5.3 Mean Objective Cost of Uncertainty (MOCU)
+### 5.6 Mean Objective Cost of Uncertainty (MOCU)
 
 **1. The Bayes-Optimal Decision $\hat{\gamma}^{\ast}$**
 Given a belief $p(\vartheta)$, the optimal estimator for the safe gain is the one that minimizes the expected loss. For absolute error loss ($L\_1$), this is the **median** of the predicted safe gains:
@@ -295,6 +277,7 @@ The complete **sBOED** loop proceeds as follows for $t = 1$ to $T\_ {horizon}$:
 | Probe duration | $T\_p$ | 2 s | Excites inertial dynamics (Peng et al., 2024). |
 | Sampling rate | $f\_s$ | 12 Hz | PMU/ROCOF reporting standards. |
 | Observation window | $T\_ {\mathrm{obs}}$ | [0,10] s | Captures ROCOF peak. |
+| Observation noise | $\sigma\_ {\mathrm{feat}}$ | 0.05 Hz/s | Likelihood std; aggregate numerical/PMU uncertainty (§4.3, §5.1). |
 
 ---
 
