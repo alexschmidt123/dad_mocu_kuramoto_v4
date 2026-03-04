@@ -1,5 +1,5 @@
 # Fast Configuration for Quick Testing
-# Based on documents/design_part1.tex and design_part2.tex
+# Based on documents/design.md and documents/pseudocode.tex
 # 
 # Use this for quick testing and component verification
 # Estimated Runtime: ~1 hour on RTX 4090
@@ -22,17 +22,22 @@ swing_equation:
   M_upper: 0.06                # Inertia upper bound (physical range from Kundur)
   K_lower: 0.05                # Control gain lower bound (5% droop equivalent)
   K_upper: 0.50                # Control gain upper bound (50% response)
-  r_max: 0.1                   # Maximum ROCOF constraint (Hz/s) - tightened for non-trivial control
-                                # Reference: ENTSO-E grid codes use 0.5-1.0 Hz/s for protection
-                                # We use 0.1 Hz/s (stricter) to ensure control is needed
+  r_max: 0.5                   # ROCOF limit (Hz/s); 0.1 required γ>220→ODE NaN; 0.5 yields non-trivial MOCU
   f_min: 49.8                   # Minimum frequency constraint (Hz), 50 Hz nominal (aligned with MATLAB .mdl / ENTSO-E)
                                 # Normal band 49.5-50.5 Hz; we use 49.8 (stricter) to require control
+  # Reference contingency for γ* (design §3): γ* is defined under a fixed disturbance so MOCU is non-trivial.
+  # If amplitude is too small, γ* = 0 for all (M,K) and MOCU ≈ 0 (all methods look the same).
+  reference_probe_bus: 0        # Bus index for reference probe (0-indexed)
+  reference_probe_amplitude: 0.5   # Reference contingency; γ* search uses gamma_max=300 (correct u_ctrl=-γgω)
+  reference_probe_duration: 2.0  # Reference probe duration (s)
   probe_duration: 2.0          # T_p = 2 s (design_part1.tex)
+  # probe_amplitudes: 3 → 42 designs (14×3). Tradeoff: large space lets DAD stand out, but ODE is only tractable when space is small.
   probe_amplitudes: [0.05, 0.1, 0.2]  # A_t in A
   fs_hz: 12.0                  # Observation: design_part1.tex Section 4
   rocof_window_sec: 0.5
   rocof_eval_sec: 1.0
   T_obs_sec: 10.0
+  sigma: 0.05                 # Observation noise σ_feat (Hz/s), design §9 (match balanced/full)
 
 # Dataset generation (minimal for ~1 hour runtime)
 dataset:
@@ -63,14 +68,10 @@ experiment:
   update_count: 4          # 4 iterations = 5 steps total (0,1,2,3,4)
   it_idx: 3                # Minimal MOCU averaging iterations
   K_max: 64                # Match dataset K_max (reduced for speed with tighter constraints)
-  methods:
-    - "RANDOM"             # Random probe selection (fast)
-    - "ENTROPY"             # Entropy-based probe selection (fast)
-    - "ODE"                 # ODE (sampling-based) baseline: ground-truth MOCU, important for comparison (slower)
-    - "iNN"                 # Iterative MPNN MOCU predictor (fast)
-    - "NN"                  # Static MPNN MOCU predictor (fast)
-    # DAD method (evaluated in step 6 if policy trained)
-    # - "DAD"                 # DAD (no critic, simple baseline, uses per-step rewards)
+  methods: [RANDOM, ENTROPY, ODE, iNN, NN, DAD]
+  # Problem difficulty: makes method differences visible (otherwise all converge to same curve)
+  uncertainty_ratio_min: 1.0   # 1.0 = full base bounds (harder); 0.3 = narrowed (easier, all same)
+  update_strength: 0.05        # Gentler bound updates (0.1 = aggressive, 0.05 = method choice matters)
 
 # DAD policy training data generation
 dad_data:
@@ -78,9 +79,8 @@ dad_data:
   K: 4                     # Number of sequential experiments per trajectory (4 design steps, OPTIMAL: 40% of pairs, leaves room for differences)
   use_precomputed_mocu: true  # Pre-compute terminal MOCU using MPNN predictor (recommended)
 
-# Paths (relative to project root)
+# Paths (relative to project root; results go under experiments/<run>/)
 paths:
   data_dir: "data"
   models_dir: "models"
-  results_dir: "results"
 

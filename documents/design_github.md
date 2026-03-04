@@ -15,6 +15,43 @@ This document describes the design of a **sequential Bayesian optimal experiment
 
 ---
 
+## High-level pipeline
+
+Conceptual flow from the physical grid to the DAD policy: **real power grid** → **swing equation ODE** → **MOCU (ODE)** → **MOCU estimation with MPNN** → **DAD**. The swing ODE provides the **likelihood** $p(y \mid \vartheta, \xi)$ (via $\mathrm{Map}(\vartheta, \xi)$); the **posterior** $p(\vartheta \mid y, \xi)$ is computed by Bayes' rule in §5.
+
+```mermaid
+flowchart TB
+    subgraph P1["1. Real power grid"]
+        G["IEEE 14-bus\nvoltages, currents\nSimulink / Simscape"]
+    end
+    subgraph P2["2. Swing equation ODE"]
+        S["Reduced model θ, ω\nM dω/dt = P_m − Σ B_ij sin(θ_i−θ_j) − Dω − Kω + u"]
+    end
+    subgraph P3["3. MOCU (ODE)"]
+        M["Cost J(γ,ϑ)=|γ−γ*|; MOCU(p)=E[J(γ̂(p),ϑ)]\nGround-truth via ODE"]
+    end
+    subgraph P4["4. MOCU estimation with MPNN"]
+        MP["Ĵ(p) ≈ MPNN(state, graph)\nFast surrogate"]
+    end
+    subgraph P5["5. DAD"]
+        D["Policy π_φ(h) → ξ_t\nREINFORCE, terminal MOCU"]
+    end
+    G -->|abstraction / reduction| S
+    S -->|compute γ*, γ̂, MOCU| M
+    M -->|supervised surrogate| MP
+    S -->|likelihood p(y|ϑ,ξ)| D
+    M -->|reward / evaluation| D
+    MP -->|fast expected MOCU| D
+```
+
+<div align="center">
+<img src="images/pipeline_real_grid_to_dad.png" width="75%" alt="Pipeline: real grid → swing ODE → MOCU ODE → MOCU MPNN → DAD." />
+</div>
+
+Likelihood and posterior (observation model, Bayes' rule, grid posterior, sequential update) are defined in **§5**.
+
+---
+
 ## 2. System Model and Dynamics
 
 ### 2.1 Network Topology (IEEE 14-Bus Standard)
@@ -56,6 +93,8 @@ For each bus $i \in \mathcal{V}$:
 M_i \dot{\omega}_i(t) = P_{m,i} - P_{e,i}(\boldsymbol{\theta}(t)) - (D_i + K_i)\omega_i(t) + u_i(t)
 ```
 
+**Injection $u\_i(t)$:** Only two terms: $u\_i = u^{\mathrm{probe}}\_i + u^{\mathrm{ctrl}}\_i$ (no $u^{\mathrm{ref}}$). **Probe** $u^{\mathrm{probe}}$: same formula; parameters depend on context. In the **sBOED loop** we set it from design $\xi\_t$ → observation $y\_t$; when evaluating $\gamma^{\ast}$ we set it to a **reference** (fixed bus/amplitude/duration). So “reference contingency” = $u^{\mathrm{probe}}$ with reference parameters. **Control** $u^{\mathrm{ctrl}}\_i = \gamma g\_i \omega\_i$: used in $\gamma^{\ast}$ evaluation and at deploy; **not** used in the observation step (loop uses only $u^{\mathrm{probe}}$). **Two uses:** (1) **Observation:** ODE with $u^{\mathrm{probe}}$ from $\xi\_t$, no $u^{\mathrm{ctrl}}$ → $y\_t$. (2) **$\gamma^{\ast}$:** ODE with $u^{\mathrm{probe}}$ = reference and $u^{\mathrm{ctrl}}(\gamma)$; if no probe/contingency, $\gamma^{\ast}=0$.
+
 **Where the electrical power flow $P\_ {e,i}$ is:**
 ```math
 P_{e,i}(\boldsymbol{\theta}(t)) = \sum_{j \in \mathcal{N}_i} B_{ij} \sin\bigl(\theta_i(t) - \theta_j(t)\bigr)
@@ -71,7 +110,7 @@ P_{e,i}(\boldsymbol{\theta}(t)) = \sum_{j \in \mathcal{N}_i} B_{ij} \sin\bigl(\t
 | $P\_ {m,i}$ | Net mechanical power injection (Generation - Load). | p.u. |
 | $B\_ {ij}$ | Line susceptance magnitude between bus $i$ and $j$. | p.u. |
 | $D\_i$ | Load-damping coefficient (frequency sensitivity). | p.u. |
-| $u\_i(t)$ | Total external control/probing injection. | p.u. |
+| $u\_i(t)$ | Total injection: $u^{\mathrm{probe}}\_i + u^{\mathrm{ctrl}}\_i$ (probe + control). | p.u. |
 | **Latent $\vartheta$** | **Uncertain Parameters** | |
 | $M\_i$ ($M$) | **Effective Inertia Coefficient** (homogeneous). $M = 2H/\omega\_s$, $\omega\_s = 2\pi f\_0$. | $s^2/\mathrm{rad}$ |
 | $K\_i$ ($K$) | **Primary frequency response (droop) gain** (homogeneous $K\_i{=}K$). Governor/FFR gain. | p.u. |
@@ -85,13 +124,13 @@ The parameter vector $\vartheta = (M, K)$ has a **uniform prior** $p(\vartheta)$
 
 ## 3. Decision Objective: Minimal Safe Gain
 
-We aim to estimate the **Minimal Safe Gain** $\gamma^{\ast}$, defined as the smallest control effort required to maintain system security under a reference contingency (e.g., load step). Here $f(t)$ and $\dot{f}(t)$ denote (e.g.) the system frequency and ROCOF at a reference bus or the worst case over buses.
+We aim to estimate the **Minimal Safe Gain** $\gamma^{\ast}$: the smallest $\gamma$ such that the system stays secure **under a reference contingency**. The **reference contingency** is a fixed disturbance scenario (e.g. load step or reference probe) used *only* when evaluating $\gamma^{\ast}$—not the same as the small identification probe $\xi$ used in experiments. Here $f(t)$ and $\dot{f}(t)$ denote (e.g.) system frequency and ROCOF at a reference bus or worst over buses.
 
 ```math
-\gamma^{\ast}(\vartheta) = \inf \left\lbrace \gamma \in \mathbb{R}_+ \mid \forall t:\; \lvert \dot{f}(t) \rvert \le r_{\max} \land f(t) \ge f_{\min} \right\rbrace
+\gamma^{\ast}(\vartheta) = \inf \left\lbrace \gamma \in \mathbb{R}_+ \mid \text{under the reference contingency, } \forall t:\; \lvert \dot{f}(t) \rvert \le r_{\max} \land f(t) \ge f_{\min} \right\rbrace
 ```
 
-**Security constraints:** ROCOF limit $r\_ {\max} = 0.1$ Hz/s; frequency nadir $f(t) \ge f\_ {\min}$ (e.g. $f\_ {\min} = 49.8$ Hz at 50 Hz nominal, or 59.8 Hz at 60 Hz).
+**Security constraints:** ROCOF limit $r\_ {\max} = 0.1$ Hz/s; frequency nadir $f(t) \ge f\_ {\min}$ (e.g. $f\_ {\min} = 49.8$ Hz at 50 Hz nominal). The code must run the ODE **with the reference contingency** when computing $\gamma^{\ast}$; otherwise $\gamma^{\ast} = 0$ and MOCU is degenerate. Full chain **observation → likelihood → posterior → cost → MOCU** in §5.
 
 ---
 
@@ -144,23 +183,31 @@ y = \mathrm{Map}(\vartheta, \xi) + \epsilon, \quad \epsilon \sim \mathcal{N}(0, 
 
 ---
 
-## 5. Bayesian Inference and MOCU Objective
+## 5. Scientific process: observation → likelihood → posterior → cost → MOCU
 
-This section defines the **observation → posterior** math and the MOCU design objective. Logic flow: **Design $\xi$ → Experiment → Observe $y$ → Likelihood $p(y|\vartheta,\xi)$ → Bayes → Posterior $p(\vartheta|y,\xi)$.**
+This section gives the full mathematical chain from the observation model to the MOCU objective (Boluki et al., 2018; Imani et al., 2018; Foster et al., 2021).
 
-### 5.1 Observation model and likelihood
+### 5.1 Observation model
 
-The observation is $y = \mathrm{Map}(\vartheta, \xi) + \epsilon$ with $\epsilon \sim \mathcal{N}(0, \sigma\_ {\mathrm{feat}}^2)$ (see §4.3). So the likelihood is Gaussian:
+The scalar observation is the max ROCOF from the pipeline in §4, with additive Gaussian noise:
+```math
+y = \mathrm{Map}(\vartheta, \xi) + \epsilon, \qquad \epsilon \sim \mathcal{N}(0, \sigma_{\mathrm{feat}}^2).
+```
+$\mathrm{Map}(\vartheta, \xi)$ is the deterministic output: solve swing ODE with $\vartheta$ and probe $\xi$ → sample frequency at $f\_s = 12$ Hz → compute ROCOF → max over buses and time. Default $\sigma\_ {\mathrm{feat}} = 0.05$ Hz/s (§9).
+
+### 5.2 Likelihood
+
+Given $\vartheta$ and $\xi$, the observation $y$ is Gaussian around $\mathrm{Map}(\vartheta, \xi)$:
 ```math
 p(y \mid \vartheta, \xi) = \frac{1}{\sqrt{2\pi\sigma_{\mathrm{feat}}^2}} \exp\left( -\frac{\bigl(y - \mathrm{Map}(\vartheta, \xi)\bigr)^2}{2\sigma_{\mathrm{feat}}^2} \right).
 ```
-Implementation: $\mathrm{Map}(\vartheta, \xi)$ is computed by solving the swing ODE and then applying the sampling and ROCOF max-pool in §4.2–4.3 (`mu_theta_xi` or batched ODE).
+Implementation: $\mathrm{Map}(\vartheta, \xi)$ via swing ODE and ROCOF max-pool (§4.2–4.3).
 
-### 5.2 Prior
+### 5.3 Prior
 
-$p(\vartheta)$ is uniform over $[M\_ {\min}, M\_ {\max}] \times [K\_ {\min}, K\_ {\max}]$ (see §2.4). So $p(\vartheta)$ is constant on that rectangle and zero outside.
+$p(\vartheta)$ is uniform over $[M\_ {\min}, M\_ {\max}] \times [K\_ {\min}, K\_ {\max}]$ (see §2.4): constant on that rectangle, zero outside.
 
-### 5.3 Bayes' rule (posterior)
+### 5.4 Posterior (Bayes' rule)
 
 After observing $y\_ {\mathrm{obs}}$ under design $\xi$:
 ```math
@@ -168,7 +215,7 @@ p(\vartheta \mid y_{\mathrm{obs}}, \xi) = \frac{p(y_{\mathrm{obs}} \mid \varthet
 ```
 With a uniform prior, $p(\vartheta \mid y\_ {\mathrm{obs}}, \xi) \propto p(y\_ {\mathrm{obs}} \mid \vartheta, \xi)$ on the prior support; $Z$ is the normalizing integral.
 
-### 5.4 Posterior computation on a grid
+### 5.5 Posterior computation on a grid
 
 We approximate the posterior by a discrete distribution on an $n\_ {\mathrm{grid}} \times n\_ {\mathrm{grid}}$ grid over $(M, K)$:
 
@@ -177,39 +224,46 @@ We approximate the posterior by a discrete distribution on an $n\_ {\mathrm{grid
 3. **Stability:** $\ell\_ {ij} \leftarrow \ell\_ {ij} - \max\_ {i,j} \ell\_ {ij}$.
 4. **Unnormalized:** $q\_ {ij} = \exp(\ell\_ {ij})$.
 5. **Normalize:** $p\_ {ij} = q\_ {ij} / \sum\_ {i,j} q\_ {ij}$ → discrete posterior $p(M\_i, K\_j \mid y\_ {\mathrm{obs}}, \xi)$.
-6. **Marginals:** $p(M\_i \mid y, \xi) = \sum\_j p\_ {ij}$, $p(K\_j \mid y, \xi) = \sum\_i p\_ {ij}$ (each renormalized); from these we get posterior variances and information gain.
+6. **Marginals:** $p(M\_i \mid y, \xi) = \sum\_j p\_ {ij}$, $p(K\_j \mid y, \xi) = \sum\_i p\_ {ij}$ (each renormalized).
 
-### 5.5 Sequential belief update
+### 5.6 Sequential belief update
 
 At step $t$, after observing $y\_t$ from design $\xi\_t$, the belief updates via Bayes:
 ```math
 p_{t+1}(\vartheta) = \frac{p(y_t \mid \vartheta, \xi_t)\, p_t(\vartheta)}{\int p(y_t \mid \vartheta', \xi_t)\, p_t(\vartheta')\, d\vartheta'}.
 ```
-For a uniform prior (or grid representation), the denominator is the sum of the likelihood over the grid (as in §5.4).
+For a grid representation, the denominator is the sum of the likelihood over the grid (as in §5.5).
 
-### 5.6 Mean Objective Cost of Uncertainty (MOCU)
+### 5.7 Operational cost $J(\gamma, \vartheta)$
 
-**1. The Bayes-Optimal Decision $\hat{\gamma}^{\ast}$**
-Given a belief $p(\vartheta)$, the optimal estimator for the safe gain is the one that minimizes the expected loss. For absolute error loss ($L\_1$), this is the **median** of the predicted safe gains:
+The operator chooses a single control gain $\gamma \in \mathbb{R}_+$ to deploy. Too low $\gamma$ → risk of violating ROCOF/frequency limits; too high $\gamma$ → excess capacity or cost. The **operational cost** (objective cost) when deploying $\gamma$ and true system is $\vartheta$ is
 ```math
-\hat{\gamma}^{\ast}(p) = \mathrm{median}_{\vartheta \sim p} [\gamma^{\ast}(\vartheta)]
+J(\gamma, \vartheta) = \bigl\lvert \gamma - \gamma^{\ast}(\vartheta) \bigr\rvert.
+```
+Over-provision costs $\gamma - \gamma^{\ast}(\vartheta)$; under-provision costs $\gamma^{\ast}(\vartheta) - \gamma$. For fixed $\vartheta$, the minimizer is $\gamma^{\ast}(\vartheta)$ (§3). For this cost, the Bayes-optimal decision under belief is the median (e.g. Ferguson, 1967).
+
+### 5.8 Bayes-optimal decision $\hat{\gamma}(p)$
+
+Given belief $p(\vartheta)$, the optimal deployed gain minimizes expected cost:
+```math
+\hat{\gamma}(p) = \arg\min_{\gamma \ge 0} \mathbb{E}_{\vartheta \sim p}\bigl[ J(\gamma, \vartheta) \bigr] = \mathrm{median}_{\vartheta \sim p} \bigl[ \gamma^{\ast}(\vartheta) \bigr].
 ```
 
-**2. MOCU (Current Uncertainty)**
-The MOCU $J(p)$ quantifies the expected decision error we would incur if we stopped experimenting now.
+### 5.9 MOCU $(p)$ — mean objective cost of uncertainty
+
+**MOCU** is the **expected objective cost of uncertainty** under belief $p$: the expected cost we incur by deploying the Bayes decision $\hat{\gamma}(p)$ when the true system is $\vartheta$ (Boluki et al., 2018; Imani et al., 2018):
 ```math
-J(p) = \mathbb{E}_{\vartheta \sim p} \left[ \lvert \gamma^{\ast}(\vartheta) - \hat{\gamma}^{\ast}(p) \rvert \right]
+\mathrm{MOCU}(p) = \mathbb{E}_{\vartheta \sim p}\bigl[\, J(\hat{\gamma}(p), \vartheta) \,\bigr] = \mathbb{E}_{\vartheta \sim p}\bigl[\, \bigl\lvert \gamma^{\ast}(\vartheta) - \hat{\gamma}(p) \bigr\rvert \,\bigr].
 ```
+So: **$J(\gamma, \vartheta)$ is the cost** (operational cost); **$\mathrm{MOCU}(p)$ is the MOCU**. This is the only MOCU formula used.
 
-**3. Expected Remaining MOCU (The Design Objective)**
-To select the optimal next probe $\xi^{\ast}$, we calculate the expected MOCU after the experiment. This is the **risk function** $\mathcal{R}(\xi)$ we minimize:
+### 5.10 Design objective (risk)
 
+The optimal next probe $\xi^{\ast}$ minimizes the **risk** (expected MOCU after the experiment):
 ```math
-\mathcal{R}(\xi; p_t) = \mathbb{E}_{y \sim p(y \mid p_t, \xi)} \left[ J\left( \mathrm{Posterior}(p_t, \xi, y) \right) \right]
+\mathcal{R}(\xi; p_t) = \mathbb{E}_{y \sim p(y \mid p_t, \xi)} \left[ \mathrm{MOCU}\bigl( p_{t+1}(\cdot \mid y, \xi) \bigr) \right].
 ```
-
-* **Inner term:** The MOCU of the hypothetical future posterior (after updating with $\xi$ and $y$).
-* **Outer expectation:** Over the predictive distribution of $y$ given the current prior and design $\xi$.
+The sequential design objective is to minimize expected terminal MOCU (DAD §6.2; Foster et al., 2021).
 
 
 
@@ -228,7 +282,7 @@ The policy $\pi\_\phi$ maps the current experiment history $h\_ {t-1}$ to the ne
 ### 6.2 Optimization Objective
 The network is trained to minimize the **Terminal MOCU** over the entire experimental horizon $T$. We find parameters $\phi^{\ast}$ such that:
 ```math
-\phi^{\ast} = \arg\min_\phi \mathbb{E}_{\vartheta \sim p(\vartheta),\; y_{1:T} \sim p(y \mid \vartheta, \pi_\phi)} \left[ J(p_T) \right]
+\phi^{\ast} = \arg\min_\phi \mathbb{E}_{\vartheta \sim p(\vartheta),\; y_{1:T} \sim p(y \mid \vartheta, \pi_\phi)} \left[ \mathrm{MOCU}(p_T) \right]
 ```
 This end-to-end objective ensures the policy learns **non-myopic** strategies (e.g., probing different areas of the grid to disambiguate coupled parameters).
 
@@ -236,23 +290,23 @@ This end-to-end objective ensures the policy learns **non-myopic** strategies (e
 
 ## 7. Fast MOCU Estimation via MPNN
 
-Calculating the true MOCU $J(p)$ requires integrating over the expensive $\gamma^{\ast}(\vartheta)$ landscape (which involves binary search over ODE solutions). To accelerate training, we replace this with a neural surrogate.
+Calculating the true MOCU $\mathrm{MOCU}(p)$ requires integrating over the expensive $\gamma^{\ast}(\vartheta)$ landscape (binary search over ODE solutions). To scale DAD training, we use a neural surrogate for $\mathrm{MOCU}(p)$.
 
 ### 7.1 The MPNN Estimator
-We use a **Message Passing Neural Network (MPNN)** that leverages the graph structure of the IEEE-14 bus system ($B\_ {ij}$) to estimate MOCU directly.
+We use a **Message Passing Neural Network (MPNN)** that takes the grid structure and belief summary and outputs a scalar estimate of MOCU:
 
 ```math
-\hat{J}(p_t) \approx \mathrm{MPNN}_{\psi}(\mathrm{State}_t, \mathcal{G})
+\widehat{\mathrm{MOCU}}(p_t) \approx \mathrm{MPNN}_{\psi}(\mathrm{State}_t, \mathcal{G})
 ```
 
-* **Graph Input ($\mathcal{G}$):** Admittance matrix nodes and edges.
-* **State Input ($\mathrm{State}\_t$):** Summary statistics of the current belief $p\_t$ (e.g., bounds or moments of marginal distributions for $M\_i, K\_i$).
-* **Output:** Predicted scalar MOCU value.
+* **Graph Input ($\mathcal{G}$):** Admittance matrix nodes and edges (IEEE-14 topology).
+* **State Input ($\mathrm{State}\_t$):** Summary statistics of the current belief $p\_t$ (e.g. bounds or moments of $M$, $K$).
+* **Output:** Predicted scalar MOCU value (surrogate for $\mathrm{MOCU}(p\_t)$).
 
 ### 7.2 Training the Surrogate
-The MPNN is pre-trained or co-trained via supervised learning to match the ground-truth MOCU computed by the physics simulator:
+The MPNN is trained via supervised learning to match the ground-truth MOCU computed by the physics-based ODE (the same $\mathrm{MOCU}(p)$ defined in §5.9):
 ```math
-\mathcal{L}_{\psi} = \left\lVert \hat{J}_{\mathrm{MPNN}}(p) - J_{\mathrm{Physics}}(p) \right\rVert^2
+\mathcal{L}_{\psi} = \left\lVert \widehat{\mathrm{MOCU}}_{\mathrm{MPNN}}(p) - \mathrm{MOCU}_{\mathrm{Physics}}(p) \right\rVert^2
 ```
 
 ---

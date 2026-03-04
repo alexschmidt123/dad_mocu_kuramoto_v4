@@ -1,4 +1,4 @@
-%% Run Fourteen_bus (0.12 s steady-state) and save all results to CSV, TXT, PNG
+%% Run fourteen_bus (0.12 s steady-state) and save all results to CSV, TXT, PNG
 % Usage: run('run_fourteen_bus_save.m')
 % Outputs: results/fourteen_bus/*.csv, *.txt, *.png
 
@@ -8,11 +8,11 @@ if ~isempty(scriptDir), cd(scriptDir); end
 outDir = fullfile(scriptDir, 'results', 'fourteen_bus');
 if ~isfolder(outDir), mkdir(outDir); end
 
-model = 'Fourteen_bus.mdl';
-fprintf('Running Fourteen_bus (steady-state 0.12 s)...\n');
+model = 'fourteen_bus';
+fprintf('Running fourteen_bus (steady-state 0.12 s)...\n');
 load_system(model);
-set_param('Fourteen_bus', 'UnconnectedOutputMsg', 'none');
-sim('Fourteen_bus');
+set_param(model, 'UnconnectedOutputMsg', 'none');
+sim(model);
 
 % --- Save tout, xout, yout to CSV ---
 if exist('tout', 'var')
@@ -43,7 +43,7 @@ end
 
 % --- Summary TXT ---
 fid = fopen(fullfile(outDir, 'summary.txt'), 'w');
-fprintf(fid, 'Fourteen_bus (steady-state) results\n');
+fprintf(fid, 'fourteen_bus (steady-state) results\n');
 fprintf(fid, 'Model: %s\n', model);
 fprintf(fid, 'Saved: %s\n\n', datestr(now));
 if exist('tout', 'var')
@@ -67,7 +67,7 @@ if exist('tout', 'var') && exist('xout', 'var')
     else
         plot(tout, xout);
     end
-    xlabel('Time (s)'); ylabel('State'); title('Fourteen\_bus: state vs time');
+    xlabel('Time (s)'); ylabel('State'); title('fourteen\_bus: state vs time');
     saveas(f, fullfile(outDir, 'xout_vs_time.png'));
     close(f);
 end
@@ -80,10 +80,10 @@ if exist('tout', 'var') && exist('yout', 'var')
     else
         plot(tout, yout);
     end
-    xlabel('Time (s)'); ylabel('Output'); title('Fourteen\_bus: output vs time');
+    xlabel('Time (s)'); ylabel('Output'); title('fourteen\_bus: output vs time');
     saveas(f, fullfile(outDir, 'yout_vs_time.png'));
     close(f);
 end
 
-close_system('Fourteen_bus', 0);
+close_system(model, 0);
 fprintf('Results saved to: %s\n', outDir);

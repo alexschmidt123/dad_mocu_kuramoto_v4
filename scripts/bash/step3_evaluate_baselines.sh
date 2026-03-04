@@ -43,8 +43,7 @@ NUM_SIMULATIONS=$(grep -A 10 "^experiment:" $CONFIG_FILE | grep "num_simulations
 [ -z "$K_MAX" ] && K_MAX=20480
 [ -z "$NUM_SIMULATIONS" ] && NUM_SIMULATIONS=10
 
-# Methods: from config experiment.methods (baseline-only) or default
-# DAD is evaluated in step6, not here
+# Methods: from config experiment.methods (all methods including DAD)
 BASELINE_METHODS=$(python3 -c "
 import yaml
 import sys
@@ -54,16 +53,13 @@ try:
     with open(config_path, 'r') as f:
         config = yaml.safe_load(f)
     methods = config.get('experiment', {}).get('methods', [])
-    if isinstance(methods, list):
-        # Keep only baseline methods (DAD is run in step6)
-        baseline = [m for m in methods if m in ('RANDOM', 'ENTROPY', 'ODE', 'iNN', 'NN')]
-        if baseline:
-            print(','.join(baseline))
-            sys.exit(0)
+    if isinstance(methods, list) and methods:
+        print(','.join(str(m) for m in methods))
+        sys.exit(0)
 except Exception:
     pass
-print('iNN,NN,ODE,ENTROPY,RANDOM')
-" 2>/dev/null || echo "iNN,NN,ODE,ENTROPY,RANDOM")
+print('RANDOM,ENTROPY,ODE,iNN,NN,DAD')
+" 2>/dev/null || echo "RANDOM,ENTROPY,ODE,iNN,NN,DAD")
 
 # If MOCU_MODEL_NAME not set (e.g. /tmp cleared), resolve from config for iNN/NN
 if [ -z "$MOCU_MODEL_NAME" ] || [ "$MOCU_MODEL_NAME" = "" ]; then
@@ -71,12 +67,12 @@ if [ -z "$MOCU_MODEL_NAME" ] || [ "$MOCU_MODEL_NAME" = "" ]; then
     [ -n "$MOCU_MODEL_NAME" ] && export MOCU_MODEL_NAME
 fi
 
-if [ -n "$EXP_EVAL_DIR" ]; then
-    RESULT_RUN_FOLDER="$EXP_EVAL_DIR"
-else
+# All results go under experiments/ (run.sh sets EXP_EVAL_DIR)
+if [ -z "$EXP_EVAL_DIR" ]; then
     TIMESTAMP=$(date +"%m%d%Y_%H%M%S")
-    RESULT_RUN_FOLDER="${PROJECT_ROOT}/results/${BASE_CONFIG_NAME}/${TIMESTAMP}/"
+    export EXP_EVAL_DIR="${PROJECT_ROOT}/experiments/standalone_${BASE_CONFIG_NAME}_${TIMESTAMP}/eval"
 fi
+RESULT_RUN_FOLDER="$EXP_EVAL_DIR"
 mkdir -p "$RESULT_RUN_FOLDER"
 
 export MOCU_MODEL_NAME="$MOCU_MODEL_NAME"

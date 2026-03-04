@@ -41,9 +41,13 @@ swing_equation:
                                # design_part1.tex table: r_max; we tighten for research rigor
   f_min: 49.8                 # Minimum frequency constraint (Hz), 50 Hz nominal (aligned with MATLAB .mdl / ENTSO-E)
                                # Normal band 49.5-50.5 Hz; we use 49.8 (stricter) to require control
+  reference_probe_bus: 0
+  reference_probe_amplitude: 0.5
+  reference_probe_duration: 2.0
   probe_duration: 2.0         # T_p = 2 s (design_part1.tex Section 3, Peng et al.)
-  probe_amplitudes: [0.05, 0.1, 0.2]  # A_set; match Parameter_references_table.md and balanced/fast configs
-  # Observation (design_part1.tex Section 4 & table; documents/pseucocode _parameter_list.txt)
+  probe_amplitudes: [0.05, 0.1, 0.2]  # A_set; 3 amplitudes → 42 designs (ODE tractable)
+  sigma: 0.05                 # Observation noise σ_feat (Hz/s), design §9
+  # Observation (design.md §4)
   fs_hz: 12.0                # Sampling rate (PMU-like), ENTSO-E/NASPI
   rocof_window_sec: 0.5      # Sliding window for ROCOF (linear fit)
   rocof_eval_sec: 1.0       # Evaluate ROCOF_max over first 1 s only
@@ -92,7 +96,7 @@ experiment:
                               # - Standard practice: 10-20 independent runs for publication
                               # - 12 is sufficient and more practical than 20
                               # - Time savings: 40% reduction vs 20 simulations
-  update_count: 10            # K: Number of sequential experiments per system
+  update_count: 4             # T=4 design steps (5 MOCU points: 0,1,2,3,4); terminal MOCU is goal
                               # Rationale: 10 steps (0-10) provides sufficient learning trajectory
                               # Matches design_part1.tex: T=10 sequential design steps
                               # This allows methods to show clear improvement over time
@@ -102,14 +106,9 @@ experiment:
                               # Final MOCU = mean over it_idx iterations
   K_max: 1024                 # Match dataset K_max for consistency
                               # Same rationale as dataset.K_max: 2048 samples for accurate MOCU
-  methods:
-    - "RANDOM"                 # Random probe selection (baseline)
-    - "ENTROPY"                # Entropy-based heuristic (baseline)
-    - "ODE"                    # ODE-based expected MOCU (ground truth, slow but accurate)
-    - "iNN"                    # Iterative MPNN MOCU predictor (adaptive, re-computes at each step)
-    - "NN"                     # Static MPNN MOCU predictor (fast, computes once)
-    # DAD method (evaluated in step 6 if policy trained)
-    # - "DAD"                  # DAD (if available)
+  methods: [RANDOM, ENTROPY, ODE, iNN, NN, DAD]
+  uncertainty_ratio_min: 1.0   # Full bounds (harder, method differences visible)
+  update_strength: 0.05        # Gentler bound updates
 
 # DAD policy training data generation (if using DAD)
 dad_data:
@@ -117,7 +116,7 @@ dad_data:
                               # Rationale: 5000 episodes sufficient for policy learning
                               # Typical: 1000-10000 episodes depending on complexity
                               # 5000 is a good balance for publication
-  K: 10                        # Must match experiment.update_count
+  K: 4                         # Must match experiment.update_count (T=4)
                               # Number of sequential experiments per trajectory
   use_precomputed_mocu: true  # Use MPNN predictor for terminal MOCU (recommended)
                               # This speeds up DAD training significantly
@@ -130,11 +129,10 @@ reproducibility:
   train_seed: 42              # Random seed for train/validation split (set in training script)
   experiment_seed: None       # Random seed for experiments (None = different seed per run)
 
-# Paths (relative to project root)
+# Paths (relative to project root; results go under experiments/<run>/)
 paths:
   data_dir: "data"
   models_dir: "models"
-  results_dir: "results"
 
 # Estimated Runtime (on RTX 4090, sequential processing)
 # Step 1: MOCU data generation

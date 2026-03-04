@@ -112,8 +112,8 @@ def main():
         try:
             from src.core.swing_equation_mocu import MOCU_swing_equation
             K_max = config.get('dataset', {}).get('K_max', config.get('experiment', {}).get('K_max', 512))
-            r_max = swing_params.get('r_max', 0.5)
-            f_min = swing_params.get('f_min', 59.5)
+            r_max = swing_params.get('r_max', 0.1)
+            f_min = swing_params.get('f_min', 49.8)
             n_spot = min(args.ode_spot_check, n_test)
             print(f"\n--- ODE spot-check ({n_spot} samples, K_max={K_max}) ---")
             true_ode = []

@@ -71,3 +71,10 @@ python3 train_swing_mpnn_predictor.py \
 echo "✓ Swing MPNN MOCU predictor trained: ${MODEL_FILE}"
 echo "${MODEL_NAME_CLEAN}" > /tmp/mocu_model_name_${CONFIG_NAME}.txt
 echo "$MODEL_FOLDER" > /tmp/mocu_model_folder_${CONFIG_NAME}.txt
+[ -n "$EXP_REPORT" ] && {
+    echo "" >> "$EXP_REPORT"
+    echo "--- MPNN Training (Step 2) ---" >> "$EXP_REPORT"
+    echo "  Status: OK" >> "$EXP_REPORT"
+    echo "  Model: $MODEL_FILE" >> "$EXP_REPORT"
+    echo "  Epochs: ${EPOCHS:-400}, Batch: ${BATCH_SIZE:-128}" >> "$EXP_REPORT"
+}

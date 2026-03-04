@@ -87,6 +87,7 @@ if __name__ == '__main__':
         with open(config_path, 'r') as f:
             config = yaml.safe_load(f)
         swing_params = config.get('swing_equation', {})
+        experiment_params = config.get('experiment', {})
         from src.core.swing_equation_params import get_default_swing_equation_params
         system_params = get_default_swing_equation_params(
             N=N,
@@ -100,10 +101,14 @@ if __name__ == '__main__':
             K_upper=swing_params.get('K_upper', 0.50),
         )
         B, P_m, D, g = system_params['B'], system_params['P_m'], system_params['D'], system_params['g']
-        r_max = swing_params.get('r_max', 0.5)
-        f_min = swing_params.get('f_min', 59.5)
+        r_max = swing_params.get('r_max', 0.1)
+        f_min = swing_params.get('f_min', 49.8)
         probe_duration = swing_params.get('probe_duration', 2.0)
-        probe_amplitudes = swing_params.get('probe_amplitudes', [0.5, 1.0, 2.0])
+        probe_amplitudes = swing_params.get('probe_amplitudes', [0.05, 0.1, 0.2])
+        reference_probe_bus = swing_params.get('reference_probe_bus')
+        reference_probe_amplitude = swing_params.get('reference_probe_amplitude')
+        reference_probe_duration = swing_params.get('reference_probe_duration', 2.0)
+        sigma = swing_params.get('sigma', 0.05)
         device = 'cuda' if torch.cuda.is_available() else 'cpu'
         policy_path = Path(os.environ.get('DAD_POLICY_PATH', ''))
         if not policy_path.exists():
@@ -117,6 +122,11 @@ if __name__ == '__main__':
             B=B,
         )
         save_MOCU_matrix = np.zeros([update_cnt + 1, 1, numberOfSimulationsPerMethod])
+        # Overwrite DAD files (step 3 may have written random-DAD; we replace with trained policy)
+        for fname in [f'{args.method_name}_MOCU.txt', f'{args.method_name}_timeComplexity.txt', f'{args.method_name}_sequence.txt']:
+            p = result_folder / fname
+            if p.exists():
+                p.unlink()
         for sim in range(numberOfSimulationsPerMethod):
             bounds_file = baseline_results / f'paramInitialBounds_{sim}.txt'
             true_file = baseline_results / f'paramTrue_M_K_{sim}.txt'
@@ -132,21 +142,52 @@ if __name__ == '__main__':
                 M_true, K_true, B, P_m, D, g,
                 probe_amplitudes, probe_duration,
                 r_max=r_max, f_min=f_min,
-                update_cnt=update_cnt, initial_mocu=MOCUInitial
+                update_cnt=update_cnt, initial_mocu=MOCUInitial,
+                reference_probe_bus=reference_probe_bus,
+                reference_probe_amplitude=reference_probe_amplitude,
+                reference_probe_duration=reference_probe_duration,
+                sigma=sigma,
+                update_strength=experiment_params.get('update_strength', 0.05)
             )
             save_MOCU_matrix[:, 0, sim] = MOCUCurve
-            outMOCU = open(result_folder / f'{args.method_name}_MOCU.txt', 'a')
-            outTime = open(result_folder / f'{args.method_name}_timeComplexity.txt', 'a')
-            outSeq = open(result_folder / f'{args.method_name}_sequence.txt', 'a')
+            mode = 'w' if sim == 0 else 'a'
+            outMOCU = open(result_folder / f'{args.method_name}_MOCU.txt', mode)
+            outTime = open(result_folder / f'{args.method_name}_timeComplexity.txt', mode)
+            outSeq = open(result_folder / f'{args.method_name}_sequence.txt', mode)
             np.savetxt(outMOCU, MOCUCurve.reshape(1, -1), delimiter='\t')
             np.savetxt(outTime, timeComplexity.reshape(1, -1), delimiter='\t')
             np.savetxt(outSeq, experimentSequence, delimiter='\t')
             outMOCU.close()
             outTime.close()
             outSeq.close()
-        mean_MOCU = np.mean(save_MOCU_matrix, axis=2)
-        with open(result_folder / 'mean_MOCU.txt', 'a') as f:
-            np.savetxt(f, mean_MOCU, delimiter='\t')
+        # Rebuild mean_MOCU.txt and metrics.txt from all *_MOCU.txt (DAD overwrote its file)
+        method_order = ['RANDOM', 'ENTROPY', 'ODE', 'iNN', 'NN', 'DAD']
+        all_curves = {}
+        for m in method_order:
+            pf = result_folder / f'{m}_MOCU.txt'
+            if pf.exists():
+                data = np.loadtxt(pf)
+                arr = data if data.ndim == 2 else data.reshape(1, -1)
+                all_curves[m] = np.mean(arr, axis=0)
+        if all_curves:
+            method_list = [m for m in method_order if m in all_curves]
+            max_len = max(len(all_curves[m]) for m in method_list)
+            mean_matrix = np.zeros((max_len, len(method_list)))
+            for j, m in enumerate(method_list):
+                curve = all_curves[m]
+                if len(curve) < max_len:
+                    curve = np.pad(curve, (0, max_len - len(curve)), constant_values=curve[-1])
+                mean_matrix[:, j] = curve[:max_len]
+            np.savetxt(result_folder / 'mean_MOCU.txt', mean_matrix, delimiter='\t')
+            x_steps = np.arange(mean_matrix.shape[0], dtype=float)
+            metrics_lines = ['method\tterminal_MOCU\tAUC']
+            _trapz = getattr(np, 'trapezoid', np.trapz)
+            for j, m in enumerate(method_list):
+                term = mean_matrix[-1, j]
+                auc = float(_trapz(mean_matrix[:, j], x_steps))
+                metrics_lines.append(f'{m}\t{term:.6f}\t{auc:.6f}')
+            with open(result_folder / 'metrics.txt', 'w') as f:
+                f.write('\n'.join(metrics_lines))
         print(f"\n✓ DAD (swing) evaluation complete: {result_folder}")
         print(f"  Final mean MOCU: {mean_MOCU[-1, 0]:.6f}")
         sys.exit(0)

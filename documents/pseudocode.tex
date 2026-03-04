@@ -1,0 +1,339 @@
+\documentclass[10pt]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb,bm,mathtools}
+\usepackage{microtype}
+\usepackage{hyperref}
+
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{float} % for [H]
+
+% ---------- Notation helpers ----------
+\newcommand{\Map}{\mathrm{Map}}
+\newcommand{\MOCU}{\mathrm{MOCU}}
+\newcommand{\Safe}{\mathrm{Safe}}
+\newcommand{\wmed}{\mathrm{wmed}}
+
+% ---------- Algorithmic style ----------
+\algrenewcommand\algorithmicrequire{\textbf{Input:}}
+\algrenewcommand\algorithmicensure{\textbf{Output:}}
+\algrenewcommand\algorithmicreturn{\textbf{Return}}
+
+\begin{document}
+\pagestyle{plain}
+
+\title{\textbf{DAD--MOCU for Power-System Swing Dynamics:\\
+Sequential Bayesian Experimental Design for Minimizing Decision-Relevant Uncertainty}}
+\author{Gaoming Lin \;\; (Advisor: Dr.\ Byung-Jun Yoon)\\
+Department of Electrical and Computer Engineering, Texas A\&M University}
+\date{January 2026}
+
+\maketitle
+
+\vspace{-0.5em}
+\noindent
+\textbf{Summary.}
+This document gives pseudocode for the DAD--MOCU sBOED framework on swing (second-order Kuramoto) dynamics over an IEEE-14 bus network: probe $\to$ observation $\to$ Bayes update $\to$ Bayes-optimal gain and MOCU.
+The decision objective is the minimal safe gain $\gamma^\ast(\vartheta)$; $\gamma^\ast$ is evaluated under a fixed reference probe (reference contingency) and candidate control.
+
+% ============================================================
+% Section 1: Problem setup
+% ============================================================
+\section{Problem formulation}
+\label{sec:setup}
+
+Notation: angles in rad, time in s; $f$ in Hz. Superscripts index grid points; subscripts index buses or time steps.
+
+\paragraph{Network and latent parameters.}
+Let the power network be $\mathcal{G}=(\mathcal{V},\mathcal{E},\bm{B})$ with $|\mathcal{V}|=N$ (buses, edges, susceptances).
+We assume homogeneous uncertain parameters $M_i=M$ and $K_i=K$, so the latent vector is
+\[
+\vartheta=(M,K)\in\Theta.
+\]
+We discretize $\Theta$ on a grid $\{\vartheta_{ij}\}_{i=1..n_M,\;j=1..n_K}$ with $\vartheta_{ij}=(M_i,K_j)$,
+and represent belief at step $t$ by weights $\{p_t^{ij}\}$ satisfying $\sum_{i,j}p_t^{ij}=1$.
+
+\paragraph{Swing equation (second-order Kuramoto).}
+For each bus $i\in\mathcal{V}$:
+\[
+\dot{\theta}_i(t)=\omega_i(t),
+\qquad
+M\,\dot{\omega}_i(t)=P_{m,i}-P_{e,i}(\bm{\theta}(t))-(D_i+K)\omega_i(t)+u_i(t),
+\]
+with electrical power flow
+\[
+P_{e,i}(\bm{\theta}(t))=\sum_{j\in\mathcal{N}_i}B_{ij}\sin\big(\theta_i(t)-\theta_j(t)\big).
+\]
+
+\paragraph{Injections: probe and control.}
+We use exactly two injection terms:
+\[
+u_i(t)=u_i^{\mathrm{probe}}(t)+u_i^{\mathrm{ctrl}}(t).
+\]
+\begin{itemize}
+\item \textbf{Probe} $u^{\mathrm{probe}}$: Hann-window injection at a chosen bus.
+Its parameters depend on context:
+(i) in the \emph{sequential Bayesian optimal experimental design (sBOED)} loop, $u^{\mathrm{probe}}$ is set by the chosen design $\xi_t=(b_t,A_t,T_p)$;
+(ii) for \emph{$\gamma^\ast$ evaluation}, $u^{\mathrm{probe}}$ is set to a \emph{fixed reference probe}
+(with fixed bus, amplitude, and duration). This fixed reference probe is the \emph{reference contingency}.
+\item \textbf{Control} $u^{\mathrm{ctrl}}$: proportional frequency feedback. The \emph{gain} $\gamma$ is the scalar that scales this feedback (primary frequency response):
+\[
+u_i^{\mathrm{ctrl}}(t)=\gamma\,g_i\,\omega_i(t).
+\]
+So ``minimal safe gain'' means the minimum $\gamma$ such that, with this control law, the system stays within ROCOF and frequency limits under the reference contingency. It is used when evaluating $\gamma^\ast(\vartheta)$ (candidate $\gamma$) and when deploying.
+It is \emph{not} applied during the observation step of the sBOED loop (equivalently, $\gamma=0$ there).
+\end{itemize}
+
+\paragraph{Designs (identification probes).}
+At each step $t$, we select a probe (design)
+\[
+\xi_t=(b_t,A_t,T_p)\in\Xi,
+\]
+where $b_t\in\{1,\dots,N\}$ is the bus, $A_t$ is the amplitude, and $T_p$ is the duration.
+Define the Hann-window probe at bus $b$:
+\[
+u^{\mathrm{probe}}_b(t;\xi)=
+A\cdot \frac{1-\cos(2\pi t/T_p)}{2}\,\mathbf{1}_{[0,T_p]}(t),
+\qquad
+u^{\mathrm{probe}}_{i\neq b}(t;\xi)=0.
+\]
+
+\paragraph{Experiment-to-observation forward map.}
+Let $f_s$ be the sampling rate and $\Delta t=1/f_s$.
+From the ODE solution (run from specified initial conditions, e.g.\ equilibrium), define frequency deviation (Hz)
+\[
+\Delta f_i(t)=\frac{\omega_i(t)}{2\pi},
+\qquad
+\Delta f_i[n]=\Delta f_i(n\Delta t).
+\]
+(Optional sample noise can be introduced as $\tilde f_i[n]=\Delta f_i[n]+\eta_n$; in this document,
+$\Map$ is defined \emph{deterministically} excluding such noise, and noise is modeled only at the scalar feature.)
+Define discrete \emph{rate of change of frequency} (ROCOF):
+\[
+\mathrm{ROCOF}_i[n]=\frac{\Delta f_i[n]-\Delta f_i[n-1]}{\Delta t}.
+\]
+Define the deterministic composite map:
+\[
+\Map(\vartheta,\xi)=\max_{i,n}\left|\mathrm{ROCOF}_i[n]\right|.
+\]
+
+\paragraph{Observation model and likelihood.}
+The scalar observation is
+\[
+y=\Map(\vartheta,\xi)+\epsilon,
+\qquad
+\epsilon\sim\mathcal{N}(0,\sigma_{\mathrm{feat}}^2).
+\]
+Hence
+\[
+p(y\mid \vartheta,\xi)=\frac{1}{\sqrt{2\pi\sigma_{\mathrm{feat}}^2}}
+\exp\left(
+-\frac{\big(y-\Map(\vartheta,\xi)\big)^2}{2\sigma_{\mathrm{feat}}^2}
+\right).
+\]
+
+\paragraph{Decision objective and operational cost.}
+In this formulation the decision objective is the \emph{minimal safe gain}\footnote{The gain $\gamma$ is for the proportional frequency-feedback control $u^{\mathrm{ctrl}}_i=\gamma g_i\omega_i$ (primary frequency response). A \emph{safe gain} is a $\gamma$ for which, under the reference contingency, ROCOF and frequency stay within limits; the \emph{minimal} safe gain is the smallest such $\gamma$. See ENTSO-E, NERC; Kundur, 1994; Dörfler \& Bullo, 2012; NERC BAL-001-TRE-2.}. Define it under a \emph{reference probe} (fixed $(b_{\mathrm{ref}},A_{\mathrm{ref}},T_{\mathrm{ref}})$)
+and safety constraints $(r_{\max},f_{\min})$ over horizon $[0,T_c]$:
+$\gamma^{\ast}(\vartheta)$ is the smallest $\gamma\ge 0$ such that the trajectory of the swing ODE with
+$u^{\mathrm{probe}}(t;\xi_{\mathrm{ref}})$ and $u^{\mathrm{ctrl}}(t)=\gamma g_i\omega_i(t)$ satisfies
+\[
+\forall t\in[0,T_c],\quad |\dot f(t)|\le r_{\max}\ \land\ f(t)\ge f_{\min},
+\]
+where $f$ and $\dot f$ are derived from $\omega(t)$ (e.g., $f=f_{\mathrm{nom}}+\omega/(2\pi)$, $|\dot f|=|\dot\omega|/(2\pi)$ at a reference bus or worst over buses). Equivalently:
+\[
+\gamma^{\ast}(\vartheta)=
+\inf\left\{
+\gamma\in\mathbb{R}_+ \;:\;
+\text{the above constraints hold for that trajectory}
+\right\}.
+\]
+Define the \emph{operational cost} (loss when deploying $\gamma$ and truth is $\vartheta$):
+\[
+J(\gamma,\vartheta)=\left|\gamma-\gamma^\ast(\vartheta)\right|.
+\]
+Given belief $p$, the Bayes-optimal deployed gain is the weighted median:
+\[
+\hat{\gamma}(p)
+=\arg\min_{\gamma\ge 0}\mathbb{E}_{\vartheta\sim p}[J(\gamma,\vartheta)]
+=\wmed\!\left(\{\gamma^\ast(\vartheta_{ij})\},\{p^{ij}\}\right).
+\]
+The \emph{mean objective cost of uncertainty} (MOCU) is a \emph{measure of uncertainty}, not a cost itself: it quantifies how much uncertainty about $\vartheta$ degrades the objective. It is defined as the expected operational cost when acting under the Bayes-optimal decision:
+\[
+\MOCU(p)=\mathbb{E}_{\vartheta\sim p}\left[J(\hat{\gamma}(p),\vartheta)\right]
+=\sum_{i,j}p^{ij}\left|\gamma^\ast_{ij}-\hat{\gamma}(p)\right|.
+\]
+
+\paragraph{Workflow.} Following is the math chain.
+
+\begin{itemize}
+    \item  \textbf{Observation as ROCOF max:} With design $\xi$ and true parameter $\vartheta$, run the swing ODE with $u^{\mathrm{probe}}(\cdot;\xi)$ only (no control). From the solution $\omega_i(t)$ compute $\Delta f_i[n]=\omega_i(n\Delta t)/(2\pi)$, then $\mathrm{ROCOF}_i[n]=(\Delta f_i[n]-\Delta f_i[n-1])/\Delta t$; the deterministic scalar is $\Map(\vartheta,\xi)=\max_{i,n}|\mathrm{ROCOF}_i[n]|$. The observation is $y=\Map(\vartheta,\xi)+\epsilon$. So observation $y$ is a noisy measurement of this ROCOF max.
+    \item \textbf{Observation to belief:} By Bayes' rule, $p(\vartheta\mid y,\xi)\propto p(y\mid\vartheta,\xi)\,p(\vartheta)$ with $p(y\mid\vartheta,\xi)$ Gaussian in $y$ with mean $\Map(\vartheta,\xi)$. On a grid, $p_{t+1}^{ij}\propto p_t^{ij}\,\mathcal{L}_{ij}^{(t)}$ with $\mathcal{L}_{ij}^{(t)}=p(y_t\mid\vartheta_{ij},\xi_t)$. 
+    \item \textbf{Belief to deployed gain:} The minimal safe gain $\gamma^\ast(\vartheta)$ is \emph{not} a function of $y$; it is defined separately for each $\vartheta$ as the smallest $\gamma$ such that the ODE under the \emph{reference} probe and $u^{\mathrm{ctrl}}=\gamma g_i\omega_i$ satisfies $|\dot f|\le r_{\max}$ and $f\ge f_{\min}$ (Algorithm~\ref{alg:gamma_star}). These $\gamma^\ast(\vartheta_{ij})$ are precomputed on the grid. The Bayes-optimal deployed gain is $\hat{\gamma}(p)=\wmed(\{\gamma^\ast_{ij}\},\{p^{ij}\})$. So the full process is: $y_t$ (noisy ROCOF max) $\to$ posterior $p_{t+1}$ $\to$ $\hat{\gamma}(p_{t+1})$ via weighted median of precomputed $\gamma^\ast_{ij}$.
+\end{itemize}
+
+\paragraph{Assumptions.}
+We assume the safety predicate $\Safe(\gamma;\vartheta)$ is monotone non-decreasing in $\gamma$ (so that the set of safe $\gamma$ is $[\gamma^\ast(\vartheta),\infty)$ and bisection is valid), and that the observation noise is Gaussian. The grid over $\Theta$ is chosen so that $\gamma^\ast(\vartheta)$ can be precomputed at each grid point via the subroutine in \S\ref{sec:gamma_star}. Initial conditions for the swing ODE are fixed (e.g.\ equilibrium) so that $\Map(\vartheta,\xi)$ is well-defined.
+
+\paragraph{Inputs and outputs.}
+The inputs to Algorithm~\ref{alg:dad_mocu_loop} are: $\mathcal{G}$; grid $\{\vartheta_{ij}\}$; initial belief $\{p^{ij}_1\}$; design space $\Xi$;
+$\sigma_{\mathrm{feat}}$; sampling rate $f_s$; observation window $T_{\mathrm{obs}}$;
+constraints $(r_{\max},f_{\min})$; contingency horizon $T_c$;
+reference probe parameters $\xi_{\mathrm{ref}}=(b_{\mathrm{ref}},A_{\mathrm{ref}},T_{\mathrm{ref}})$;
+control shape $\{g_i\}$; horizon $T$.
+The outputs are: beliefs $\{p_t\}_{t=1}^{T+1}$; actions $\{\hat{\gamma}(p_t)\}_{t=1}^{T+1}$;
+$\{\MOCU(p_t)\}_{t=1}^{T+1}$.
+
+\clearpage
+
+% ============================================================
+% Section 2: Sequential design and learning
+% ============================================================
+\section{Sequential design and learning}
+\label{sec:sequential}
+The procedure is given in Algorithm~\ref{alg:dad_mocu_loop}: at each step we choose a probe (design), observe a scalar feature, update the belief via Bayes' rule, and compute the Bayes-optimal gain and the uncertainty measure MOCU.
+
+\begin{algorithm}[H]
+\caption{Sequential sBOED with cost $J$ and uncertainty measure MOCU}
+\label{alg:dad_mocu_loop}
+\small
+\begin{algorithmic}[1]
+\Require
+$\mathcal{G}=(\mathcal{V},\mathcal{E},\bm{B})$; grid $\{\vartheta_{ij}\}$; initial belief $\{p^{ij}_1\}$;
+design space $\Xi$; $\sigma_{\mathrm{feat}}$; sampling rate $f_s$ ($\Delta t=1/f_s$);
+observation window $T_{\mathrm{obs}}$; precomputed $\{\gamma^\ast_{ij}\}$; horizon $T$.
+\Ensure
+$\{p_t\}_{t=1}^{T+1}$, $\{\hat{\gamma}(p_t)\}_{t=1}^{T+1}$, $\{\MOCU(p_t)\}_{t=1}^{T+1}$.
+
+\State Initialize history $h_0\gets \emptyset$.
+\State Compute $\hat{\gamma}(p_1)\gets \wmed(\{\gamma^\ast_{ij}\},\{p_1^{ij}\})$ and $\MOCU(p_1)\gets \sum_{i,j}p_1^{ij}\,|\gamma^\ast_{ij}-\hat{\gamma}(p_1)|$ (under prior).
+
+\For{$t=1,2,\dots,T$}
+
+    \State \textbf{Design (choose identification probe).}
+    \State Choose $\xi_t=(b_t,A_t,T_p)\in\Xi$ (e.g., $\xi_t\sim\pi_\phi(\cdot\mid h_{t-1})$).
+
+    \Statex
+    \State \textbf{Probe $\rightarrow$ Observation (no control in the loop).}
+    \State Set $u^{\mathrm{ctrl}}\equiv 0$ (equivalently $\gamma=0$) for the observation experiment.
+    \State Solve swing ODE with $\vartheta=\vartheta_{\mathrm{true}}$ and probe $u^{\mathrm{probe}}(t;\xi_t)$ over $t\in[0,T_{\mathrm{obs}}]$:
+    \[
+      \dot\theta_i=\omega_i,\qquad
+      M\,\dot\omega_i=
+      P_{m,i}-\sum_{j\in\mathcal{N}_i}B_{ij}\sin(\theta_i-\theta_j)-(D_i+K)\omega_i+u_i^{\mathrm{probe}}(t;\xi_t).
+    \]
+    \State Compute deterministic map from the ODE solution (with $\vartheta=\vartheta_{\mathrm{true}}$):
+    \[
+    \Delta f_i[n]=\omega_i(n\Delta t)/(2\pi),\quad
+    \mathrm{ROCOF}_i[n]=\frac{\Delta f_i[n]-\Delta f_i[n-1]}{\Delta t},\quad
+    \Map(\vartheta_{\mathrm{true}},\xi_t)=\max_{i,n}|\mathrm{ROCOF}_i[n]|.
+    \]
+    \State Obtain observation $y_t=\Map(\vartheta_{\mathrm{true}},\xi_t)+\epsilon_t$, $\epsilon_t\sim\mathcal{N}(0,\sigma_{\mathrm{feat}}^2)$ (in simulation, $y_t$ is generated thus; in experiment, $y_t$ is measured from the system).
+
+    \Statex
+    \State \textbf{Likelihood on the grid.}
+    \For{each grid point $\vartheta_{ij}$}
+        \State Compute $\mu_{ij}^{(t)}=\Map(\vartheta_{ij},\xi_t)$ (same deterministic pipeline with $\vartheta_{ij}$).
+        \State $\mathcal{L}_{ij}^{(t)} \gets
+        \dfrac{1}{\sqrt{2\pi\sigma_{\mathrm{feat}}^2}}
+        \exp\!\left(-\dfrac{(y_t-\mu_{ij}^{(t)})^2}{2\sigma_{\mathrm{feat}}^2}\right)$.
+    \EndFor
+
+    \Statex
+    \State \textbf{Posterior update (Bayes).}
+    \State $\tilde p_{t+1}^{ij}\gets p_t^{ij}\,\mathcal{L}_{ij}^{(t)}$.
+    \State $p_{t+1}^{ij}\gets \tilde p_{t+1}^{ij}\Big/\sum_{a,b}\tilde p_{t+1}^{ab}$.
+
+    \Statex
+    \State \textbf{Decision (Bayes-optimal deployed gain).}
+    \State $\hat{\gamma}(p_{t+1})\gets \wmed\!\left(\{\gamma^\ast_{ij}\},\{p_{t+1}^{ij}\}\right)$.
+
+    \Statex
+    \State \textbf{MOCU (uncertainty measure).}
+    \State $\MOCU(p_{t+1})\gets \sum_{i,j}p_{t+1}^{ij}\,|\gamma^\ast_{ij}-\hat{\gamma}(p_{t+1})|$ (expected cost under $\hat{\gamma}(p_{t+1})$).
+
+    \Statex
+    \State \textbf{History update.} $h_t\gets h_{t-1}\cup\{(\xi_t,y_t)\}$.
+\EndFor
+
+\State \algorithmicreturn $\{p_t\}_{t=1}^{T+1}$, $\{\hat{\gamma}(p_t)\}_{t=1}^{T+1}$, $\{\MOCU(p_t)\}_{t=1}^{T+1}$.
+\end{algorithmic}
+\end{algorithm}
+
+\clearpage
+
+% ============================================================
+% Section 3: Minimal safe gain
+% ============================================================
+\section{Computing the minimal safe gain}
+\label{sec:gamma_star}
+Algorithm~\ref{alg:gamma_star} computes $\gamma^\ast(\vartheta)$ for a given $\vartheta$ by bracketing and bisection on the safety predicate, under the reference contingency (fixed probe).
+
+\begin{algorithm}[H]
+\caption{Compute $\gamma^\ast(\vartheta)$ by capped bracketing and bisection}
+\label{alg:gamma_star}
+\small
+\begin{algorithmic}[1]
+\Require
+$\vartheta=(M,K)$; network $\mathcal{G}$; constraints $(r_{\max},f_{\min})$; horizon $T_c$; tolerance $\varepsilon$;
+reference probe $\xi_{\mathrm{ref}}=(b_{\mathrm{ref}},A_{\mathrm{ref}},T_{\mathrm{ref}})$;
+control shape $\{g_i\}$; initial $\gamma_{\max}$; cap $\gamma_{\mathrm{cap}}$; max expansions $N_{\mathrm{expand}}$.
+\Ensure $\gamma^\ast(\vartheta)$ (returns $\gamma_{\mathrm{cap}}$ if infeasible under cap)
+
+\State \textbf{Reference contingency (fixed probe).}
+\State Define $u^{\mathrm{probe}}(t;\xi_{\mathrm{ref}})$ using the Hann window at bus $b_{\mathrm{ref}}$ with $(A_{\mathrm{ref}},T_{\mathrm{ref}})$.
+
+\State \textbf{Control injection.}\quad $u_i^{\mathrm{ctrl}}(t)=\gamma\,g_i\,\omega_i(t)$.
+
+\State \textbf{Controlled swing dynamics under reference contingency.}
+For candidate $\gamma\ge 0$, simulate for $t\in[0,T_c]$:
+\[
+\dot\theta_i=\omega_i,\qquad
+M\,\dot\omega_i=
+P_{m,i}-P_{e,i}(\bm{\theta})-(D_i+K)\omega_i
++u_i^{\mathrm{probe}}(t;\xi_{\mathrm{ref}})
++u_i^{\mathrm{ctrl}}(t).
+\]
+
+\State \textbf{Safety predicate.}
+Define $\Safe(\gamma;\vartheta)=1$ iff $\forall t\in[0,T_c]$,
+\[
+|\dot f(t)|\le r_{\max}\quad \land\quad f(t)\ge f_{\min},
+\]
+with $f(t)$ and $\dot f(t)$ computed consistently from $\omega(t)$ (e.g., at a reference bus or worst-case over buses).
+
+\Statex
+\State \textbf{Bracketing with cap (prevents infinite expansion).}
+\State $\gamma_L\gets 0$, $\gamma_U\gets \gamma_{\max}$.
+\For{$m=1$ to $N_{\mathrm{expand}}$}
+    \If{$\Safe(\gamma_U;\vartheta)=1$}
+        \State \textbf{break}
+    \EndIf
+    \State $\gamma_U \gets \min(2\gamma_U,\gamma_{\mathrm{cap}})$
+    \If{$\gamma_U=\gamma_{\mathrm{cap}}$}
+        \State \textbf{break}
+    \EndIf
+\EndFor
+
+\If{$\Safe(\gamma_U;\vartheta)=0$}
+    \State \Return $\gamma^\ast(\vartheta)\gets \gamma_{\mathrm{cap}}$
+    \Comment{No safe gain found under cap (can be flagged separately)}
+\EndIf
+
+\Statex
+\State \textbf{Bisection search.} (By monotonicity, the set of safe $\gamma$ is $[\gamma^\ast,\infty)$; bisection finds $\gamma^\ast$.)
+\While{$\gamma_U-\gamma_L>\varepsilon$}
+    \State $\gamma_M\gets(\gamma_L+\gamma_U)/2$
+    \If{$\Safe(\gamma_M;\vartheta)=1$}
+        \State $\gamma_U\gets\gamma_M$
+    \Else
+        \State $\gamma_L\gets\gamma_M$
+    \EndIf
+\EndWhile
+
+\State \Return $\gamma^\ast(\vartheta)\gets \gamma_U$.
+\end{algorithmic}
+\end{algorithm}
+
+\end{document}

@@ -178,6 +178,13 @@ ABS_DAD_TRAJ_FILE=$(cd "$(dirname "$DAD_TRAJECTORY_FILE")" && pwd)/$(basename "$
 if [ -f "$ABS_DAD_TRAJ_FILE" ]; then
     echo "$ABS_DAD_TRAJ_FILE" > /tmp/dad_traj_file_${CONFIG_NAME}.txt
     echo "✓ DAD training data ready: $ABS_DAD_TRAJ_FILE"
+    [ -n "$EXP_REPORT" ] && {
+        echo "" >> "$EXP_REPORT"
+        echo "--- DAD Data (Step 4) ---" >> "$EXP_REPORT"
+        echo "  Status: OK" >> "$EXP_REPORT"
+        echo "  File: $ABS_DAD_TRAJ_FILE" >> "$EXP_REPORT"
+        echo "  Episodes: $NUM_EPISODES, K: $K" >> "$EXP_REPORT"
+    }
     # If command failed but file exists, it's likely just a diagnostics error - warn but continue
     if [ "$CMD_EXIT_CODE" -ne 0 ]; then
         echo "⚠ Command exited with code $CMD_EXIT_CODE, but trajectory file exists."

@@ -85,6 +85,7 @@ def generate_single_sample(args_tuple):
     Args:
         args_tuple: (N, K_max, B, P_m, D, g, M_lower_base, M_upper_base,
                      K_lower_base, K_upper_base, r_max, f_min, h, T, M_steps,
+                     reference_probe_bus, reference_probe_amplitude, reference_probe_duration,
                      device, sample_id, base_seed)
 
     Returns:
@@ -93,6 +94,7 @@ def generate_single_sample(args_tuple):
     """
     (N, K_max, B, P_m, D, g, M_lower_base, M_upper_base,
      K_lower_base, K_upper_base, r_max, f_min, h, T, M_steps,
+     reference_probe_bus, reference_probe_amplitude, reference_probe_duration,
      device, sample_id, base_seed) = args_tuple
 
     seed = int(base_seed + sample_id)
@@ -120,6 +122,9 @@ def generate_single_sample(args_tuple):
             h=h,
             T=T,
             M_steps=M_steps,
+            reference_probe_bus=reference_probe_bus,
+            reference_probe_amplitude=reference_probe_amplitude,
+            reference_probe_duration=reference_probe_duration,
             seed=seed,
             device=device
         )
@@ -178,11 +183,14 @@ def main():
     base_power = swing_params.get('base_power', 1.0)
     M_lower_base = swing_params.get('M_lower', 0.01)
     M_upper_base = swing_params.get('M_upper', 0.06)
-    K_lower_base = swing_params.get('K_lower', 0.1)
-    K_upper_base = swing_params.get('K_upper', 1.0)
+    K_lower_base = swing_params.get('K_lower', 0.05)
+    K_upper_base = swing_params.get('K_upper', 0.50)
     r_max = swing_params.get('r_max', 0.5)
-    f_min = swing_params.get('f_min', 59.5)
-    
+    f_min = swing_params.get('f_min', 49.8)  # 50 Hz nominal; 49.5-50.5 band
+    reference_probe_bus = swing_params.get('reference_probe_bus', 0)
+    reference_probe_amplitude = swing_params.get('reference_probe_amplitude', 0.5)
+    reference_probe_duration = swing_params.get('reference_probe_duration', 2.0)
+
     # Dataset parameters
     num_samples = args.samples if args.samples is not None else dataset_params.get('samples_per_type', 1000)
     K_max = dataset_params.get('K_max', 20480)
@@ -254,6 +262,7 @@ def main():
     args_list = [
         (N, K_max, B, P_m, D, g, M_lower_base, M_upper_base,
          K_lower_base, K_upper_base, r_max, f_min, h, T, M_steps,
+         reference_probe_bus, reference_probe_amplitude, reference_probe_duration,
          device, i, base_seed)
         for i in range(num_samples)
     ]

@@ -50,7 +50,7 @@ except ImportError as e:
 
 
 def generate_random_system(N, B, P_m, D, g, M_lower_base, M_upper_base,
-                          K_lower_base, K_upper_base, seed=None):
+                          K_lower_base, K_upper_base, seed=None, uncertainty_ratio_min=0.3):
     """
     Generate a random system with initial uncertainty bounds and true parameters.
     
@@ -60,6 +60,9 @@ def generate_random_system(N, B, P_m, D, g, M_lower_base, M_upper_base,
         M_lower_base, M_upper_base: Base inertia bounds
         K_lower_base, K_upper_base: Base control gain bounds
         seed: Random seed
+        uncertainty_ratio_min: Min ratio of base range for initial bounds. 1.0 = full bounds
+                              (harder problem, method differences matter); 0.3-0.7 = narrowed
+                              (easier, all methods converge quickly to same curve).
     
     Returns:
         (M_lower_0, M_upper_0, K_lower_0, K_upper_0, M_true, K_true, init_sync)
@@ -69,32 +72,28 @@ def generate_random_system(N, B, P_m, D, g, M_lower_base, M_upper_base,
         np.random.seed(seed)
         random.seed(seed)
     
-    # Generate initial uncertainty bounds (random subset of base range)
-    uncertainty_ratio = 0.3 + 0.4 * random.random()  # 0.3 to 0.7
-    
-    # Sample center point
-    M_center = np.random.uniform(M_lower_base, M_upper_base)
-    K_center = np.random.uniform(K_lower_base, K_upper_base)
-    
-    # Generate bounds around center
-    M_range = M_upper_base - M_lower_base
-    K_range = K_upper_base - K_lower_base
-    
-    M_half_range = M_range * uncertainty_ratio / 2.0
-    K_half_range = K_range * uncertainty_ratio / 2.0
-    
-    M_lower_0 = max(M_lower_base, M_center - M_half_range)
-    M_upper_0 = min(M_upper_base, M_center + M_half_range)
-    K_lower_0 = max(K_lower_base, K_center - K_half_range)
-    K_upper_0 = min(K_upper_base, K_center + K_half_range)
-    
-    # Ensure valid bounds
-    if M_lower_0 >= M_upper_0:
-        M_lower_0 = M_lower_base
-        M_upper_0 = M_upper_base
-    if K_lower_0 >= K_upper_0:
-        K_lower_0 = K_lower_base
-        K_upper_0 = K_upper_base
+    # Generate initial uncertainty bounds
+    if uncertainty_ratio_min >= 1.0:
+        # Full base bounds: harder problem, more initial uncertainty
+        M_lower_0, M_upper_0 = M_lower_base, M_upper_base
+        K_lower_0, K_upper_0 = K_lower_base, K_upper_base
+    else:
+        # Random subset of base range (original behavior)
+        uncertainty_ratio = uncertainty_ratio_min + (1.0 - uncertainty_ratio_min) * random.random()
+        M_center = np.random.uniform(M_lower_base, M_upper_base)
+        K_center = np.random.uniform(K_lower_base, K_upper_base)
+        M_range = M_upper_base - M_lower_base
+        K_range = K_upper_base - K_lower_base
+        M_half_range = M_range * uncertainty_ratio / 2.0
+        K_half_range = K_range * uncertainty_ratio / 2.0
+        M_lower_0 = max(M_lower_base, M_center - M_half_range)
+        M_upper_0 = min(M_upper_base, M_center + M_half_range)
+        K_lower_0 = max(K_lower_base, K_center - K_half_range)
+        K_upper_0 = min(K_upper_base, K_center + K_half_range)
+        if M_lower_0 >= M_upper_0:
+            M_lower_0, M_upper_0 = M_lower_base, M_upper_base
+        if K_lower_0 >= K_upper_0:
+            K_lower_0, K_upper_0 = K_lower_base, K_upper_base
     
     # Sample true parameters from initial bounds
     M_true = np.random.uniform(M_lower_0, M_upper_0)
@@ -105,7 +104,8 @@ def generate_random_system(N, B, P_m, D, g, M_lower_base, M_upper_base,
 
 
 def perform_probe_experiment(B, P_m, D, M_true, K_true, g, probe_bus, probe_amplitude,
-                            probe_duration, h, T, M_steps, device='cuda', timeout=5.0):
+                            probe_duration, h, T, M_steps, device='cuda', timeout=5.0,
+                            sigma=0.0):
     """
     Perform probe experiment and extract frequency features.
     
@@ -120,6 +120,7 @@ def perform_probe_experiment(B, P_m, D, M_true, K_true, g, probe_bus, probe_ampl
         M_steps: Number of time steps
         device: 'cuda' or 'cpu'
         timeout: Maximum time for ODE solving
+        sigma: Observation noise std (Hz/s); if > 0, add N(0,sigma^2) to ROCOF_max (design §4.3)
     
     Returns:
         observation: Dictionary with frequency features {'ROCOF_max', 'f_min', 't_settle', ...}
@@ -139,9 +140,13 @@ def perform_probe_experiment(B, P_m, D, M_true, K_true, g, probe_bus, probe_ampl
         N = len(P_m)
         omega_traj = state_traj[:, N:]  # [M_steps, N]
         
-        # Extract frequency features (downsampled to fs=12 Hz, design_part1.tex Section 4)
-        features = extract_frequency_features(omega_traj, h, fs=12.0)
-        
+        # Extract frequency features (downsampled to fs=12 Hz, design §4)
+        # Use probe_bus so observation depends on probe location (different probes → different y)
+        features = extract_frequency_features(omega_traj, h, fs=12.0, probe_bus=probe_bus)
+        # Add observation noise (design §4.3: y = Map(θ,ξ) + ε, ε ~ N(0,σ²))
+        if sigma > 0:
+            features['ROCOF_max'] = float(features['ROCOF_max']) + float(np.random.normal(0, sigma))
+            features['ROCOF_max'] = max(0.0, features['ROCOF_max'])  # ROCOF cannot be negative
         return features
     except Exception as e:
         # Return default features if simulation fails
@@ -221,10 +226,98 @@ def update_bounds(M_lower, M_upper, K_lower, K_upper, observation, probe_bus,
     return M_lower_new, M_upper_new, K_lower_new, K_upper_new
 
 
+def update_bounds_bayesian(M_lower, M_upper, K_lower, K_upper, history,
+                          M_lower_base, M_upper_base, K_lower_base, K_upper_base,
+                          B, P_m, D, g, h, T, M_steps, sigma=0.05,
+                          n_particles=256, credible_alpha=0.05, min_relative_width=0.02,
+                          device='cuda'):
+    """
+    Update uncertainty bounds using Bayesian posterior (design §5).
+    Uses particle weights from likelihood p(y|θ,ξ) so different (design, observation)
+    sequences yield different posteriors — order matters.
+
+    Args:
+        M_lower, M_upper, K_lower, K_upper: Current bounds (prior support)
+        history: List of ((probe_bus, probe_amplitude, probe_duration), observation)
+                 where observation has 'ROCOF_max' key
+        B, P_m, D, g, h, T, M_steps: System params for likelihood
+        sigma: Observation noise std (Hz/s)
+        n_particles: Number of particles for posterior
+        credible_alpha: Tail mass for credible interval (e.g. 0.05 → 2.5%-97.5%)
+        min_relative_width: Minimum bound width as fraction of base range
+
+    Returns:
+        (M_lower_new, M_upper_new, K_lower_new, K_upper_new): Updated bounds
+    """
+    from src.core.posterior_particles import posterior_weights
+
+    # Sample particles from uniform over current bounds
+    particles = np.zeros((n_particles, 2))
+    particles[:, 0] = np.random.uniform(M_lower, M_upper, n_particles)
+    particles[:, 1] = np.random.uniform(K_lower, K_upper, n_particles)
+
+    # Build history for posterior: xi = (b+1, A, T_p) 1-based bus, y = ROCOF_max
+    ll_history = []
+    for (probe_bus, probe_amplitude, probe_duration), obs in history:
+        xi = (int(probe_bus) + 1, float(probe_amplitude), float(probe_duration))
+        y = float(obs.get('ROCOF_max', 0.0))
+        ll_history.append((xi, y))
+
+    if not ll_history:
+        return M_lower, M_upper, K_lower, K_upper
+
+    # Compute posterior weights
+    weights = posterior_weights(
+        particles, ll_history, sigma, B, P_m, D, g,
+        M_lower, M_upper, K_lower, K_upper,
+        h=h, T=T, M_steps=M_steps, device=device
+    )
+
+    # Credible interval from weighted particles (2.5%-97.5% quantiles)
+    M_vals = particles[:, 0]
+    K_vals = particles[:, 1]
+    order_M = np.argsort(M_vals)
+    order_K = np.argsort(K_vals)
+    cumw_M = np.cumsum(weights[order_M])
+    cumw_K = np.cumsum(weights[order_K])
+    lo_M = np.searchsorted(cumw_M, credible_alpha / 2)
+    hi_M = np.searchsorted(cumw_M, 1.0 - credible_alpha / 2)
+    M_lower_new = float(M_vals[order_M[min(lo_M, n_particles - 1)]])
+    M_upper_new = float(M_vals[order_M[min(hi_M, n_particles - 1)]])
+    lo_K = np.searchsorted(cumw_K, credible_alpha / 2)
+    hi_K = np.searchsorted(cumw_K, 1.0 - credible_alpha / 2)
+    K_lower_new = float(K_vals[order_K[min(lo_K, n_particles - 1)]])
+    K_upper_new = float(K_vals[order_K[min(hi_K, n_particles - 1)]])
+
+    # Enforce min width and clamp to base bounds
+    M_base_range = M_upper_base - M_lower_base
+    K_base_range = K_upper_base - K_lower_base
+    min_M_width = max(min_relative_width * M_base_range, 1e-6)
+    min_K_width = max(min_relative_width * K_base_range, 1e-6)
+    if M_upper_new - M_lower_new < min_M_width:
+        mid = (M_lower_new + M_upper_new) / 2
+        M_lower_new = max(M_lower_base, mid - min_M_width / 2)
+        M_upper_new = min(M_upper_base, M_lower_new + min_M_width)
+        M_lower_new = max(M_lower_base, M_upper_new - min_M_width)
+    if K_upper_new - K_lower_new < min_K_width:
+        mid = (K_lower_new + K_upper_new) / 2
+        K_lower_new = max(K_lower_base, mid - min_K_width / 2)
+        K_upper_new = min(K_upper_base, K_lower_new + min_K_width)
+        K_lower_new = max(K_lower_base, K_upper_new - min_K_width)
+
+    M_lower_new = max(M_lower_base, min(M_upper_base, M_lower_new))
+    M_upper_new = max(M_lower_new, min(M_upper_base, M_upper_new))
+    K_lower_new = max(K_lower_base, min(K_upper_base, K_lower_new))
+    K_upper_new = max(K_lower_new, min(K_upper_base, K_upper_new))
+
+    return M_lower_new, M_upper_new, K_lower_new, K_upper_new
+
+
 def generate_trajectory(N, K, B, P_m, D, g, M_lower_base, M_upper_base,
                        K_lower_base, K_upper_base, probe_amplitudes, probe_duration,
                        h, T, M_steps, device='cuda', verbose=False,
-                       mocu_predictor=None, mocu_mean=None, mocu_std=None):
+                       mocu_predictor=None, mocu_mean=None, mocu_std=None, sigma=0.0,
+                       uncertainty_ratio_min=0.3, update_strength=0.05):
     """
     Generate a single trajectory using random policy.
 
@@ -236,7 +329,7 @@ def generate_trajectory(N, K, B, P_m, D, g, M_lower_base, M_upper_base,
     (M_lower_0, M_upper_0, K_lower_0, K_upper_0, M_true, K_true, _) = \
         generate_random_system(
             N, B, P_m, D, g, M_lower_base, M_upper_base,
-            K_lower_base, K_upper_base, seed=None
+            K_lower_base, K_upper_base, seed=None, uncertainty_ratio_min=uncertainty_ratio_min
         )
     
     # Initialize trajectory
@@ -263,18 +356,20 @@ def generate_trajectory(N, K, B, P_m, D, g, M_lower_base, M_upper_base,
         observation = perform_probe_experiment(
             B, P_m, D, M_true, K_true, g,
             probe_bus, probe_amplitude, probe_duration,
-            h, T, M_steps, device=device
+            h, T, M_steps, device=device, sigma=sigma
         )
         
-        # Update bounds
-        (M_lower, M_upper, K_lower, K_upper) = update_bounds(
-            M_lower, M_upper, K_lower, K_upper, observation, probe_bus, probe_amplitude,
-            M_lower_base, M_upper_base, K_lower_base, K_upper_base
-        )
-        
-        # Record trajectory data
+        # Record design and observation before update (history for Bayesian)
         trajectory['designs'].append((probe_bus, probe_amplitude, probe_duration))
         trajectory['observations'].append(observation)
+        # Bayesian update: history = list of ((probe_bus, A, T_p), obs) so order matters
+        history = list(zip(trajectory['designs'], trajectory['observations']))
+        (M_lower, M_upper, K_lower, K_upper) = update_bounds_bayesian(
+            M_lower, M_upper, K_lower, K_upper, history,
+            M_lower_base, M_upper_base, K_lower_base, K_upper_base,
+            B=B, P_m=P_m, D=D, g=g, h=h, T=T, M_steps=M_steps, sigma=sigma,
+            n_particles=128, device=device
+        )
         trajectory['states'].append((M_lower, M_upper, K_lower, K_upper))
         
         if verbose:
@@ -349,6 +444,10 @@ def main():
     K_upper_base = swing_params.get('K_upper', 1.0)
     probe_duration = swing_params.get('probe_duration', 2.0)
     probe_amplitudes = swing_params.get('probe_amplitudes', [0.5, 1.0, 2.0])
+    sigma = swing_params.get('sigma', 0.05)
+    experiment_params = config.get('experiment', {})
+    uncertainty_ratio_min = experiment_params.get('uncertainty_ratio_min', 0.3)
+    update_strength = experiment_params.get('update_strength', 0.05)
     
     # DAD data parameters
     num_episodes = args.num_episodes if args.num_episodes is not None else dad_data_params.get('num_episodes', 1000)
@@ -430,6 +529,8 @@ def main():
             M_lower_base=M_lower_base, M_upper_base=M_upper_base,
             K_lower_base=K_lower_base, K_upper_base=K_upper_base,
             probe_amplitudes=probe_amplitudes, probe_duration=probe_duration,
+            sigma=sigma, uncertainty_ratio_min=uncertainty_ratio_min,
+            update_strength=update_strength,
             h=h, T=T, M_steps=M_steps, device=device,
             verbose=False,
             mocu_predictor=mocu_predictor,

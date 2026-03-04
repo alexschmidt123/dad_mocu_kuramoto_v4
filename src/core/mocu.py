@@ -1,9 +1,8 @@
 """
-MOCU computation using particle-based posterior.
+MOCU computation using particle-based posterior (weighted particles).
 
-Based on documents/design_part1.tex Section 6:
-MOCU(h_T) = E_{θ~p(θ|h_T)}[γ*(A_T) - γ*(θ)]
-where A_T is the credible set of p(θ | h_T)
+Notation (design §5): J(γ, ϑ) = operational cost = |γ − γ*(ϑ)|; γ̂(p) = Bayes decision = median;
+MOCU(p) = E[J(γ̂(p), ϑ)] = E[|γ*(ϑ) − γ̂(p)|]. For weighted particles, γ̂(p) is the weighted median.
 """
 
 import numpy as np
@@ -16,27 +15,22 @@ project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, project_root)
 
 from .gamma_star import gamma_star
-from .posterior_particles import get_credible_set
 
 
 def compute_mocu(particles_theta: np.ndarray, weights: np.ndarray,
                  B: np.ndarray, P_m: np.ndarray, D: float, g: np.ndarray,
-                 r_max: float = 0.5, f_min: float = 59.5,
+                 r_max: float = 0.1, f_min: float = 49.8,
                  h: float = 1.0/160.0, T: float = 10.0, M_steps=None,
                  gamma_min: float = 0.0, gamma_max: float = 100.0,
                  max_iterations: int = 20, tol: float = 0.01,
-                 credible_mass: float = 0.95,
+                 reference_probe_bus=None, reference_probe_amplitude=None, reference_probe_duration=2.0,
                  device: str = 'cuda') -> float:
     """
-    Compute MOCU using particle-based posterior.
+    Compute MOCU(p) using particle-based posterior (design §5.9).
     
-    Based on design_part1.tex Section 6:
-    MOCU(h_T) = E_{θ~p(θ|h_T)}[γ*(A_T) - γ*(θ)]
-    
-    where:
-    - A_T is the credible set of p(θ | h_T)
-    - γ*(A_T) = max_{θ∈A_T} γ*(θ)
-    - γ*(θ) is computed via binary search
+    MOCU(p) = E[J(γ̂(p), ϑ)] = E[|γ*(ϑ) − γ̂(p)|]; J(γ, ϑ) = cost.
+    γ̂(p) = weighted median of γ*(θ_i). Same formula as MOCU_swing_equation(); here p is
+    represented by weighted particles (θ_i, w_i).
     
     Args:
         particles_theta: [N_particles, 2] array of (M, K) values
@@ -45,21 +39,17 @@ def compute_mocu(particles_theta: np.ndarray, weights: np.ndarray,
         r_max, f_min: Frequency constraints
         h, T, M_steps: Time parameters
         gamma_min, gamma_max, max_iterations, tol: Binary search parameters
-        credible_mass: Credible mass for credible set (default 0.95)
         device: 'cuda' or 'cpu'
     
     Returns:
-        mocu: MOCU value (float)
+        mocu: MOCU(p) value (float)
     """
     N_particles = len(particles_theta)
     
-    # Get credible set A_T
-    credible_set = get_credible_set(particles_theta, weights, credible_mass)
-    credible_particles = particles_theta[credible_set]
-    
-    # Compute γ*(θ) for all particles in credible set
-    gamma_star_credible = []
-    for theta in credible_particles:
+    # Compute γ*(θ) for all particles
+    gamma_star_values = np.full(N_particles, np.nan)
+    for i in range(N_particles):
+        theta = particles_theta[i]
         try:
             gamma = gamma_star(
                 (float(theta[0]), float(theta[1])),
@@ -68,46 +58,27 @@ def compute_mocu(particles_theta: np.ndarray, weights: np.ndarray,
                 h=h, T=T, M_steps=M_steps,
                 gamma_min=gamma_min, gamma_max=gamma_max,
                 max_iterations=max_iterations, tol=tol,
+                reference_probe_bus=reference_probe_bus, reference_probe_amplitude=reference_probe_amplitude, reference_probe_duration=reference_probe_duration,
                 device=device
             )
             if not (np.isnan(gamma) or np.isinf(gamma)):
-                gamma_star_credible.append(gamma)
-        except Exception as e:
-            # Skip failed computations
-            print(f"[WARNING] gamma_star failed for theta={theta}: {e}")
+                gamma_star_values[i] = gamma
+        except Exception:
             continue
     
-    if len(gamma_star_credible) == 0:
+    valid = np.isfinite(gamma_star_values)
+    if not np.any(valid):
         return np.nan
-    
-    # γ*(A_T) = max_{θ∈A_T} γ*(θ)
-    gamma_star_A = np.max(gamma_star_credible)
-    
-    # Compute γ*(θ) for all particles (for expectation)
-    gamma_star_values = []
-    for i, theta in enumerate(particles_theta):
-        try:
-            gamma = gamma_star(
-                (float(theta[0]), float(theta[1])),
-                B, P_m, D, g,
-                r_max=r_max, f_min=f_min,
-                h=h, T=T, M_steps=M_steps,
-                gamma_min=gamma_min, gamma_max=gamma_max,
-                max_iterations=max_iterations, tol=tol,
-                device=device
-            )
-            if not (np.isnan(gamma) or np.isinf(gamma)):
-                gamma_star_values.append((i, gamma))
-        except Exception as e:
-            # Skip failed computations
-            continue
-    
-    if len(gamma_star_values) == 0:
-        return np.nan
-    
-    # Compute MOCU: E[γ*(A_T) - γ*(θ)] = Σ_n w[n] * (γ*(A_T) - γ*(θ_n))
-    mocu_val = 0.0
-    for i, gamma_star_theta in gamma_star_values:
-        mocu_val += weights[i] * (gamma_star_A - gamma_star_theta)
-    
+    g_vals = gamma_star_values[valid]
+    w_vals = weights[valid]
+    w_vals = w_vals / np.sum(w_vals)  # renormalize over valid
+    # Weighted median: smallest m s.t. cumulative weight >= 0.5
+    order = np.argsort(g_vals)
+    g_sorted = g_vals[order]
+    w_sorted = w_vals[order]
+    cumw = np.cumsum(w_sorted)
+    idx = np.searchsorted(cumw, 0.5, side="left")
+    gamma_hat = float(g_sorted[min(idx, len(g_sorted) - 1)])
+    # MOCU(p) = E[J(γ̂(p), ϑ)] = E[|γ* − γ̂(p)|]
+    mocu_val = np.sum(w_vals * np.abs(g_vals - gamma_hat))
     return float(mocu_val)

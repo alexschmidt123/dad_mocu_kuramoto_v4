@@ -47,17 +47,8 @@ class RANDOM_Method(OEDMethod):
         if seed is not None:
             random.seed(seed)
             np.random.seed(seed)
-        
-        # Pre-generate random sequence of all possible probe actions
-        self.experiment_sequence = []
-        for b in range(N):
-            for A in self.probe_amplitudes:
-                self.experiment_sequence.append((b, A, probe_duration))
-        
-        random.shuffle(self.experiment_sequence)
-        self.current_index = 0
-        
-        print(f"[RANDOM] Initialized (seed={seed}, {len(self.experiment_sequence)} probe actions)")
+
+        print(f"[RANDOM] Initialized (seed={seed})")
     
     def select_experiment(self, M_lower, M_upper, K_lower, K_upper, history,
                          probe_amplitudes=None, probe_duration=None):
@@ -77,14 +68,10 @@ class RANDOM_Method(OEDMethod):
             probe_amplitudes = self.probe_amplitudes
         if probe_duration is None:
             probe_duration = self.probe_duration
-        
-        if self.current_index >= len(self.experiment_sequence):
-            # Fallback: random selection
-            probe_bus = random.randint(0, self.N - 1)
-            probe_amplitude = random.choice(probe_amplitudes)
-            return (probe_bus, probe_amplitude, probe_duration)
-        
-        selected_action = self.experiment_sequence[self.current_index]
-        self.current_index += 1
-        
-        return selected_action
+
+        # Build action space (may differ if caller overrides probe_amplitudes/duration)
+        actions = [
+            (b, A, probe_duration) for b in range(self.N) for A in probe_amplitudes
+        ]
+        # Pick uniformly at random each step (each call = one step in a simulation)
+        return random.choice(actions)

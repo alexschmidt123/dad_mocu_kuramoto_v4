@@ -103,9 +103,8 @@ def MOCU_torchdiffeq(K_max: int, B: np.ndarray, P_m: np.ndarray, D: float,
                      seed: int = 0, device: str = 'cuda',
                      r_max: float = 0.5, f_min: float = 59.5) -> float:
     """
-    Compute MOCU for swing equation using torchdiffeq.
-    
-    Based on design_part1.tex: MOCU measures expected excess primary control.
+    Compute MOCU(p) for swing equation using torchdiffeq (design §5.9).
+    MOCU(p) = E[J(γ̂(p), ϑ)]; J(γ, ϑ) = cost.
     
     Args:
         K_max: Number of Monte Carlo samples
@@ -124,7 +123,7 @@ def MOCU_torchdiffeq(K_max: int, B: np.ndarray, P_m: np.ndarray, D: float,
         f_min: Minimum frequency constraint (Hz, default 49.5 for 50 Hz)
     
     Returns:
-        MOCU value (float)
+        MOCU(p) value (float)
     """
     return MOCU_swing_equation(
         K_max, B, P_m, D, M_lower, M_upper, K_lower, K_upper, g,

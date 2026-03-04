@@ -1,6 +1,6 @@
 # Parameters You Can Grab from the IEEE 14-Bus .mdl
 
-This note is about **Fourteen_bus.mdl** (and **Fourteen_bus_dynamic.mdl**). It states exactly which quantities you can take from the .mdl for your IEEE 14 swing-ODE, and which you cannot.
+This note is about **fourteen_bus.mdl** (and **fourteen_bus_dynamic.mdl**). It states exactly which quantities you can take from the .mdl for your IEEE 14 swing-ODE, and which you cannot.
 
 ---
 
@@ -40,6 +40,6 @@ Use **M, D, K** from literature as in `documents/Parameter_references_table.md` 
 - **Three-Phase Source blocks:** `Pref`, `Qref`, `Voltage`, `PhaseAngle` (−30°).
 - **Series RLC Branch blocks:** `Resistance`, `Inductance` (→ X = numeric part in p.u.).
 - **Measurement (V-I) blocks:** `Pbase` (100e6), `Vbase` (per bus).
-- **After a simulation:** Scope data (e.g. ScopeBus1…ScopeBus14 in Fourteen_bus_dynamic.mdl) → steady-state bus angles and time series for θ (and frequency if you compute it from angle).
+- **After a simulation:** Scope data (e.g. ScopeBus1…ScopeBus14 in fourteen_bus_dynamic.mdl) → steady-state bus angles and time series for θ (and frequency if you compute it from angle).
 
 Use MATPOWER case14 (or the .mdl schematic) to map Branch1…Branch20 to (from_bus, to_bus), then build **B** from **B_ij = 1/X_ij** and **P_m** from Pref/loads.

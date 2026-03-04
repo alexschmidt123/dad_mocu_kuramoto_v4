@@ -124,7 +124,7 @@ experiments/
 data/
 models/
 !src/models/
-results/
+# results/ removed: all outputs go under experiments/
 Experiment/
 ../experiments/
 

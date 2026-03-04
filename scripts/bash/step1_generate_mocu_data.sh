@@ -43,8 +43,13 @@ if [ -n "$TRAIN_FILE" ]; then
     echo "✓ Found existing MOCU training data: $TRAIN_FILE"
     echo "✓ Skipping data generation (data already exists)"
     echo "  Note: MOCU data doesn't depend on K, so same data is used for all K values"
-    # Save train file path for next steps (use CONFIG_NAME for tmp file to match other scripts)
     echo "$TRAIN_FILE" > /tmp/mocu_train_file_${CONFIG_NAME}.txt
+    [ -n "$EXP_REPORT" ] && {
+        echo "" >> "$EXP_REPORT"
+        echo "--- MOCU Data (Step 1) ---" >> "$EXP_REPORT"
+        echo "  Status: Reused existing" >> "$EXP_REPORT"
+        echo "  File: $TRAIN_FILE" >> "$EXP_REPORT"
+    }
     exit 0
 fi
 
@@ -103,4 +108,11 @@ fi
 
 echo "✓ MOCU training data generated: $TRAIN_FILE"
 echo "$TRAIN_FILE" > /tmp/mocu_train_file_${CONFIG_NAME}.txt
+[ -n "$EXP_REPORT" ] && {
+    echo "" >> "$EXP_REPORT"
+    echo "--- MOCU Data (Step 1) ---" >> "$EXP_REPORT"
+    echo "  Status: Generated" >> "$EXP_REPORT"
+    echo "  File: $TRAIN_FILE" >> "$EXP_REPORT"
+    echo "  Samples: $SAMPLES, K_max: $K_MAX" >> "$EXP_REPORT"
+}
 

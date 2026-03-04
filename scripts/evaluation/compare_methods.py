@@ -37,7 +37,7 @@ try:
     from scripts.data_generation.generate_dad_data import (
         generate_random_system,
         perform_probe_experiment,
-        update_bounds
+        update_bounds,
     )
     SWING_EQUATION_AVAILABLE = True
 except ImportError as e:
@@ -61,13 +61,17 @@ if __name__ == '__main__':
         val = os.getenv(key, default)
         return int(val) if val else int(default)
     
-    # Load config if provided
+    # Load config if provided (resolve relative paths against project root)
     config = None
     if args.config:
         config_path = Path(args.config)
+        if not config_path.is_absolute():
+            config_path = PROJECT_ROOT / config_path
         if config_path.exists():
             with open(config_path, 'r') as f:
                 config = yaml.safe_load(f)
+        else:
+            print(f"[WARNING] Config file not found: {config_path} (config will not be loaded)")
     
     # Get parameters from config or environment
     mocu_model_name_from_config = None
@@ -78,7 +82,7 @@ if __name__ == '__main__':
         training_params = config.get('training', {})
         mocu_model_name_from_config = training_params.get('model_name')
         it_idx = experiment_params.get('it_idx', 10)
-        update_cnt = experiment_params.get('update_count', 10)
+        update_cnt = experiment_params.get('update_count', 4)  # T=4 (5 MOCU points: 0..4)
         K_max = experiment_params.get('K_max', 20480)
         numberOfSimulationsPerMethod = experiment_params.get('num_simulations', 10)
         
@@ -91,10 +95,16 @@ if __name__ == '__main__':
         M_upper_base = swing_params.get('M_upper', 0.06)
         K_lower_base = swing_params.get('K_lower', 0.05)
         K_upper_base = swing_params.get('K_upper', 0.50)
-        r_max = swing_params.get('r_max', 0.5)
-        f_min = swing_params.get('f_min', 59.5)
+        r_max = swing_params.get('r_max', 0.1)
+        f_min = swing_params.get('f_min', 49.8)
         probe_duration = swing_params.get('probe_duration', 2.0)
         probe_amplitudes = swing_params.get('probe_amplitudes', [0.5, 1.0, 2.0])
+        reference_probe_bus = swing_params.get('reference_probe_bus')
+        reference_probe_amplitude = swing_params.get('reference_probe_amplitude')
+        reference_probe_duration = swing_params.get('reference_probe_duration', 2.0)
+        sigma = swing_params.get('sigma', 0.05)
+        uncertainty_ratio_min = experiment_params.get('uncertainty_ratio_min', 0.3)
+        update_strength = experiment_params.get('update_strength', 0.05)
     else:
         mocu_model_name_from_config = None
         # Fallback to environment variables
@@ -113,12 +123,23 @@ if __name__ == '__main__':
         M_upper_base = 0.06
         K_lower_base = 0.05
         K_upper_base = 0.50
-        r_max = 0.5
-        f_min = 59.5
+        r_max = 0.1
+        f_min = 49.8
         probe_duration = 2.0
         probe_amplitudes = [0.5, 1.0, 2.0]
+        reference_probe_bus = None
+        reference_probe_amplitude = None
+        reference_probe_duration = 2.0
+        sigma = 0.05
+        uncertainty_ratio_min = 0.3
+        update_strength = 0.05
     
-    result_folder = os.getenv('RESULT_FOLDER', str(PROJECT_ROOT / 'results' / 'default'))
+    # All results go under experiments/ (run.sh sets RESULT_FOLDER via EXP_EVAL_DIR)
+    result_folder = os.getenv('RESULT_FOLDER')
+    if not result_folder:
+        result_folder = str(PROJECT_ROOT / 'experiments' / 'standalone_default' / 'eval')
+        import warnings
+        warnings.warn(f'RESULT_FOLDER not set; using {result_folder}')
     os.makedirs(result_folder, exist_ok=True)
     
     # Time parameters
@@ -133,8 +154,14 @@ if __name__ == '__main__':
     # ========== Method Selection ==========
     if args.methods:
         method_names = [m.strip() for m in args.methods.split(',') if m.strip()]
+    elif config:
+        methods_cfg = config.get('experiment', {}).get('methods')
+        if methods_cfg:
+            method_names = list(methods_cfg) if isinstance(methods_cfg, (list, tuple)) else [m.strip() for m in str(methods_cfg).split(',') if m.strip()]
+        else:
+            method_names = ['RANDOM', 'ENTROPY', 'ODE']
     else:
-        method_names = ['iNN', 'NN', 'ODE', 'ENTROPY', 'RANDOM']
+        method_names = ['RANDOM', 'ENTROPY', 'ODE', 'iNN', 'NN', 'DAD']
     
     # Design space: N buses × len(probe_amplitudes) = number of (bus, amplitude) designs ξ
     num_designs = N * len(probe_amplitudes)
@@ -151,6 +178,13 @@ if __name__ == '__main__':
     print(f"  M bounds: [{M_lower_base}, {M_upper_base}]")
     print(f"  K bounds: [{K_lower_base}, {K_upper_base}]")
     print(f"  probe_amplitudes={probe_amplitudes}")
+    print(f"  reference_probe: bus={reference_probe_bus}, amplitude={reference_probe_amplitude}, duration={reference_probe_duration}")
+    print(f"  observation_noise sigma={sigma} Hz/s")
+    if reference_probe_bus is None or reference_probe_amplitude is None or (isinstance(reference_probe_amplitude, (int, float)) and reference_probe_amplitude <= 0):
+        raise ValueError(
+            "swing_equation.reference_probe_bus and reference_probe_amplitude (positive) must be set in config "
+            "so γ* is non-trivial and MOCU differs across methods (design §3)."
+        )
     mocu_model = os.getenv('MOCU_MODEL_NAME', '')
     if mocu_model:
         print(f"  MOCU model (iNN/NN): {mocu_model}")
@@ -179,7 +213,10 @@ if __name__ == '__main__':
     # ========== Choose MOCU backend ==========
     import torch
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
-    print(f"Using torchdiffeq for MOCU computation (device: {device})")
+    use_pycuda = os.environ.get('USE_PYCUDA', '1') in ('1', 'true', 'yes')
+    from src.core.swing_equation_mocu import get_mocu_swing_computer
+    _mocu_fn, backend = get_mocu_swing_computer(use_pycuda=use_pycuda)
+    print(f"Using {backend} for MOCU computation (device: {device})")
     
     # Clean up any old environment variables
     if 'USE_PYCUDA_FOR_BASELINES' in os.environ:
@@ -190,6 +227,7 @@ if __name__ == '__main__':
     
     # ========== Results storage ==========
     save_MOCU_matrix = np.zeros([update_cnt + 1, len(method_names), numberOfSimulationsPerMethod])
+    method_status = {m: {'status': 'OK', 'reason': ''} for m in method_names}
     
     # ========== Main simulation loop ==========
     sim_pbar = tqdm(total=numberOfSimulationsPerMethod, desc="Simulations", unit="sim", ncols=100, mininterval=1.0)
@@ -203,7 +241,7 @@ if __name__ == '__main__':
             generate_random_system(
                 N, B, P_m, D, g,
                 M_lower_base, M_upper_base, K_lower_base, K_upper_base,
-                seed=random_seed
+                seed=random_seed, uncertainty_ratio_min=uncertainty_ratio_min
             )
         
         numberOfSimulations += 1
@@ -218,11 +256,12 @@ if __name__ == '__main__':
         np.savetxt(init_bounds_file, [M_lower_init, M_upper_init, K_lower_init, K_upper_init], fmt='%.64e')
         
         # ========== Compute initial MOCU (batched: one call with K_max*it_idx) ==========
+        # Use SAME bounds as methods (M_lower_init, etc.) for a self-consistent curve.
+        # Step 0 = MOCU before any probes; steps 1+ = MOCU after each probe.
+        # (Using full base bounds made step 0 artificially large and caused a misleading one-step drop.)
         timeMOCU = time.time()
-        # Batched version: single MOCU_swing_equation call with K_total = K_max * it_idx
-        # (same expectation as averaging it_idx calls with K_max each; much faster)
         K_total = K_max * it_idx
-        MOCUInitial = MOCU_swing_equation(
+        MOCUInitial = _mocu_fn(
             K_max=K_total,
             B=B,
             P_m=P_m,
@@ -237,11 +276,16 @@ if __name__ == '__main__':
             h=h,
             T=T,
             M_steps=MReal,
+            reference_probe_bus=reference_probe_bus,
+            reference_probe_amplitude=reference_probe_amplitude,
+            reference_probe_duration=reference_probe_duration,
             seed=random_seed,
             device=device
         )
         elapsed = time.time() - timeMOCU
         sim_pbar.write(f'  Initial MOCU: {MOCUInitial:.6f} ({elapsed:.1f}s)')
+        if MOCUInitial < 1e-6:
+            sim_pbar.write('  WARNING: Initial MOCU ≈ 0. Set swing_equation.reference_probe_amplitude larger so γ* is non-trivial (design §3).')
         
         # Save initial MOCU for this simulation (for DAD to use same value)
         initial_mocu_file = os.path.join(result_folder, f'initial_MOCU_{numberOfVaildSimulations}.txt')
@@ -255,7 +299,7 @@ if __name__ == '__main__':
         def redirect_print(*args, **kwargs):
             """Redirect print to tqdm.write() to avoid interfering with progress bars."""
             msg = ' '.join(str(arg) for arg in args)
-            if any(marker in msg for marker in ['[iNN]', '[NN]', '[ODE]', '[iODE]', '[ENTROPY]', '[RANDOM]']):
+            if any(marker in msg for marker in ['[iNN]', '[NN]', '[ODE]', '[iODE]', '[ENTROPY]', '[RANDOM]', '[DAD']):
                 if any(important in msg for important in ['Warning:', 'Error:', 'ERROR']):
                     method_pbar.write(f'  {msg}')
             else:
@@ -293,11 +337,19 @@ if __name__ == '__main__':
                 
                 elif method_name == 'ODE':
                     from src.methods import ODE_Method
+                    _ref_bus = 0 if reference_probe_bus is None else reference_probe_bus
+                    _ref_amp = 0.5 if reference_probe_amplitude is None else reference_probe_amplitude
+                    _ref_dur = reference_probe_duration or 2.0
                     method = ODE_Method(N, K_max, deltaT, MReal, TReal, it_idx,
                                        B=B, P_m=P_m, D=D, g=g,
                                        probe_amplitudes=probe_amplitudes,
                                        probe_duration=probe_duration,
-                                       r_max=r_max, f_min=f_min)
+                                       r_max=r_max, f_min=f_min, sigma=sigma,
+                                       reference_probe_bus=_ref_bus,
+                                       reference_probe_amplitude=_ref_amp,
+                                       reference_probe_duration=_ref_dur,
+                                       M_lower_base=M_lower_base, M_upper_base=M_upper_base,
+                                       K_lower_base=K_lower_base, K_upper_base=K_upper_base)
                 
                 elif method_name == 'ENTROPY':
                     from src.methods import ENTROPY_Method
@@ -314,10 +366,13 @@ if __name__ == '__main__':
                                           seed=numberOfVaildSimulations)
                 
                 elif method_name == 'DAD':
-                    # DAD is evaluated in step6 (dad_eval.py) with a trained policy, not in this baseline loop
-                    method_pbar.write(f'  ⚠️  Skipping {method_name}: evaluated in Step 6 (dad_eval.py) with trained policy')
-                    method_pbar.write(f'  ⚠️  Run steps 4–5 first, then step6_evaluate_dad.sh to evaluate DAD')
-                    continue
+                    from src.methods.dad_policy import DAD_MOCU_Method
+                    policy_path = os.environ.get('DAD_POLICY_PATH') or None
+                    method = DAD_MOCU_Method(N, K_max, deltaT, MReal, TReal, it_idx,
+                                            policy_model_path=policy_path,
+                                            probe_amplitudes=probe_amplitudes,
+                                            probe_duration=probe_duration,
+                                            B=B)
                 
                 else:
                     print(f"Unknown method: {method_name}")
@@ -340,7 +395,12 @@ if __name__ == '__main__':
                     r_max=r_max,
                     f_min=f_min,
                     update_cnt=update_cnt,
-                    initial_mocu=MOCUInitial
+                    initial_mocu=MOCUInitial,
+                    reference_probe_bus=reference_probe_bus,
+                    reference_probe_amplitude=reference_probe_amplitude,
+                    reference_probe_duration=reference_probe_duration,
+                    sigma=sigma,
+                    update_strength=update_strength
                 )
                 
                 # Restore original print
@@ -369,10 +429,11 @@ if __name__ == '__main__':
                 save_MOCU_matrix[:, method_idx, numberOfVaildSimulations] = MOCUCurve
             
             except Exception as e:
-                # Restore original print before error handling
                 import builtins
                 builtins.print = original_print
-                method_pbar.write(f'  ✗ Error running {method_name}: {e}')
+                reason = f"{type(e).__name__}: {str(e)[:200]}"
+                method_status[method_name] = {'status': 'SKIPPED', 'reason': reason}
+                method_pbar.write(f'  ✗ {method_name} skipped: {reason}')
                 import traceback
                 traceback.print_exc()
                 continue
@@ -391,9 +452,74 @@ if __name__ == '__main__':
     mean_MOCU_matrix = np.mean(save_MOCU_matrix, axis=2)
     print("\nMean MOCU values across all simulations:")
     print(mean_MOCU_matrix)
-    
+
+    # Primary metrics: Terminal MOCU (most important) and AUC (area under MOCU curve)
+    # mean_MOCU_matrix shape: (steps, methods)
+    terminal_MOCU = mean_MOCU_matrix[-1, :]  # final-step mean per method
+    x_steps = np.arange(update_cnt + 1, dtype=float)
+    _trapz = getattr(np, 'trapezoid', np.trapz)
+    auc_per_method = np.array([_trapz(mean_MOCU_matrix[:, j], x_steps) for j in range(len(method_names))])
+    print("\n--- Primary metrics ---")
+    print("Terminal MOCU (main metric, lower=better):")
+    for j, m in enumerate(method_names):
+        print(f"  {m}: {terminal_MOCU[j]:.6f}")
+    print("AUC (area under MOCU curve, lower=better):")
+    for j, m in enumerate(method_names):
+        print(f"  {m}: {auc_per_method[j]:.6f}")
+
     outMOCUFile = open(os.path.join(result_folder, 'mean_MOCU.txt'), 'w')
     np.savetxt(outMOCUFile, mean_MOCU_matrix, delimiter="\t")
     outMOCUFile.close()
+
+    # Save metrics for easy parsing
+    metrics_lines = ["method\tterminal_MOCU\tAUC"]
+    for j, m in enumerate(method_names):
+        metrics_lines.append(f"{m}\t{terminal_MOCU[j]:.6f}\t{auc_per_method[j]:.6f}")
+    with open(os.path.join(result_folder, 'metrics.txt'), 'w') as f:
+        f.write('\n'.join(metrics_lines))
+
+    # ========== Generate report ==========
+    exp_root = Path(result_folder).parent
+    config_path_str = str(args.config) if args.config else 'N/A'
+    report_lines = [
+        "",
+        "--- Evaluation (Step 3) ---",
+        f"Completed: {time.strftime('%Y-%m-%d %H:%M:%S')}",
+        f"N={N}, update_cnt={update_cnt}, it_idx={it_idx}, K_max={K_max}",
+        f"Simulations: {numberOfSimulationsPerMethod}",
+        "",
+        "Method Status:",
+    ]
+    for m in method_names:
+        st = method_status[m]
+        report_lines.append(f"  {m}: {st['status']}" + (f" - {st['reason']}" if st['reason'] else ""))
+    report_lines.extend([
+        "",
+        "Mean MOCU (rows=steps, cols=methods):",
+        np.array2string(mean_MOCU_matrix, precision=6),
+        "",
+        "--- Primary metrics ---",
+        "Terminal MOCU (main metric, lower=better):",
+    ])
+    for j, m in enumerate(method_names):
+        report_lines.append(f"  {m}: {terminal_MOCU[j]:.6f}")
+    report_lines.extend([
+        "AUC (area under MOCU curve, lower=better):",
+    ])
+    for j, m in enumerate(method_names):
+        report_lines.append(f"  {m}: {auc_per_method[j]:.6f}")
+    report_path = exp_root / 'report.txt'
+    mode = 'a' if report_path.exists() else 'w'
+    if mode == 'w':
+        report_lines = [
+            "=" * 60,
+            "MOCU-OED Experiment Report",
+            "=" * 60,
+            f"Config: {config_path_str}",
+            f"Started: {time.strftime('%Y-%m-%d %H:%M:%S')}",
+        ] + report_lines
+    with open(report_path, mode) as f:
+        f.write('\n'.join(report_lines))
     
     print(f"\n✓ Results saved to: {result_folder}")
+    print(f"✓ Report saved to: {report_path}")

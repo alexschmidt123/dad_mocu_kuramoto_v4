@@ -1,10 +1,8 @@
 """
 ODE-based OED Method for Swing Equation
 
-Uses exact MOCU computation (Monte Carlo sampling) to greedily select probe actions.
-This is the most accurate but slowest method.
-
-For swing equation: Computes expected MOCU for all probe actions (b, A, T).
+Aligns with accelerateOED mocu_strategy: greedy selection minimizing expected MOCU.
+Recomputes R matrix each step using current bounds and proper observation model.
 """
 
 import time
@@ -18,14 +16,18 @@ sys.path.append(str(PROJECT_ROOT))
 
 from src.methods.base import OEDMethod
 
-# Import swing equation MOCU
+# Import swing equation MOCU and likelihood
 try:
-    from src.core.swing_equation_mocu import MOCU_swing_equation
+    from src.core.swing_equation_mocu import MOCU_swing_equation, get_mocu_swing_computer
     from src.core.swing_equation_params import get_default_swing_equation_params
+    from src.core.likelihood import mu_theta_xi
+    from scripts.data_generation.generate_dad_data import update_bounds_bayesian
     SWING_EQUATION_AVAILABLE = True
-except ImportError:
+except ImportError as e:
     SWING_EQUATION_AVAILABLE = False
-    print("[WARNING] Swing equation modules not available")
+    mu_theta_xi = None
+    update_bounds_bayesian = None
+    print(f"[WARNING] Swing equation modules not available: {e}")
 
 try:
     import torch
@@ -36,47 +38,38 @@ except ImportError:
 
 class ODE_Method(OEDMethod):
     """
-    ODE-based method using sampling (ground truth MOCU computation) for swing equation.
-    
-    This method computes the expected MOCU for all possible probe actions
-    using Monte Carlo sampling. It's the most accurate but computationally expensive.
-    
-    Static version: computes R matrix once and reuses it.
+    ODE-based method: greedy selection minimizing expected MOCU (accelerateOED style).
+    Uses TRUE MOCU (MOCU_swing_equation) throughout—no MPNN or other estimates.
+    Order matters: E[MOCU|ξ] is recomputed each step from current belief (history);
+    δ MOCU for a design ξ at step t differs from its value at step t' because the
+    prior (belief state) differs.
     """
-    
+
     def __init__(self, N, K_max, deltaT, MReal, TReal, it_idx,
                  B=None, P_m=None, D=None, g=None,
                  probe_amplitudes=None, probe_duration=2.0,
-                 r_max=0.5, f_min=59.5, gpu_id=0):
-        """
-        Args:
-            N: Number of buses
-            K_max: Number of Monte Carlo samples for MOCU
-            deltaT: Time step
-            MReal: Number of time steps
-            TReal: Time horizon
-            it_idx: Number of MOCU averaging iterations
-            B: Coupling matrix [N, N] (optional, will generate if not provided)
-            P_m: Mechanical power [N] (optional, will generate if not provided)
-            D: Damping coefficient (optional, default 0.1)
-            g: Control allocation [N] (optional, will generate if not provided)
-            probe_amplitudes: List of probe amplitude options (default: [0.5, 1.0, 2.0])
-            probe_duration: Probe duration T (default: 2.0s)
-            r_max: Maximum ROCOF constraint (default: 0.5 Hz/s)
-            f_min: Minimum frequency constraint (default: 49.5 Hz for 50 Hz nominal)
-            gpu_id: GPU device ID
-        """
+                 r_max=0.5, f_min=49.8, sigma=0.05,
+                 reference_probe_bus=0, reference_probe_amplitude=0.5, reference_probe_duration=2.0,
+                 M_lower_base=0.01, M_upper_base=0.06, K_lower_base=0.05, K_upper_base=0.50,
+                 n_mc_samples=4, gpu_id=0):
         super().__init__(N, K_max, deltaT, MReal, TReal, it_idx)
-        
+
         self.probe_amplitudes = probe_amplitudes if probe_amplitudes else [0.5, 1.0, 2.0]
         self.probe_duration = probe_duration
         self.r_max = r_max
         self.f_min = f_min
-        self.R_matrix = np.zeros((N, len(self.probe_amplitudes)))
-        
-        # System parameters (fixed, known)
+        self.sigma = sigma
+        self.reference_probe_bus = reference_probe_bus
+        self.reference_probe_amplitude = reference_probe_amplitude
+        self.reference_probe_duration = reference_probe_duration
+        self.M_lower_base = M_lower_base
+        self.M_upper_base = M_upper_base
+        self.K_lower_base = K_lower_base
+        self.K_upper_base = K_upper_base
+        self.n_mc_samples = max(1, n_mc_samples)  # MC over y; 1=fast, 4+=accurate
+
+        # System parameters
         if B is None or P_m is None or D is None or g is None:
-            # Generate default parameters
             system_params = get_default_swing_equation_params(N=N, topology='ieee14')
             self.B = system_params['B']
             self.P_m = system_params['P_m']
@@ -87,145 +80,103 @@ class ODE_Method(OEDMethod):
             self.P_m = P_m
             self.D = D
             self.g = g
-        
-        # Device
+
         self.device = 'cuda' if (TORCHDIFFEQ_AVAILABLE and torch.cuda.is_available()) else 'cpu'
-        
-        print(f"[ODE] Initialized (static version, device: {self.device})")
+
+        print(f"[ODE] Initialized (iterative E[MOCU], n_mc={n_mc_samples}, device={self.device})")
     
-    def _compute_expected_mocu_matrix(self, M_lower, M_upper, K_lower, K_upper):
+    def _compute_expected_mocu_matrix(self, M_lower, M_upper, K_lower, K_upper, history):
         """
-        Compute R matrix using ground truth MOCU (sampling-based).
-        
-        For each possible probe action (b, A):
-        - Simulate bound update after probe
-        - Compute expected MOCU
-        
-        This is VERY slow but gives exact expected values.
-        
-        Args:
-            M_lower, M_upper, K_lower, K_upper: Current uncertainty bounds
-        
-        Returns:
-            R_matrix: [N, len(probe_amplitudes)] matrix with expected MOCU
+        Compute R[b,a] = E[MOCU | design (b,A)] using TRUE MOCU (no approximation).
+
+        Full Monte Carlo: for each (b,A), sample (M,K)~prior, y~N(μ(M,K,ξ),σ²),
+        compute posterior p(θ|history,y), compute TRUE MOCU via MOCU_swing_equation, average.
+        Order matters: history encodes the sequence [ξ_1, ξ_2, ...]; posterior and thus
+        δ MOCU for ξ at step t depends on the current belief state.
         """
-        if not SWING_EQUATION_AVAILABLE:
-            raise RuntimeError("Swing equation modules not available")
-        
+        if not SWING_EQUATION_AVAILABLE or mu_theta_xi is None or update_bounds_bayesian is None:
+            raise RuntimeError("Swing equation and likelihood modules required for ODE")
+
         R_matrix = np.zeros((self.N, len(self.probe_amplitudes)))
-        
-        # For each probe action (b, A), compute expected MOCU
-        # This is simplified - in practice would need observation model p(y | M, K, ξ)
+
         for b in range(self.N):
             for a_idx, A in enumerate(self.probe_amplitudes):
-                # Heuristic: Simulate bound update after probe
-                # In practice, would use observation model to compute expected MOCU
-                M_lower_new, M_upper_new, K_lower_new, K_upper_new = \
-                    self._simulate_probe_update(M_lower, M_upper, K_lower, K_upper, b, A)
-                
-                # Compute MOCU for updated bounds
-                mocu_vals = np.zeros(self.it_idx)
-                for l in range(self.it_idx):
-                    mocu_vals[l] = MOCU_swing_equation(
-                        K_max=self.K_max,
-                        B=self.B,
-                        P_m=self.P_m,
-                        D=self.D,
-                        M_lower=M_lower_new,
-                        M_upper=M_upper_new,
-                        K_lower=K_lower_new,
-                        K_upper=K_upper_new,
-                        g=self.g,
-                        r_max=self.r_max,
-                        f_min=self.f_min,
-                        h=self.deltaT,
-                        T=self.TReal,
-                        M_steps=self.MReal,
-                        seed=l,
-                        device=self.device
-                    )
-                
-                R_matrix[b, a_idx] = np.mean(mocu_vals)
-        
+                xi = (b + 1, float(A), float(self.probe_duration))
+                probe_action = (b, float(A), self.probe_duration)
+                mocu_sum = 0.0
+                n_ok = 0
+                for _ in range(self.n_mc_samples):
+                    M_sample = np.random.uniform(M_lower, M_upper)
+                    K_sample = np.random.uniform(K_lower, K_upper)
+                    try:
+                        mu = mu_theta_xi(
+                            (M_sample, K_sample), xi,
+                            self.B, self.P_m, self.D, self.g,
+                            h=self.deltaT, T=self.TReal, M_steps=self.MReal,
+                            device=self.device
+                        )
+                        y = float(mu + self.sigma * np.random.randn())
+                    except Exception:
+                        continue
+                    obs_tuples = list(history) + [(probe_action, {'ROCOF_max': y})]
+                    try:
+                        Ml, Mu, Kl, Ku = update_bounds_bayesian(
+                            M_lower, M_upper, K_lower, K_upper, obs_tuples,
+                            self.M_lower_base, self.M_upper_base,
+                            self.K_lower_base, self.K_upper_base,
+                            B=self.B, P_m=self.P_m, D=self.D, g=self.g,
+                            h=self.deltaT, T=self.TReal, M_steps=self.MReal,
+                            sigma=self.sigma, n_particles=64, device=self.device
+                        )
+                        _mocu_fn, _ = get_mocu_swing_computer()
+                        m = _mocu_fn(
+                            K_max=self.K_max, B=self.B, P_m=self.P_m, D=self.D,
+                            M_lower=Ml, M_upper=Mu, K_lower=Kl, K_upper=Ku,
+                            g=self.g, r_max=self.r_max, f_min=self.f_min,
+                            h=self.deltaT, T=self.TReal, M_steps=self.MReal,
+                            reference_probe_bus=self.reference_probe_bus,
+                            reference_probe_amplitude=self.reference_probe_amplitude,
+                            reference_probe_duration=self.reference_probe_duration,
+                            seed=np.random.randint(0, 2**31),
+                            device=self.device
+                        )
+                        mocu_sum += float(m)
+                        n_ok += 1
+                    except Exception:
+                        pass
+                R_matrix[b, a_idx] = mocu_sum / n_ok if n_ok > 0 else np.inf
+
         return R_matrix
-    
-    def _simulate_probe_update(self, M_lower, M_upper, K_lower, K_upper, probe_bus, probe_amplitude):
-        """Simulate bound update after probe (heuristic)."""
-        update_strength = 0.1
-        
-        M_range = M_upper - M_lower
-        K_range = K_upper - K_lower
-        
-        M_lower_new = M_lower + update_strength * M_range * 0.1
-        M_upper_new = M_upper - update_strength * M_range * 0.1
-        K_lower_new = K_lower + update_strength * K_range * 0.1
-        K_upper_new = K_upper - update_strength * K_range * 0.1
-        
-        M_lower_new = max(M_lower, M_lower_new)
-        M_upper_new = min(M_upper, M_upper_new)
-        K_lower_new = max(K_lower, K_lower_new)
-        K_upper_new = min(K_upper, K_upper_new)
-        
-        if M_lower_new >= M_upper_new:
-            M_lower_new, M_upper_new = M_lower, M_upper
-        if K_lower_new >= K_upper_new:
-            K_lower_new, K_upper_new = K_lower, K_upper
-        
-        return M_lower_new, M_upper_new, K_lower_new, K_upper_new
     
     def select_experiment(self, M_lower, M_upper, K_lower, K_upper, history,
                          probe_amplitudes=None, probe_duration=None):
         """
-        Select next probe action using static ODE strategy.
-        
-        Computes R matrix only once, then greedily selects from it.
-        
-        Args:
-            M_lower, M_upper, K_lower, K_upper: Current uncertainty bounds
-            history: List of (probe_action, observation) tuples
-            probe_amplitudes: Probe amplitude options (optional)
-            probe_duration: Probe duration (optional)
-        
-        Returns:
-            (probe_bus, probe_amplitude, probe_duration): Selected probe action
+        Select probe action that minimizes expected MOCU (greedy, iterative).
+        Recomputes R each step using current bounds and Bayesian observation model.
         """
         if probe_amplitudes is None:
             probe_amplitudes = self.probe_amplitudes
         if probe_duration is None:
             probe_duration = self.probe_duration
-        
-        # Compute R matrix only on first call
-        if not np.any(self.R_matrix):
-            print("[ODE] Computing expected MOCU matrix (static, once only)...")
-            print("[ODE] Warning: This may take a LONG time (exact sampling)...")
-            self.R_matrix = self._compute_expected_mocu_matrix(M_lower, M_upper, K_lower, K_upper)
-        
-        # Mask out already selected probe actions
+
+        R_matrix = self._compute_expected_mocu_matrix(
+            M_lower, M_upper, K_lower, K_upper, history
+        )
+
+        # Mask already-selected designs
         for (probe_action, _) in history:
             if isinstance(probe_action, tuple) and len(probe_action) >= 2:
                 b, A = probe_action[0], probe_action[1]
-                if b < self.N:
-                    a_idx = probe_amplitudes.index(A) if A in probe_amplitudes else 0
-                    if a_idx < len(probe_amplitudes):
-                        self.R_matrix[b, a_idx] = np.inf
-        
-        # Find probe action with minimum expected MOCU
-        valid_R_values = self.R_matrix[np.isfinite(self.R_matrix)]
-        
-        if valid_R_values.size == 0:
-            print("[ODE] Warning: No valid probe actions left!")
+                if 0 <= b < self.N and A in probe_amplitudes:
+                    a_idx = probe_amplitudes.index(A)
+                    R_matrix[b, a_idx] = np.inf
+
+        valid = np.isfinite(R_matrix)
+        if not np.any(valid):
             return (0, probe_amplitudes[0], probe_duration)
-        
-        min_val = np.min(valid_R_values)
-        min_indices = np.where(self.R_matrix == min_val)
-        
-        if len(min_indices[0]) > 0:
-            b_idx = int(min_indices[0][0])
-            a_idx = int(min_indices[1][0])
-            probe_bus = b_idx
-            probe_amplitude = probe_amplitudes[a_idx] if a_idx < len(probe_amplitudes) else probe_amplitudes[0]
-        else:
-            probe_bus = 0
-            probe_amplitude = probe_amplitudes[0]
-        
-        return (probe_bus, probe_amplitude, probe_duration)
+
+        min_val = np.min(R_matrix[valid])
+        idx = np.where(R_matrix == min_val)
+        b_idx = int(idx[0][0])
+        a_idx = int(idx[1][0])
+        return (b_idx, probe_amplitudes[a_idx], probe_duration)

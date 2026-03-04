@@ -142,9 +142,10 @@ class SwingEquationODE(torch.nn.Module):
         theta_j = theta.unsqueeze(0)   # [1, N]
         coupling = torch.sum(self.B * torch.sin(theta_j - theta_i), dim=1)  # [N]
         
-        # Control input: u_ctrl = γ * g_i * ω_i
+        # Control input: u_ctrl = -γ * g_i * ω_i (primary frequency response: oppose deviation)
+        # Design: "inject power when frequency drops" → u positive when ω<0, so u = -γ g ω
         if self.gamma is not None:
-            u_ctrl = self.gamma * self.g * omega  # [N]
+            u_ctrl = -self.gamma * self.g * omega  # [N]
         else:
             u_ctrl = torch.zeros_like(omega)
         
@@ -263,7 +264,8 @@ class SwingEquationODEBatch(torch.nn.Module):
             gam = self.gamma
             if gam.dim() == 0 or gam.shape[0] != batch:
                 gam = gam.expand(batch)
-            u_ctrl = gam.view(batch, 1) * self.g.unsqueeze(0) * omega
+            # Primary frequency response: u = -γ g ω (oppose frequency deviation)
+            u_ctrl = -gam.view(batch, 1) * self.g.unsqueeze(0) * omega
         u_probe = torch.zeros_like(omega)
         if self.probe_bus is not None and self.probe_amplitude is not None:
             window_val = self.hann_window(t, self.probe_duration)
@@ -467,7 +469,7 @@ def solve_swing_equation_ode(B, P_m, D, M, K, g, gamma=None,
         raise RuntimeError(f"ODE solving failed after {elapsed:.2f}s: {e}") from e
 
 
-def extract_frequency_features(omega_trajectory, h, fs=12.0):
+def extract_frequency_features(omega_trajectory, h, fs=12.0, probe_bus=None):
     """
     Extract frequency features from ω trajectory.
     
@@ -483,6 +485,9 @@ Based on design_part1.tex Section 4:
         omega_trajectory: [M, N] frequency trajectory from ODE (numpy array)
         h: ODE time step (float, e.g., 1/160 s)
         fs: Observation sampling frequency (float, default 12.0 Hz, matches design_part1.tex)
+        probe_bus: If provided (0-based index), use ROCOF at probed bus only (max over time).
+                   This makes the observation depend on probe location so different probes
+                   yield different y; when None, use system-wide max (design §4.2).
     
     Returns:
         features: Dictionary with extracted features
@@ -512,7 +517,12 @@ Based on design_part1.tex Section 4:
     
     # Compute ROCOF (Rate of Change of Frequency): d(Δf)/dt at observation rate
     rocof = np.gradient(freq_trajectory_obs, axis=0) / h_obs  # [M_obs, N]
-    rocof_max = np.max(np.abs(rocof))  # Maximum ROCOF across all buses and time
+    if probe_bus is not None and 0 <= probe_bus < N:
+        # Bus-local: max ROCOF over time at probed bus (makes probe choice matter)
+        rocof_max = np.max(np.abs(rocof[:, probe_bus]))
+    else:
+        # System-wide: max across all buses and time (design §4.2)
+        rocof_max = np.max(np.abs(rocof))
     
     # Minimum absolute frequency (from downsampled observations)
     # freq_trajectory_obs is frequency deviation Δf, so absolute frequency = f_nominal + Δf

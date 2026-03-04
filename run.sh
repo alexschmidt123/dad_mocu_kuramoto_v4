@@ -1,6 +1,6 @@
 #!/bin/bash
 # Main pipeline script for second-order Kuramoto (swing equation) with active probing
-# Based on documents/design_part1.tex and design_part2.tex (MOCU-based sBOED)
+# Based on documents/design.md and documents/pseudocode.tex (MOCU-based sBOED)
 
 set -e
 
@@ -9,7 +9,7 @@ if [ $# -lt 1 ]; then
     echo "Usage: $0 <config_file> [K_value]"
     echo ""
     echo "Examples:"
-    echo "  $0 config/fast_config.yaml         # Fast test (IEEE-14)"
+    echo "  $0 config/fast_config.yaml         # Fast (IEEE-14)"
     echo "  $0 config/balanced_config.yaml     # Deeper testing (balanced)"
     echo "  $0 config/full_config.yaml         # Full publication experiment"
     echo ""
@@ -61,10 +61,21 @@ echo "Run timestamp: $TIMESTAMP"
 echo "Model type: $MODEL_TYPE"
 echo ""
 
-# Create experiment directory
+# Create experiment directory and report
 EXP_DIR="${PROJECT_ROOT}/experiments/${CONFIG_NAME}_${TIMESTAMP}"
 mkdir -p "$EXP_DIR"
+export EXP_DIR
+export EXP_REPORT="${EXP_DIR}/report.txt"
+{
+  echo "=============================================="
+  echo "MOCU-OED Experiment Report"
+  echo "=============================================="
+  echo "Config: $CONFIG_FILE"
+  echo "Started: $(date '+%Y-%m-%d %H:%M:%S')"
+  echo ""
+} > "$EXP_REPORT"
 echo "Experiment directory: $EXP_DIR"
+echo "Report: $EXP_REPORT"
 echo ""
 
 # Parse experiment parameters
@@ -136,8 +147,15 @@ echo "=========================================="
 echo "✓ Experiment completed successfully!"
 echo "=========================================="
 echo "Results saved to: $EXP_DIR"
+echo "Report: $EXP_REPORT"
 echo ""
+{
+  echo ""
+  echo "--- Pipeline Complete ---"
+  echo "Finished: $(date '+%Y-%m-%d %H:%M:%S')"
+} >> "$EXP_REPORT"
 echo "To view results:"
+echo "  - Report: $EXP_REPORT"
 echo "  - Baseline evaluation: $EXP_DIR/eval/"
 echo "  - DAD policies: $EXP_DIR/dad_models/"
 echo "  - Final results: $EXP_DIR/results/"

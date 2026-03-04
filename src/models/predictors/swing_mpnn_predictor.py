@@ -1,9 +1,8 @@
 """
-MPNN MOCU Predictor for Swing Equation (design_part1.tex Section 7.2).
+MPNN MOCU Predictor for Swing Equation (design §7).
 
-Uses IEEE-14 graph topology B_ij to map latent bounds (M_low, M_up, K_low, K_up)
-and optional probe (bus, amplitude) to MOCU. Provides a graph-aware surrogate
-for fast, reliable MOCU estimation when MLP is insufficient.
+Surrogate for MOCU(p) = E[J(γ̂(p), ϑ)]. Uses IEEE-14 graph topology B_ij to map
+latent bounds (M_low, M_up, K_low, K_up) and optional probe to predicted MOCU(p).
 """
 
 import torch
@@ -39,8 +38,7 @@ def _build_edge_index_from_B(B, device):
 
 class SwingMPNNPredictor(nn.Module):
     """
-    MPNN that leverages graph topology B to predict MOCU from (M,K) bounds.
-    design_part1.tex Section 7.2: map (θ_low, θ_up) and probe ξ to MOCU.
+    MPNN that predicts MOCU(p) from (M,K) bounds and optional probe (design §7).
     """
 
     def __init__(self, B, node_dim=1, hidden_dim=64, out_dim=32, dropout=0.1,

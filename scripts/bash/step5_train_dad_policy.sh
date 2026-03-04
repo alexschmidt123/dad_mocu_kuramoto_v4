@@ -208,4 +208,10 @@ done
 
 echo ""
 echo "✓ DAD policy training complete"
+[ -n "$EXP_REPORT" ] && {
+    echo "" >> "$EXP_REPORT"
+    echo "--- DAD Policy Training (Step 5) ---" >> "$EXP_REPORT"
+    echo "  Status: OK" >> "$EXP_REPORT"
+    echo "  Output: $POLICY_OUTPUT_DIR" >> "$EXP_REPORT"
+}
 

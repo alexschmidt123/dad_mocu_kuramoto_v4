@@ -157,6 +157,21 @@ plt.savefig(mocu_plot_path, dpi=300)
 plt.close()
 print(f"✓ Saved MOCU plot: {mocu_plot_path}")
 
+# Print primary metrics: Terminal MOCU and AUC
+print("\n--- Primary metrics ---")
+print("Terminal MOCU (main metric, lower=better):")
+for method in available_methods:
+    mocu_curve = method_data[method]['mocu']
+    terminal = float(mocu_curve[-1])
+    print(f"  {method}: {terminal:.6f}")
+print("AUC (area under MOCU curve, lower=better):")
+x_steps = np.arange(len(method_data[available_methods[0]]['mocu']), dtype=float)
+_trapz = getattr(np, 'trapezoid', np.trapz)
+for method in available_methods:
+    mocu_curve = method_data[method]['mocu']
+    auc_val = float(_trapz(mocu_curve, x_steps))
+    print(f"  {method}: {auc_val:.6f}")
+
 # Plot time complexity
 x_ax = np.arange(0, update_cnt + 1, 1)
 fig = plt.figure()

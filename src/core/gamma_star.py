@@ -1,8 +1,8 @@
 """
-Compute γ*(θ) - minimum control capacity to satisfy frequency constraints.
+Compute γ*(ϑ) — minimal safe gain (design §3).
 
-Based on documents/design_part1.tex Section 1:
-γ*(θ) = min_γ s.t. max_t |df/dt| <= r_max, min_t f(t) >= f_min
+γ*(ϑ) = inf{γ ≥ 0 : under reference contingency, ∀t |ḟ| ≤ r_max and f ≥ f_min}.
+Used in cost J(γ, ϑ) = |γ − γ*(ϑ)| and MOCU(p) = E[J(γ̂(p), ϑ)].
 """
 
 import sys
@@ -17,9 +17,10 @@ from .swing_equation_mocu import binary_search_gamma_star
 __all__ = ['gamma_star']
 
 
-def gamma_star(theta, B, P_m, D, g, r_max=0.5, f_min=59.5,
+def gamma_star(theta, B, P_m, D, g, r_max=0.1, f_min=49.8,
                h=1.0/160.0, T=10.0, M_steps=None,
                gamma_min=0.0, gamma_max=100.0, max_iterations=20, tol=0.01,
+               reference_probe_bus=None, reference_probe_amplitude=None, reference_probe_duration=2.0,
                device='cuda'):
     """
     Compute γ*(θ) for a given parameter θ = (M, K).
@@ -47,5 +48,6 @@ def gamma_star(theta, B, P_m, D, g, r_max=0.5, f_min=59.5,
         h=h, T=T, M_steps=M_steps,
         gamma_min=gamma_min, gamma_max=gamma_max,
         max_iterations=max_iterations, tol=tol,
+        reference_probe_bus=reference_probe_bus, reference_probe_amplitude=reference_probe_amplitude, reference_probe_duration=reference_probe_duration,
         device=device
     )

@@ -23,7 +23,8 @@ sys.path.insert(0, project_root)
 
 
 def extract_max_rocof(omega_series: np.ndarray, fs: float = 12.0,
-                      window_sec: float = 10.0, h: float = None) -> float:
+                      window_sec: float = 10.0, h: float = None,
+                      probe_bus: int = None) -> float:
     """
     Extract peak ROCOF from frequency deviation over the observation window.
     Matches documents/pseucocode _parameter_list.md (Design Part 1, Section 4):
@@ -36,6 +37,7 @@ def extract_max_rocof(omega_series: np.ndarray, fs: float = 12.0,
         fs: Sampling frequency (Hz), default 12.0 (PMU standard)
         window_sec: Observation window in seconds (default 10.0, T_obs in doc)
         h: ODE time step; if provided, downsample to fs first (indices = 0, step, 2*step, ...)
+        probe_bus: If provided (0-based index), use ROCOF at that bus only (makes probe choice matter)
 
     Returns:
         rocof_max: Maximum absolute ROCOF (Hz/s)
@@ -53,7 +55,10 @@ def extract_max_rocof(omega_series: np.ndarray, fs: float = 12.0,
     omega_series = omega_series[:n_window, :]
     delta_f = omega_series / (2.0 * np.pi)
     rocof_series = np.diff(delta_f, axis=0) / dt
-    rocof_max = float(np.max(np.abs(rocof_series)))
+    if probe_bus is not None and 0 <= probe_bus < rocof_series.shape[1]:
+        rocof_max = float(np.max(np.abs(rocof_series[:, probe_bus])))
+    else:
+        rocof_max = float(np.max(np.abs(rocof_series)))
     return rocof_max
 
 

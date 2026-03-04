@@ -1,11 +1,11 @@
 """
 Explicit likelihood model for measurement-level uncertainty.
 
-Based on documents/design_part1.tex Section 5:
-- Deterministic simulator mean: μ(θ, ξ_t) = ROCOF_max(Δf(·; θ, ξ_t))
-- Explicit likelihood: p(y_t | θ, ξ_t) = N(μ(θ, ξ_t), σ²)
-- Measurement noise and unmodeled effects enter via σ²
+Design document (documents/design.md) §5.1, §4.3, §9:
+- Deterministic simulator mean: μ(θ, ξ_t) = Map(θ, ξ_t) = ROCOF_max from ODE
+- Likelihood: p(y | θ, ξ) = N(μ(θ, ξ), σ²); design §9: σ_feat = 0.05 Hz/s (default)
 """
+DEFAULT_SIGMA = 0.05  # Observation noise std (Hz/s), design §9
 
 import numpy as np
 from typing import Tuple, Optional
@@ -60,7 +60,10 @@ def mu_theta_xi(theta: Tuple[float, float], xi: Tuple[int, float, float],
         N = len(P_m)
         omega_traj = state_traj[:, N:]
         if rocof_method == 'full_window':
-            rocof_max = extract_max_rocof(omega_traj, fs=fs, window_sec=T_obs_sec, h=h)
+            rocof_max = extract_max_rocof(
+                omega_traj, fs=fs, window_sec=T_obs_sec, h=h,
+                probe_bus=probe_bus_internal  # Bus-local ROCOF so probe choice matters
+            )
         else:
             rocof_max = extract_rocof(
                 omega_traj, h, fs=fs,
@@ -81,15 +84,13 @@ def log_likelihood(y: float, theta: Tuple[float, float], xi: Tuple[int, float, f
     """
     Compute log-likelihood log p(y_t | θ, ξ_t).
     
-    Based on documents/design_part1.tex Section 5:
-    p(y_t | θ, ξ_t) = N(μ(θ, ξ_t), σ²)
-    log p(y_t | θ, ξ_t) = -(y - μ)²/(2σ²) - 0.5*log(2πσ²)
+    Design §5.1: p(y | θ, ξ) = N(μ(θ, ξ), σ²); default σ = 0.05 Hz/s (§9).
     
     Args:
         y: Observed ROCOF_max (scalar)
         theta: (M, K) tuple
         xi: (b, A, T_p) tuple
-        sigma: Measurement noise standard deviation
+        sigma: Observation noise std (Hz/s); use DEFAULT_SIGMA (0.05) per design §9
         B, P_m, D, g: System parameters
         h, T, M_steps, fs, device, timeout: Simulation parameters
     
@@ -116,7 +117,7 @@ def log_likelihood_batch(y: float, thetas: np.ndarray, xi: Tuple[int, float, flo
                          rocof_window_sec: float = 0.5, rocof_eval_sec: float = 1.0) -> np.ndarray:
     """
     Compute log-likelihood for a batch of theta values using a single batched ODE solve.
-    Follows documents/design_part1.tex Section 5 and pseucocode _parameter_list.md (sigma=0.01).
+    Design §5.1; observation noise σ per design §9 (default 0.05 Hz/s).
     
     Returns:
         log_likelihoods: [N_particles] array of log p(y | θ, ξ)
@@ -142,7 +143,8 @@ def log_likelihood_batch(y: float, thetas: np.ndarray, xi: Tuple[int, float, flo
         for i in range(N_particles):
             if rocof_method == 'full_window':
                 mu_batch[i] = extract_max_rocof(
-                    omega_traj[:, i, :], fs=fs, window_sec=T_obs_sec, h=h
+                    omega_traj[:, i, :], fs=fs, window_sec=T_obs_sec, h=h,
+                    probe_bus=probe_bus_internal  # Bus-local ROCOF so probe choice matters
                 )
             else:
                 mu_batch[i] = extract_rocof(

@@ -148,7 +148,9 @@ class OEDMethod(ABC):
     
     def run_episode(self, M_lower_init, M_upper_init, K_lower_init, K_upper_init,
                     M_true, K_true, B, P_m, D, g, probe_amplitudes, probe_duration,
-                    r_max=0.5, f_min=59.5, update_cnt=10, initial_mocu=None):
+                    r_max=0.1, f_min=49.8, update_cnt=10, initial_mocu=None,
+                    reference_probe_bus=None, reference_probe_amplitude=None, reference_probe_duration=2.0,
+                    sigma=0.0, update_strength=0.05):
         """
         Run a complete OED episode for swing equation model.
         
@@ -167,8 +169,8 @@ class OEDMethod(ABC):
             g: Control allocation [N] (fixed, known)
             probe_amplitudes: List of probe amplitude options
             probe_duration: Probe duration T (seconds)
-            r_max: Maximum ROCOF constraint (Hz/s, default 0.5)
-            f_min: Minimum frequency constraint (Hz, default 49.5 for 50 Hz)
+            r_max: Maximum ROCOF constraint (Hz/s, default 0.1, design §3)
+            f_min: Minimum frequency constraint (Hz, default 49.8 for 50 Hz nominal)
             update_cnt: Number of experiments to perform
             initial_mocu: Pre-computed initial MOCU (optional)
         
@@ -206,10 +208,11 @@ class OEDMethod(ABC):
                 
                 device = 'cuda' if (torch is not None and torch.cuda.is_available()) else 'cpu'
                 
-                from ..core.swing_equation_mocu import MOCU_swing_equation
+                from ..core.swing_equation_mocu import get_mocu_swing_computer
+                _mocu_fn, _ = get_mocu_swing_computer()
                 it_temp_val = np.zeros(self.it_idx)
                 for l in range(self.it_idx):
-                    it_temp_val[l] = MOCU_swing_equation(
+                    it_temp_val[l] = _mocu_fn(
                         K_max=self.K_max,
                         B=B,
                         P_m=P_m,
@@ -224,6 +227,9 @@ class OEDMethod(ABC):
                         h=self.deltaT,
                         T=self.TReal,
                         M_steps=self.MReal,
+                        reference_probe_bus=reference_probe_bus,
+                        reference_probe_amplitude=reference_probe_amplitude,
+                        reference_probe_duration=reference_probe_duration,
                         seed=l,
                         device=device
                     )
@@ -254,7 +260,7 @@ class OEDMethod(ABC):
         try:
             from scripts.data_generation.generate_dad_data import (
                 perform_probe_experiment,
-                update_bounds as update_bounds_swing
+                update_bounds_bayesian,
             )
         except ImportError as e:
             raise ImportError(f"Failed to import swing equation functions: {e}")
@@ -302,34 +308,42 @@ class OEDMethod(ABC):
                 probe_bus = 0
             
             # Perform probe experiment (simulate observation using true parameters)
-            observation = perform_probe_experiment(
-                B, P_m, D, M_true, K_true, g,
-                probe_bus, probe_amplitude, probe_duration,
-                h, T, M_steps, device=device
-            )
+            try:
+                observation = perform_probe_experiment(
+                    B, P_m, D, M_true, K_true, g,
+                    probe_bus, probe_amplitude, probe_duration,
+                    h, T, M_steps, device=device, sigma=sigma
+                )
+            except TypeError:
+                # Backward compatibility: older perform_probe_experiment may not accept sigma
+                observation = perform_probe_experiment(
+                    B, P_m, D, M_true, K_true, g,
+                    probe_bus, probe_amplitude, probe_duration,
+                    h, T, M_steps, device=device
+                )
             
             iterationTime = time.time() - iterationStartTime
             timeComplexity[iteration] = iterationTime
             
             experimentSequence.append((probe_bus, probe_amplitude, probe_duration))
-            
-            # Update bounds based on observation
+            history.append(((probe_bus, probe_amplitude, probe_duration), observation))
+
+            # Bayesian update: posterior over (M,K) from full history so order matters
             (M_lower_current, M_upper_current, K_lower_current, K_upper_current) = \
-                update_bounds_swing(
+                update_bounds_bayesian(
                     M_lower_current, M_upper_current, K_lower_current, K_upper_current,
-                    observation, probe_bus, probe_amplitude,
-                    M_lower_base, M_upper_base, K_lower_base, K_upper_base
+                    history, M_lower_base, M_upper_base, K_lower_base, K_upper_base,
+                    B=B, P_m=P_m, D=D, g=g, h=self.deltaT, T=self.TReal, M_steps=self.MReal,
+                    sigma=sigma, n_particles=128, device=device
                 )
             
-            history.append(((probe_bus, probe_amplitude, probe_duration), observation))
-            
-            # Re-compute MOCU for the updated bounds using swing equation MOCU
+            # Re-compute MOCU for the updated bounds (PyCUDA if available, else PyTorch)
             try:
-                from ..core.swing_equation_mocu import MOCU_swing_equation
-                
+                from ..core.swing_equation_mocu import get_mocu_swing_computer
+                _mocu_fn, _ = get_mocu_swing_computer()
                 it_temp_val = np.zeros(self.it_idx)
                 for l in range(self.it_idx):
-                    it_temp_val[l] = MOCU_swing_equation(
+                    it_temp_val[l] = _mocu_fn(
                         K_max=self.K_max,
                         B=B,
                         P_m=P_m,
@@ -344,13 +358,16 @@ class OEDMethod(ABC):
                         h=self.deltaT,
                         T=self.TReal,
                         M_steps=self.MReal,
+                        reference_probe_bus=reference_probe_bus,
+                        reference_probe_amplitude=reference_probe_amplitude,
+                        reference_probe_duration=reference_probe_duration,
                         seed=l,
                         device=device
                     )
                 raw_mocu = np.mean(it_temp_val)
-                # Never persist exact 0 (would imply no uncertainty; min bound width should prevent this)
                 MOCUCurve[iteration + 1] = max(float(raw_mocu), 1e-10)
                 self._last_valid_mocu = MOCUCurve[iteration + 1]
+                # MOCU must never increase as steps progress
                 if MOCUCurve[iteration + 1] > MOCUCurve[iteration]:
                     MOCUCurve[iteration + 1] = MOCUCurve[iteration]
                     
