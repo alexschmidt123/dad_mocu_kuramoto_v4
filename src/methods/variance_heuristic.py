@@ -44,19 +44,14 @@ class ENTROPY_Method(OEDMethod):
         if probe_duration is None:
             probe_duration = self.probe_duration
 
-        # Count usage of each (bus, amplitude)
-        from collections import defaultdict
-        counts = defaultdict(int)
-        for (probe_action, _) in history:
-            if isinstance(probe_action, tuple) and len(probe_action) >= 2:
-                bus, amp = probe_action[0], probe_action[1]
-                counts[(bus, amp)] += 1
-
-        # All designs
-        designs = [(b, A) for b in range(self.N) for A in probe_amplitudes]
-        # Sort by (count, -degree, bus, amp) so we pick min-count, then max-degree bus, then lex
+        # Without replacement: exclude already-used (bus, amplitude) so order matters
+        used = {(probe_action[0], probe_action[1]) for (probe_action, _) in history
+                if isinstance(probe_action, tuple) and len(probe_action) >= 2}
+        designs = [(b, A) for b in range(self.N) for A in probe_amplitudes if (b, A) not in used]
+        if not designs:
+            return (0, probe_amplitudes[0], probe_duration)
+        # Sort by degree (then lex) so we pick max-degree bus first when tied
         degrees = np.sum(self.B > 0, axis=1) if self.B is not None else np.zeros(self.N)
-        designs.sort(key=lambda da: (counts[da], -degrees[da[0]], da[0], da[1]))
+        designs.sort(key=lambda da: (-degrees[da[0]], da[0], da[1]))
         bus, amp = designs[0]
-
         return (bus, amp, probe_duration)

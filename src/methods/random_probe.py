@@ -69,9 +69,13 @@ class RANDOM_Method(OEDMethod):
         if probe_duration is None:
             probe_duration = self.probe_duration
 
-        # Build action space (may differ if caller overrides probe_amplitudes/duration)
+        # Build action space: without replacement (exclude already-used designs so order matters)
+        used = {(probe_action[0], probe_action[1]) for (probe_action, _) in history
+                if isinstance(probe_action, tuple) and len(probe_action) >= 2}
         actions = [
             (b, A, probe_duration) for b in range(self.N) for A in probe_amplitudes
+            if (b, A) not in used
         ]
-        # Pick uniformly at random each step (each call = one step in a simulation)
+        if not actions:
+            actions = [(0, probe_amplitudes[0], probe_duration)]
         return random.choice(actions)

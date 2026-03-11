@@ -175,6 +175,8 @@ if __name__ == '__main__':
     print(f"  methods={method_names}")
     print(f"  result_folder={result_folder}")
     print(f"  Design space: N_buses × num_amplitudes = {N} × {len(probe_amplitudes)} = {num_designs} designs ξ")
+    if os.environ.get("DEBUG_OED_DESIGNS") == "1":
+        print("  [DEBUG_OED_DESIGNS=1] Will log each method's design and bounds per step to stderr (to diagnose same-MOCU).")
     print(f"  M bounds: [{M_lower_base}, {M_upper_base}]")
     print(f"  K bounds: [{K_lower_base}, {K_upper_base}]")
     print(f"  probe_amplitudes={probe_amplitudes}")
@@ -427,6 +429,10 @@ if __name__ == '__main__':
                 outSequenceFile.close()
                 
                 save_MOCU_matrix[:, method_idx, numberOfVaildSimulations] = MOCUCurve
+                
+                # Diagnostic: print design sequence for first sim so we can see if methods differ
+                if os.environ.get("DEBUG_OED_DESIGNS") == "1" and numberOfVaildSimulations == 0:
+                    method_pbar.write(f"  [DEBUG] {method_name} design_sequence={experimentSequence}")
             
             except Exception as e:
                 import builtins

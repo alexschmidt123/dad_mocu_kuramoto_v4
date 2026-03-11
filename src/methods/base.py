@@ -337,6 +337,15 @@ class OEDMethod(ABC):
                     sigma=sigma, n_particles=128, device=device
                 )
             
+            # Optional diagnostic: log design and bounds so we can see if methods differ (DEBUG_OED_DESIGNS=1)
+            if os.environ.get("DEBUG_OED_DESIGNS") == "1":
+                import sys
+                msg = (
+                    f"[DEBUG_OED] {method_name} step={iteration+1} design=({probe_bus}, {probe_amplitude}) "
+                    f"bounds M=[{M_lower_current:.4f},{M_upper_current:.4f}] K=[{K_lower_current:.4f},{K_upper_current:.4f}]"
+                )
+                print(msg, file=sys.stderr, flush=True)
+            
             # Re-compute MOCU for the updated bounds (PyCUDA if available, else PyTorch)
             try:
                 from ..core.swing_equation_mocu import get_mocu_swing_computer
@@ -367,7 +376,7 @@ class OEDMethod(ABC):
                 raw_mocu = np.mean(it_temp_val)
                 MOCUCurve[iteration + 1] = max(float(raw_mocu), 1e-10)
                 self._last_valid_mocu = MOCUCurve[iteration + 1]
-                # MOCU must never increase as steps progress
+                # MOCU is non-increasing in t: each step adds an observation (zero or positive information), so uncertainty does not increase.
                 if MOCUCurve[iteration + 1] > MOCUCurve[iteration]:
                     MOCUCurve[iteration + 1] = MOCUCurve[iteration]
                     
