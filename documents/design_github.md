@@ -228,11 +228,7 @@ We approximate the posterior by a discrete distribution on an $n\_ {\mathrm{grid
 
 ### 5.6 Sequential belief update
 
-At step $t$, after observing $y\_t$ from design $\xi\_t$, the belief updates via Bayes:
-```math
-p_{t+1}(\vartheta) = \frac{p(y_t \mid \vartheta, \xi_t)\, p_t(\vartheta)}{\int p(y_t \mid \vartheta', \xi_t)\, p_t(\vartheta')\, d\vartheta'}.
-```
-For a grid representation, the denominator is the sum of the likelihood over the grid (as in §5.5).
+At step $t$, the belief *before* the observation is $p\_{t-1}(\vartheta)$; after observing $y\_t$ from design $\xi\_t$, the belief updates via Bayes: $p\_t(\vartheta) \propto p(y\_t \mid \vartheta, \xi\_t)\, p\_{t-1}(\vartheta)$, with normalization $Z\_t$. So $p\_0$ is the prior and $p\_t$ is the belief *after* step $t$ (consistent with `documents/pseudocode.tex`). For a discrete representation the denominator is the sum over the support; the implementation uses a log-domain (log-sum-exp) update for numerical stability (see pseudocode §Posterior update and numerical stability).
 
 ### 5.7 Operational cost $J(\gamma, \vartheta)$
 
@@ -313,7 +309,9 @@ The MPNN is trained via supervised learning to match the ground-truth MOCU compu
 
 ## 8. Sequential Execution Loop
 
-The complete **sBOED** loop proceeds as follows for $t = 1$ to $T\_ {horizon}$:
+The complete **sBOED** loop runs for $t = 1$ to $T$ (one *episode*). For the amortized-policy procedure see **Algorithm 1** in `documents/pseudocode.tex`; for $\gamma^\ast(\vartheta)$ see **Algorithm 2** there.
+
+Steps for $t = 1$ to $T$:
 
 1.  **Policy Step:** The DAD network observes history $h\_ {t-1}$ and outputs $\xi\_t$.
 2.  **Experiment:** Execute $\xi\_t$ on the system, measure $y\_t$.

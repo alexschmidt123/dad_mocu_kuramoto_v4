@@ -237,11 +237,11 @@ We approximate the posterior by a discrete distribution on an $n_{\mathrm{grid}}
 
 ### 5.6 Sequential belief update
 
-At step $t$, after observing $y_t$ from design $\xi_t$, the belief updates via Bayes:
+At step $t$, the belief *before* the observation is $p_{t-1}(\vartheta)$; after observing $y_t$ from design $\xi_t$, the belief updates via Bayes:
 $$
-p_{t+1}(\vartheta) = \frac{p(y_t \mid \vartheta, \xi_t)\, p_t(\vartheta)}{\int p(y_t \mid \vartheta', \xi_t)\, p_t(\vartheta')\, d\vartheta'}.
+p_t(\vartheta) \propto p(y_t \mid \vartheta, \xi_t)\, p_{t-1}(\vartheta), \qquad Z_t = \int p(y_t \mid \vartheta', \xi_t)\, p_{t-1}(\vartheta')\, d\vartheta', \quad p_t(\vartheta) = \frac{p(y_t \mid \vartheta, \xi_t)\, p_{t-1}(\vartheta)}{Z_t}.
 $$
-For a grid representation, the denominator is the sum of the likelihood over the grid (as in §5.5).
+So $p_0$ is the prior; $p_t$ is the belief *after* step $t$ (consistent with `documents/pseudocode.tex`). For a discrete representation (grid or particles), the denominator $Z_t$ is the sum over the support; the implementation uses a log-domain (log-sum-exp) update for numerical stability (see pseudocode §Posterior update and numerical stability).
 
 ### 5.7 Operational cost $J(\gamma, \vartheta)$
 
@@ -329,7 +329,9 @@ Validation: report correlation between $\widehat{\mathrm{MOCU}}$ and $\mathrm{MO
 
 ## 8. Sequential Execution Loop
 
-The complete **sBOED** loop proceeds as follows for $t = 1$ to $T_{horizon}$:
+The complete **sBOED** loop runs for $t = 1$ to $T$ (one *episode*). For the amortized-policy procedure see **Algorithm 1** in `documents/pseudocode.tex` (sBOED using Amortized Policy); for $\gamma^\ast(\vartheta)$ see **Algorithm 2** there.
+
+Steps for $t = 1$ to $T$:
 
 1.  **Policy Step:** The DAD network observes history $h_{t-1}$ and outputs $\xi_t$.
 2.  **Experiment:** Execute $\xi_t$ on the system, measure $y_t$.
