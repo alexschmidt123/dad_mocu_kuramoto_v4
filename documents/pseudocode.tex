@@ -10,12 +10,20 @@
 \usepackage{algorithm}
 \usepackage{algpseudocode}
 \usepackage{float} % for [H]
+% NOTE: Compile twice (e.g.\ run pdflatex twice) so that all \ref and \eqref resolve.
 
 % ---------- Notation helpers ----------
 \DeclareMathOperator*{\argmin}{arg\,min}
 \newcommand{\Map}{\mathrm{Map}}
 \newcommand{\MOCU}{\mathrm{MOCU}}
 \newcommand{\Safe}{\mathrm{Safe}}
+\newcommand{\Gammasafe}{\Gamma_{\mathrm{safe}}}
+\newcommand{\GammaROCOF}{\Gamma_{\mathrm{ROCOF}}}
+\newcommand{\Gammafreq}{\Gamma_{\mathrm{freq}}}
+\newcommand{\gammastarROCOF}{\gamma^\star_{\mathrm{ROCOF}}}
+\newcommand{\gammastarfreq}{\gamma^\star_{\mathrm{freq}}}
+\newcommand{\gammaROCOF}{\gamma_{\mathrm{ROCOF}}}
+\newcommand{\gammafreq}{\gamma_{\mathrm{freq}}}
 \newcommand{\wmed}{\mathrm{wmed}}
 \newcommand{\Ninner}{N_{\mathrm{inner}}}
 \newcommand{\Nouter}{N_{\mathrm{outer}}}
@@ -40,18 +48,13 @@ Department of Electrical and Computer Engineering, Texas A\&M University}
 
 \vspace{-0.5em}
 \noindent
-\textbf{Summary.}
-This document gives the full pseudocode and mathematical setup for the \textbf{DAD--MOCU} framework: \textbf{sequential Bayesian optimal experimental design (sBOED)} on power-system \textbf{swing (second-order Kuramoto)} dynamics over an IEEE-14 bus network. The pipeline is: choose a \textbf{probe} (design $\xi$) $\to$ run the system and get an \textbf{observation} $y$ (max ROCOF + noise) $\to$ update the \textbf{belief} over parameters via \textbf{Bayes' rule} $\to$ compute the \textbf{Bayes-optimal control gain} $\hat{\gamma}(p)$ and \textbf{MOCU} (mean objective cost of uncertainty). The \textbf{decision objective} is the \emph{minimal safe gain} $\gamma^\ast(\vartheta)$: the smallest gain such that the system stays within frequency and ROCOF limits under a fixed reference contingency; $\gamma^\ast$ is evaluated under that reference probe and candidate control. The \emph{target} of the sequential design is to minimize \emph{expected terminal MOCU} at step $t=T$, i.e.\ $\mathbb{E}[\mathrm{MOCU}(p_T)]$. Belief index $t$ runs from $0$ (prior $p_0$; all methods share the same MOCU here) to $T$ (belief $p_T$ after $T$ steps); we apply designs at steps $t=1,\dots,T$. A \emph{myopic} (greedy) rule that minimizes only one-step-ahead expected MOCU is \emph{generally suboptimal} for terminal MOCU; we use an \emph{amortized} policy (neural network $\pi_\phi$, trained offline) to select designs.
+\textbf{Short overview.}
+sBOED for swing dynamics: latent $\theta=(H,K)$; downstream decision quantity $\gamma^\star(\theta)$ (minimum gain for frequency security under fixed $d_{\mathrm{ref}}$). At each step: choose $\xi_t$, observe $y_t$, update $p_t(\theta)$; choose designs to reduce $\MOCU(p_t)$ (posterior decision uncertainty in $\gamma^\star(\theta)$).
 
 \medskip
 \noindent
-\textbf{Reader's guide.}
-\begin{itemize}
-\item \textbf{\S\ref{sec:setup} (Framework):} Defines the goal, dynamics, latent parameters, prior, design space, observation model (ROCOF), likelihood, posterior update (including log-domain for numerical stability), cost $J$, Bayes-optimal gain $\hat{\gamma}(p)$, MOCU, and the optimization objective. All notation and assumptions needed for the algorithms are here.
-\item \textbf{\S\ref{sec:sequential} (Algorithm 1):} One \emph{episode} of sequential design using a \emph{pre-trained} amortized policy $\pi_\phi$: at each step we sample a probe from the policy, observe $y_t$, update the belief in log-domain, then compute $\hat{\gamma}(p_t)$ and MOCU. This is the \emph{online} execution only; policy training (e.g.\ REINFORCE with terminal MOCU) is done separately.
-\item \textbf{\S\ref{sec:gamma_star} (Algorithm 2):} Computes $\gamma^\ast(\vartheta)$ for a given parameter $\vartheta$: the minimal control gain such that the closed-loop system under the reference contingency satisfies frequency and ROCOF limits. Implemented by bracketing (find a safe upper bound) then bisection (narrow to the smallest safe $\gamma$).
-\item \textbf{\S\ref{sec:limitations}:} States limitations (myopic vs terminal, parametrization, observation model, bisection validity).
-\end{itemize}
+\textbf{Notation.}
+$\theta=(H,K)$ latent; $\xi_t$ design; $y_t$ observation; $p_t(\theta)$ posterior; $\gamma$ control variable; $\gamma^\star(\theta)$ minimum safe gain; $\MOCU(p_t)$ decision uncertainty in $\gamma^\star(\theta)$. Chain: $\xi_t\to y_t\to p_t(\theta)\to$ uncertainty in $\gamma^\star(\theta)\to\MOCU(p_t)$.
 
 % ============================================================
 % Section 1: Framework — goals, model, and sequential design
@@ -59,269 +62,386 @@ This document gives the full pseudocode and mathematical setup for the \textbf{D
 \section{Framework: Goals, Model, and Sequential Bayesian Design}
 \label{sec:setup}
 
-This section defines every object and assumption needed to run the two algorithms: the physical goal and stability condition, the swing-equation model, latent parameters and prior, design space, observation (ROCOF) and likelihood, posterior update (with numerical stability), decision cost and MOCU, and the sequential optimization goal. We use the same sequential design structure as in Foster et al.\ (2021): latent $\vartheta$, design $\xi$, observation $y$, belief update, and inner/outer sampling; our objective is expected terminal MOCU.
-
-\noindent\textit{Notation.} Angles in rad, time in s, $f$ in Hz. Subscripts $i,j$ index buses; $t=0,1,\dots,T$ indexes steps (and beliefs: $p_0$ is the prior, $p_t$ is the belief after step $t$). \textbf{Discrete belief (inner):} the belief is a distribution over a finite set of parameter values (grid or particles). The \emph{inner index} $\ninner=1,\dots,\Ninner$ runs over these $\Ninner$ points (in code: grid size or \texttt{num\_inner\_samples}/$\Ninner$). The $\ninner$-th parameter value is $\vartheta_{\ninner}$ and its probability weight at step $t$ is $p_t^{\ninner}$; thus $\sum_{\ninner=1}^{\Ninner} p_t^{\ninner}=1$. So $\Ninner$ is the \textbf{inner} dimension. \textbf{Inner/outer (DAD convention):} one \emph{episode} is one run over steps $t=0,\dots,T$. Within each step, to evaluate the greedy objective $R(\xi)=\mathbb{E}_y[\mathrm{MOCU}(p_t(\xi,y))]$: \textbf{outer loop} ($\Nouter$): simulate $\Nouter$ possible future observations (sample $\vartheta^{(\nouter)}\sim p_{t-1}$, $y^{(\nouter)}\sim p(y\mid\xi,\vartheta^{(\nouter)})$ for $\nouter=1,\dots,\Nouter$; in code \texttt{num\_outer\_samples}). \textbf{Inner loop} ($\Ninner$): for each such observation, update the belief over the parameter grid---compute likelihood and posterior over the $\Ninner$ points using the \emph{inner index} $\ninner=1,\dots,\Ninner$ (in code \texttt{num\_inner\_samples} or grid size $\Ninner$). So: outer = simulating futures; inner = belief update over the $\Ninner$ points (Foster et al., 2021; \texttt{dad-main}).
-
-\medskip
-\noindent
-\textbf{Key symbols (quick reference).} $\vartheta$ = latent parameter (e.g.\ $(M,K)$); $\xi=(b,A,T_p)$ = design (probe bus, amplitude, duration); $y$ = scalar observation (max ROCOF + noise); $p_t$ = belief (posterior over $\vartheta$) after step $t$; $h_t$ = history of designs and observations up to step $t$; $\Map(\vartheta,\xi)$ = deterministic forward map (max ROCOF from ODE); $\gamma^\ast(\vartheta)$ = minimal safe gain for parameter $\vartheta$; $\hat{\gamma}(p)$ = Bayes-optimal deployed gain under belief $p$ (weighted median of $\gamma^\ast$); $J(\gamma,\vartheta)=|\gamma-\gamma^\ast(\vartheta)|$ = operational cost; $\mathrm{MOCU}(p)$ = mean objective cost of uncertainty = $\mathbb{E}_{\vartheta\sim p}[J(\hat{\gamma}(p),\vartheta)]$; $\pi_\phi(\cdot\mid h)$ = amortized (neural) policy that outputs the next design given history; $\xi_{\mathrm{ref}}$ = reference probe used only when evaluating $\gamma^\ast$.
+Pipeline: swing dynamics (latent $\theta=(H,K)$) $\to$ probing ($\xi_t$, $y_t$) $\to$ posterior $p_t(\theta)$ $\to$ evaluation under $d_{\mathrm{ref}}$ $\to$ $\gamma^\star(\theta)$ $\to$ $\MOCU(p_t)$. $\gamma$ = downstream control. $M=2HS_n/\omega_s$; DAD: $\Nouter$ outer, $\Ninner$ support (Foster et al., 2021).
 
 % -----------------------------------------------------------------------
-\subsection{High-level goal and stability condition}
+\subsection{Stability condition (grid codes; textbook)}
 \label{sec:definitions}
 
-\paragraph{High-level goal.}
-The \emph{high-level goal} is to keep the power system \emph{stable} (secure) under a reference contingency. We learn the unknown system parameters via sequential experiments so that we can deploy a control gain that satisfies grid security limits. Stability is defined by \emph{operational security constraints} (grid codes, e.g.\ ENTSO-E, NERC; Kundur, 1994).
-
-\paragraph{Stability condition.}
-Over the contingency horizon $[0,T_c]$, the system frequency $f(t)$ and its rate of change (ROCOF) $\dot f(t)$ must stay within limits. The \emph{stability condition} is
+\textbf{Source: textbook / grid codes (e.g.\ Kundur; ENTSO-E, NERC).} Security requires that over a contingency horizon frequency $f(t)$ and ROCOF $\dot f(t)$ stay within limits:
 \[
-\boxed{\;\forall t\in[0,T_c],\quad |\dot f(t)|\le r_{\max}\ \land\ f(t)\ge f_{\min}\;},
+\forall t\in[0,T_c],\quad |\dot f(t)|\le r_{\max}\ \ \text{and}\ \ f(t)\ge f_{\min}.
 \]
-where $f=f_{\mathrm{nom}}+\omega/(2\pi)$ and $|\dot f|=|\dot\omega|/(2\pi)$ (e.g.\ at a reference bus or worst over buses). So ``stable'' means: (1) ROCOF stays below $r_{\max}$ (e.g.\ 0.1\,Hz/s; grid codes limit rate of change of frequency), and (2) frequency stays above $f_{\min}$ (e.g.\ 49.8\,Hz at 50\,Hz nominal; avoids underfrequency load shedding). We specify only a \emph{lower} bound $f_{\min}$ on frequency (and not an upper bound $f_{\max}$) because the reference contingency we consider (e.g.\ a probe or loss-of-generation event) primarily causes frequency to \emph{drop}; the binding constraint is then the frequency \emph{nadir} $f\ge f_{\min}$ (to avoid underfrequency load shedding and instability). Grid codes often also impose $f\le f_{\max}$ (overfrequency); the formulation can be extended to include it if the contingency can drive frequency upward. The \emph{minimal safe gain} $\gamma^\ast(\vartheta)$ is the smallest control gain $\gamma\ge 0$ such that, under the reference contingency and control $u^{\mathrm{ctrl}}=\gamma g_i\omega_i$, this condition holds. Deploying $\gamma\ge\gamma^\ast(\vartheta_{\mathrm{true}})$ keeps the system stable for the true parameter; the purpose of learning is to infer $\vartheta$ and choose such a gain.
+These limits are used in the definition of the model-specific minimum safe gain $\gamma^\star(\theta)$ (Section~\ref{sec:decision}).
 
 % -----------------------------------------------------------------------
-\subsection{Dynamics model}
+\subsection{Dynamics model (from probing paper)}
 \label{sec:model}
 
-\paragraph{Network.}
-The power network is $\mathcal{G}=(\mathcal{V},\mathcal{E},\bm{B})$: $|\mathcal{V}|=N$ buses (e.g.\ IEEE-14, $N=14$), $\mathcal{E}$ edges, $\bm{B}=(B_{ij})$ susceptance matrix. Other fixed data: mechanical power $P_{m,i}$, damping $D_i$, control shape $\{g_i\}$, sampling rate $f_s$, observation window $T_{\mathrm{obs}}$, contingency horizon $T_c$, security limits $(r_{\max},f_{\min})$, and reference probe $\xi_{\mathrm{ref}}=(b_{\mathrm{ref}},A_{\mathrm{ref}},T_{\mathrm{ref}})$.
-
-\paragraph{Swing equation (second-order Kuramoto).}
-For each bus $i\in\mathcal{V}$:
+\textbf{Source: Peng et al.\ (2024), Eq.\ (1)--(3).} The probing paper models the system with inertia constant $H$ (MWs/MVA), aggregate primary-frequency-response droop constant $K$ (MW/Hz), and $S_n$ = rated apparent power (base power, e.g.\ MVA). The swing equation (Eq.\ (1) of the paper) is
 \[
-\dot{\theta}_i=\omega_i,
-\qquad
-M_i\,\dot{\omega}_i=P_{m,i}-P_{e,i}(\bm{\theta})-(D_i+K_i)\omega_i+u_i,
+\frac{2HS_n}{\omega_s}\,\frac{d\omega(t)}{dt}+D\,\omega(t)=P_m(t)-P_e(t),
 \]
-with $P_{e,i}(\bm{\theta})=\sum_{j\in\mathcal{N}_i}B_{ij}\sin(\theta_i-\theta_j)$. Injections are $u_i=u_i^{\mathrm{probe}}+u_i^{\mathrm{ctrl}}$. \textbf{Probe} $u^{\mathrm{probe}}$: Hann-window at a chosen bus; in the sBOED loop it is set by design $\xi_t=(b_t,A_t,T_p)$; for $\gamma^\ast$ evaluation we use the fixed \emph{reference probe} $\xi_{\mathrm{ref}}$ (reference contingency). \textbf{Control} $u^{\mathrm{ctrl}}_i=\gamma\,g_i\,\omega_i$ (proportional frequency feedback; $\gamma$ is the gain). During the observation step we set $\gamma=0$ so the response is due only to the probe. The Hann window at bus $b$ is $u^{\mathrm{probe}}_b(t;\xi)=A\,\frac{1-\cos(2\pi t/T_p)}{2}\,\mathbf{1}_{[0,T_p]}(t)$, $u^{\mathrm{probe}}_{i\neq b}=0$.
+with mechanical power $P_m$ and electrical power $P_e$.
+
+\paragraph{Primary control (fixed aggregate droop, from paper).}
+Primary control is modeled by aggregate droop. Let $\Delta f(t)=[\omega(t)-\omega(0)]/(2\pi)$ (frequency deviation in Hz). Then
+\[
+\Delta P_m(t)\;=\;-K\,\Delta f(t),
+\qquad\text{equivalently}\quad
+P_m(t)\;=\;P_m(0)-\frac{K}{2\pi}\big[\omega(t)-\omega(0)\big].
+\]
+With this primary-control model, writing $\Delta P_e(t)=P_e(t)-P_e(0)$, $\Delta\omega(t)=\omega(t)-\omega(0)$, and assuming $P_m(0)=P_e(0)+D\omega(0)$ in steady state gives the \textbf{reduced swing dynamics} (Eq.\ (3) of the paper):
+\begin{equation}
+\label{eq:swing3}
+\boxed{\;\frac{2HS_n}{\omega_s}\,\frac{d\omega(t)}{dt}=-\Delta P_e(t)-\left(\frac{K}{2\pi}+D\right)\Delta\omega(t).\;}
+\end{equation}
+This is the \textbf{closed-loop short-time frequency-response model} used for evaluation. The probing paper uses it for inertia and droop estimation from $\omega$ and $P_e$ measurements after a disturbance; our framework uses the same model as the physical basis for sequential design. This droop law defines the plant's native primary response; any supplementary gain $\gamma$ introduced later is modeled as an additional feedback input, not a change to $K$.
+
+\paragraph{Relationship between $M$ and $H$.}
+The coefficient of $d\omega/dt$ is often denoted $M$: $M=2HS_n/\omega_s$, so $H=M\omega_s/(2S_n)$. Then $M\,\frac{d\omega(t)}{dt}=-\Delta P_e(t)-\left(\frac{K}{2\pi}+D\right)\Delta\omega(t)$. The latent parameter is $\theta=(H,K)$ (or $(M,K)$ via the $M$--$H$ relation).
+
+The paper integrates the reduced dynamics to obtain Eq.\ (4), linking $H$, $K$ to $\omega(t)$ and $P_e(t)$ for regression-based estimation. Our sBOED layer adds prior, likelihood, and posterior over $\theta$.
+
+\paragraph{Probing signal (from paper).}
+\textbf{Source: Peng et al.\ (2024).} A probing signal (e.g.\ Hann window, 2\,s duration) is injected by an IBR to generate informative transients in $\omega$ and $P_e$. The \textbf{design variable} $\xi_t$ is the probing experiment setting at stage $t$: e.g.\ bus, amplitude, and probing duration. We take $\xi=(b,A,T_p)$ (bus, amplitude, duration). The \textbf{probing injection} is $u^{\mathrm{probe}}(\cdot;\xi)$; it drives $\Delta P_e(t)$ and the transients used for estimation.
+
+\paragraph{Multi-bus network (our extension).}
+For an IEEE-style network we use a multi-bus swing model parametrized by $(H,K)$ so that the forward simulation produces $\omega(t)$ and $P_e(t)$. \textbf{Added by our framework:} network topology $\mathcal{G}$, susceptance $\bm{B}$, and a fixed evaluation disturbance $d_{\mathrm{ref}}$ (contingency) for defining the decision quantity $\gamma^\star(\theta)$ below.
 
 % -----------------------------------------------------------------------
-\subsection{Latent parameters and latent space}
+\subsection{Latent parameters (from probing paper)}
 \label{sec:latent}
 
-\paragraph{Latent parameters.}
-The unknown parameters are \emph{per-bus} inertia $M_i$ and damping gain $K_i$ ($i=1,\dots,N$).
-
-\paragraph{Latent space.}
-The \emph{latent space} is $\Theta\subseteq\mathbb{R}_+^{2N}$ with
-\[
-\vartheta=(M_1,\dots,M_N,K_1,\dots,K_N)\in\Theta.
-\]
-The true parameter $\vartheta_{\mathrm{true}}\in\Theta$ is fixed but unknown. We represent belief at step $t$ by a discrete set (grid or particles) $\{\vartheta_{\ninner}\}_{\ninner=1}^{\Ninner}$ with weights $\{p_t^{\ninner}\}_{\ninner=1}^{\Ninner}$, $\sum_{\ninner=1}^{\Ninner} p_t^{\ninner}=1$. For large $N$, a full $2N$-dimensional discretization is infeasible; implementations may use a reduced parametrization or particle filters (see \S\ref{sec:limitations}).
+\textbf{Source: Peng et al.\ (2024).} The latent uncertain parameter is $\theta=(H,K)$, where $H$ is the inertia constant and $K$ is the aggregate primary-frequency-response droop constant. We write $\theta=(H,K)\in\Theta\subseteq\mathbb{R}_+^2$, or equivalently $\theta=(M,K)$ with $M=2HS_n/\omega_s$. The paper estimates $(H,K)$ from $\omega(t)$ and $P_e(t)$ via the integrated relation (Eq.\ (4)); it does \emph{not} provide a prior or posterior. Our framework uses a discrete grid $\{\theta_{\ninner}\}_{\ninner=1}^{\Ninner}$ with weights $\{p_t^{\ninner}\}$; the \textbf{discrete belief} representation is \textbf{added by our framework}.
 
 % -----------------------------------------------------------------------
-\subsection{Prior}
+\subsection{Prior (our sBOED extension)}
 \label{sec:prior}
 
-\paragraph{Prior over $\Theta$.}
-The prior $p_0(\vartheta)$ is set over $\Theta$. Typically we take a uniform prior over a bounded box (e.g.\ $M_i\in[M_{\min},M_{\max}]$, $K_i\in[K_{\min},K_{\max}]$) or over a discrete set $\{\vartheta_{\ninner}\}_{\ninner=1}^{\Ninner}$ with initial weights $\{p_0^{\ninner}\}_{\ninner=1}^{\Ninner}$ satisfying $\sum_{\ninner=1}^{\Ninner} p_0^{\ninner}=1$. The discrete set can be a grid over a reduced parametrization or a particle sample; the formulas below hold for any such representation.
+\textbf{Added by our framework; not from the probing paper.} The prior $p_0(\theta)$ over $\Theta$ is chosen by us (e.g.\ uniform over a bounded box in $(H,K)$, or over a discrete set $\{\theta_{\ninner}\}_{\ninner=1}^{\Ninner}$ with weights $\{p_0^{\ninner}\}$, $\sum p_0^{\ninner}=1$). The paper does not use a prior; it uses regression only.
 
 % -----------------------------------------------------------------------
 \subsection{Design and design space (order matters)}
 \label{sec:design}
 
 \paragraph{Design space.}
-The \emph{design space} $\Xi$ is the set of single-step probe designs. Each design is $\xi=(b,A,T_p)\in\Xi$: bus $b\in\{1,\dots,N\}$, amplitude $A$, duration $T_p$. At step $t$ we choose $\xi_t\in\Xi$. \textbf{Do not confuse:} the \emph{reference probe} $\xi_{\mathrm{ref}}$ is a \emph{fixed} scenario used only when computing $\gamma^\ast(\vartheta)$ (Algorithm~\ref{alg:gamma_star}); the \emph{design} $\xi_t$ is the probe we \emph{choose} at step $t$ in the sequential loop (Algorithm~\ref{alg:dad_mocu_loop}) to collect observation $y_t$.
+\textbf{From paper:} probing signal settings (the paper uses a Hann signal, 2\,s). \textbf{Our parameterization:} $\Xi$ = set of single-step probe designs $\xi=(b,A,T_p)$ (bus, amplitude, duration). At step $t$ we choose $\xi_t\in\Xi$. A fixed \textbf{evaluation disturbance} $d_{\mathrm{ref}}$ (contingency) and fixed horizon $[0,T_c]$ are used when defining the decision quantity $\gamma^\star(\theta)$ (Section~\ref{sec:decision}).
 
 \paragraph{Order matters.}
-A \emph{design sequence} is an ordered list $\xi_{1:T}=(\xi_1,\dots,\xi_T)$. We assume each probe is run from fixed initial conditions, so the deterministic $\Map(\vartheta,\xi)$ does not depend on the order of previous probes; order still matters for the decision problem because different sequences yield different observation noise and adaptive choices, hence different posteriors and terminal MOCU. With $|\Xi|$ designs and without replacement, there are $|\Xi|(|\Xi|-1)\cdots(|\Xi|-T+1)$ sequences (e.g.\ $42\times 41\times 40\times 39$ for $|\Xi|=42$, $T=4$)---exhaustive search is infeasible. The myopic rule minimizes only one-step-ahead expected MOCU; because the marginal value of a design can depend on the set already chosen (complementarity), myopic is generally suboptimal for terminal MOCU and fails to plan for future information gain.
+A \emph{design sequence} is an ordered list $\xi_{1:T}=(\xi_1,\dots,\xi_T)$. Different sequences yield different observations and posteriors, hence different terminal values of $\MOCU(p_T)$. A myopic rule that at each step $t$ chooses $\xi_t$ to minimize $\mathbb{E}_{y_t\mid p_{t-1},\xi_t}[\MOCU(p_t)]$ is tractable but generally suboptimal for terminal $\MOCU(p_T)$.
 
 % -----------------------------------------------------------------------
-\subsection{Observation and why ROCOF only}
+\subsection{Observation: paper vs.\ our simplification}
 \label{sec:observation}
 
-\paragraph{Forward map.}
-Let $f_s$ be the sampling rate and $\Delta t=1/f_s$. From the ODE solution (initial conditions fixed, e.g.\ equilibrium), define frequency deviation $\Delta f_i(t)=\omega_i(t)/(2\pi)$ at bus $i$, and its discrete-time version $\Delta f_i[k]=\Delta f_i(k\Delta t)$ at sample index $k$. The \emph{rate of change of frequency} (ROCOF) at bus $i$ and time sample $k$ is $\mathrm{ROCOF}_i[k]=(\Delta f_i[k]-\Delta f_i[k-1])/\Delta t$ (units Hz/s). Here $i\in\{1,\dots,N\}$ is the \textbf{bus index} and $k$ is the \textbf{discrete time-sample index} over the observation window. The deterministic \emph{forward map} is the maximum absolute ROCOF over all buses and time samples:
-\[
-\Map(\vartheta,\xi)=\max_{i,k}\left|\mathrm{ROCOF}_i[k]\right|.
-\]
+\textbf{From the probing paper:} The observation $y_t$ in the paper is the measured data (e.g.\ $\omega(t)$ and $P_e(t)$) from the transient after applying $\xi_t$; the paper uses these for regression-based estimation of $H$ and $K$.
 
-\paragraph{Why ROCOF as observation (and references).}
-ROCOF is constrained by grid codes (ENTSO-E; NERC BAL-001-TRE-2; Kundur, 1994) and is physically linked to system inertia: after a power imbalance, the rate of change of frequency is inversely related to effective inertia (lower inertia typically yields higher ROCOF). Using ROCOF (or its maximum over buses and time) as the observable is therefore standard in frequency security and inertia assessment (e.g.\ Kundur, 1994; Ulbig et al., 2014; Australian Energy Market Operator, 2020). We observe a single scalar $y$ per experiment. Using the \emph{maximum ROCOF} over buses and time is (i) \emph{decision-relevant}: it directly relates to the stability condition $|\dot f|\le r_{\max}$; (ii) \emph{informative} about inertia and damping; (iii) \emph{tractable}: a scalar observation gives a simple Gaussian likelihood and keeps the design loop computationally feasible (Foster et al., 2021). Richer observations (e.g.\ full $\omega_i(t)$ or multiple features) could be used at higher cost.
-
-\paragraph{Observation model and $\sigma_{\mathrm{feat}}$.}
-The observation is $y=\Map(\vartheta,\xi)+\epsilon$, $\epsilon\sim\mathcal{N}(0,\sigma_{\mathrm{feat}}^2)$. The term $\sigma_{\mathrm{feat}}$ is the \emph{observation noise standard deviation} (in Hz/s) at the \textbf{scalar-feature} level: the measured $y$ is the true max ROCOF plus independent Gaussian noise with mean zero and variance $\sigma_{\mathrm{feat}}^2$. Noise is modeled at the feature level; sensor-level noise before taking the max would yield a non-Gaussian distribution for the max, but we use the Gaussian model for tractability (standard in OED when the forward map is expensive).
+\textbf{Our simplification for sBOED (added by our framework):} We may use a \textbf{reduced feature} $y_t$ per experiment (e.g.\ a scalar such as max ROCOF): $\Map(\theta,\xi)=\max_{i,k}|\mathrm{ROCOF}_i[k]|$, $y_t=\Map(\theta,\xi_t)+\epsilon_t$. The posterior update produces $p_t(\theta)=p(\theta\mid\xi_{1:t},y_{1:t})$. A formulation using full $\omega(t)$, $P_e(t)$ would be closer to the paper but heavier computationally.
 
 % -----------------------------------------------------------------------
-\subsection{Likelihood}
+\subsection{Likelihood (our sBOED extension)}
 \label{sec:likelihood}
 
-\paragraph{Likelihood calculation.}
-The \emph{likelihood} $p(y\mid\vartheta,\xi)$ is the density of $y$ given parameter $\vartheta$ and design $\xi$. With the model above it is Gaussian:
+\textbf{Added by our framework; not from the probing paper.} We assume a Gaussian likelihood for the (possibly scalar) observation $y_t$. At step $t$, we choose $\xi_t$ and observe $y_t$. For any candidate $\theta$, the forward model predicts $\mu(\theta,\xi_t):=\Map(\theta,\xi_t)$. We model $y_t=\mu(\theta,\xi_t)+\epsilon_t$, $\epsilon_t\sim\mathcal{N}(0,\sigma_{\mathrm{feat}}^2)$. So $p(y_t\mid\theta,\xi_t)$ is Gaussian. On the discrete support $\{\theta_{\ninner}\}_{\ninner=1}^{\Ninner}$, $\mu_{\ninner}^{(t)}:=\Map(\theta_{\ninner},\xi_t)$ and
 \[
-p(y\mid \vartheta,\xi)=\frac{1}{\sqrt{2\pi\sigma_{\mathrm{feat}}^2}}
-\exp\left(-\frac{\big(y-\Map(\vartheta,\xi)\big)^2}{2\sigma_{\mathrm{feat}}^2}\right).
+\mathcal{L}_{\ninner}^{(t)}
+:=p(y_t\mid\theta_{\ninner},\xi_t)
+=\frac{1}{\sqrt{2\pi\sigma_{\mathrm{feat}}^2}}
+\exp\left(-\frac{\big(y_t-\mu_{\ninner}^{(t)}\big)^2}{2\sigma_{\mathrm{feat}}^2}\right).
 \]
-On the discrete set $\{\vartheta_{\ninner}\}_{\ninner=1}^{\Ninner}$ (inner index $\ninner$), we write $\mathcal{L}_{\ninner}^{(t)}=p(y_t\mid\vartheta_{\ninner},\xi_t)$ with mean $\mu_{\ninner}^{(t)}=\Map(\vartheta_{\ninner},\xi_t)$ and variance $\sigma_{\mathrm{feat}}^2$.
+Thus $\mathcal{L}_{\ninner}^{(t)}$ is large when the prediction under $\theta_{\ninner}$ is close to $y_t$.
 
 % -----------------------------------------------------------------------
-\subsection{Posterior update and numerical stability}
+\subsection{Posterior update (our sBOED extension)}
 \label{sec:posterior}
 
-\paragraph{Exact discrete Bayesian update.}
-At step $t$, the belief \emph{before} the observation is $p_{t-1}(\vartheta)$. Upon applying design $\xi_t$ and observing the scalar feature $y_t$, the belief is updated via Bayes' rule: $p_t(\vartheta)\propto p_{t-1}(\vartheta)\,p(y_t\mid\vartheta,\xi_t)$. Over the discrete support $\{\vartheta_{\ninner}\}_{\ninner=1}^{\Ninner}$, the theoretical update scales the prior probability mass of each candidate point by its corresponding likelihood $\mathcal{L}_{\ninner}^{(t)} = p(y_t\mid\vartheta_{\ninner},\xi_t)$. The unnormalized posterior weights and the normalization constant are given by:
-\[
-\tilde p_t^{\ninner} = p_{t-1}^{\ninner} \cdot \mathcal{L}_{\ninner}^{(t)}, \qquad Z_t = \sum_{\ninner=1}^{\Ninner} \tilde p_t^{\ninner}, \qquad p_t^{\ninner} = \frac{\tilde p_t^{\ninner}}{Z_t}.
-\]
-Here $Z_t$ is the \textbf{normalization constant} (also called the \emph{evidence} or marginal likelihood of $y_t$ given $\xi_t$ and $p_{t-1}$); it ensures $\sum_{\ninner=1}^{\Ninner} p_t^{\ninner}=1$.
+\textbf{Added by our framework; not from the probing paper.} The posterior update takes the prior belief over $\theta=(H,K)$, the likelihood of the new observation, and produces the posterior belief. The steps are separated below for clarity.
 
-\paragraph{Log-domain implementation (Log-Sum-Exp).}
-In practice, a direct implementation of the multiplicative update is susceptible to severe numerical underflow. Because the Gaussian likelihood decays exponentially with the squared error $\big(y_t-\Map(\vartheta_{\ninner},\xi_t)\big)^2$, evaluating $\mathcal{L}_{\ninner}^{(t)}$ for highly improbable parameter candidates yields values that exceed the limits of standard floating-point precision, rounding to absolute zero. If all $\tilde p_t^{\ninner}$ underflow, $Z_t$ evaluates to zero, leading to an undefined posterior. To guarantee numerical stability, the update must be executed entirely in the log-domain. The unnormalized log-posterior is formulated as:
-\[
-\log \tilde p_t^{\ninner} = \log p_{t-1}^{\ninner} - \frac{1}{2}\log(2\pi\sigma_{\mathrm{feat}}^2) - \frac{\big(y_t - \Map(\vartheta_{\ninner}, \xi_t)\big)^2}{2\sigma_{\mathrm{feat}}^2}.
-\]
-To compute the normalized weights $p_t^{\ninner}=\exp(\log \tilde p_t^{\ninner} - \log Z_t)$ without overflow or underflow, we employ the log-sum-exp trick. By defining a shift constant $c_t = \max_{\ninner} \log \tilde p_t^{\ninner}$, the log-evidence is computed as:
-\[
-\log Z_t = c_t + \log \sum_{\ninner'=1}^{\Ninner} \exp\big(\log \tilde p_t^{\ninner'} - c_t\big).
-\]
-The final normalized posterior probabilities are then accurately recovered via $p_t^{\ninner} = \exp\big(\log \tilde p_t^{\ninner} - \log Z_t\big)$ (Chopin \& Papaspiliopoulos, 2020).
+\paragraph{(a) Prior and posterior over $\theta=(H,K)$.}
+The \textbf{prior} at step $t$ is the belief over the latent parameter given past designs and observations: weights $p_{t-1}^{\ninner}=\Pr(\theta=\theta_{\ninner}\mid\xi_{1:t-1},y_{1:t-1})$ on the discrete support $\{\theta_{\ninner}\}_{\ninner=1}^{\Ninner}$. The \textbf{posterior} after observing $y_t$ under design $\xi_t$ is
+\begin{equation}
+\label{eq:posterior}
+p_t(\theta)\;=\;p(\theta\mid\xi_{1:t},y_{1:t});\qquad\text{on the support,}\quad p_t^{\ninner}\;=\;\Pr(\theta=\theta_{\ninner}\mid\xi_{1:t},y_{1:t}),\quad \ninner=1,\dots,\Ninner.
+\end{equation}
+Mathematically: the posterior is the conditional distribution of $\theta$ given all experiments and observations so far.
 
-% -----------------------------------------------------------------------
-\subsection{Decision objective, cost function, and MOCU}
-\label{sec:cost_mocu}
+\paragraph{(b) Likelihood $p(y_t\mid\theta,\xi_t)$.}
+The observation model gives the probability of observing $y_t$ when the true parameter is $\theta$ and the design is $\xi_t$. For the Gaussian observation model in Section~\ref{sec:likelihood},
+\begin{equation}
+p(y_t\mid\theta_{\ninner},\xi_t)\;=\;\mathcal{L}_{\ninner}^{(t)}\;=\;\frac{1}{\sqrt{2\pi\sigma_{\mathrm{feat}}^2}}\,\exp\left(-\frac{\big(y_t-\mu_{\ninner}^{(t)}\big)^2}{2\sigma_{\mathrm{feat}}^2}\right),\qquad \mu_{\ninner}^{(t)}=\Map(\theta_{\ninner},\xi_t).
+\end{equation}
+So the likelihood is the probability density of $y_t$ under the forward model at $\theta_{\ninner}$.
 
-\paragraph{Minimal safe gain and cost function.}
-Under the reference probe $\xi_{\mathrm{ref}}$ and constraints $(r_{\max},f_{\min})$ over $[0,T_c]$, the \emph{minimal safe gain} is
-\[
-\gamma^{\ast}(\vartheta)=\inf\left\{\gamma\ge 0 \;:\; \text{trajectory with } u^{\mathrm{probe}}(\cdot;\xi_{\mathrm{ref}}),\; u^{\mathrm{ctrl}}=\gamma g_i\omega_i \text{ satisfies } |\dot f|\le r_{\max},\; f\ge f_{\min}\right\}
-\]
-(computed by Algorithm~\ref{alg:gamma_star}). The \emph{operational cost} (loss when deploying $\gamma$ and truth is $\vartheta$) is
-\[
-J(\gamma,\vartheta)=\left|\gamma-\gamma^\ast(\vartheta)\right|
-\]
-(Boluki et al., 2018; Imani et al., 2018). Given belief $p$, the \emph{Bayes-optimal deployed gain} is the weighted median (Ferguson, 1967):
-\[
-\hat{\gamma}(p)=\argmin_{\gamma\ge 0}\mathbb{E}_{\vartheta\sim p}[J(\gamma,\vartheta)]
-=\wmed\!\left(\{\gamma^\ast(\vartheta_{\ninner})\}_{\ninner=1}^{\Ninner},\{p^{\ninner}\}_{\ninner=1}^{\Ninner}\right),
-\]
-where $\wmed$ is the value $\gamma$ such that the $p$-weighted mass on $\{\vartheta_{\ninner}:\gamma^\ast(\vartheta_{\ninner})\le\gamma\}$ is at least $1/2$.
+\paragraph{(c) Discrete weight update (Bayes' rule).}
+Bayes' rule states: posterior $\propto$ prior $\times$ likelihood. On the discrete support, the \textbf{unnormalized} posterior weight at $\theta_{\ninner}$ is
+\begin{equation}
+\tilde p_t^{\ninner}\;=\;p_{t-1}^{\ninner}\,\mathcal{L}_{\ninner}^{(t)}\;=\;p_{t-1}^{\ninner}\,p(y_t\mid\theta_{\ninner},\xi_t),\qquad \ninner=1,\dots,\Ninner.
+\end{equation}
+Interpretation: support points that predict $y_t$ well (large $\mathcal{L}_{\ninner}^{(t)}$) receive a larger unnormalized weight.
 
-\paragraph{MOCU definition and formula.}
-The \emph{mean objective cost of uncertainty} (MOCU) is the expected cost when deploying the Bayes-optimal gain under belief $p$ (Boluki et al., 2018; Imani et al., 2018):
-\[
-\MOCU(p)=\mathbb{E}_{\vartheta\sim p}\left[J(\hat{\gamma}(p),\vartheta)\right]
-=\sum_{\ninner=1}^{\Ninner} p^{\ninner}\left|\gamma^\ast_{\ninner}-\hat{\gamma}(p)\right|,
-\]
-with $\gamma^\ast_{\ninner}=\gamma^\ast(\vartheta_{\ninner})$. \textbf{In plain language:} MOCU is the expected absolute gap between the optimal gain for the true $\vartheta$ and the gain we deploy; lower MOCU means better decision quality (less uncertainty that matters for the deployment decision). In a single run the index $t$ runs from $0$ to $T$: $t=0$ is the \emph{initial} belief $p_0$ (prior; no designs applied), and \emph{all methods have the same MOCU at $t=0$}; designs are applied at steps $t=1,2,\dots,T$, and after step $t$ the belief is $p_t$. \emph{Initial MOCU in experiments} is $\mathrm{MOCU}(p_0)$: MOCU under the prior. With a discrete belief it is $\sum_{\ninner=1}^{\Ninner} p_0^{\ninner}\,|\gamma^\ast_{\ninner}-\hat{\gamma}(p_0)|$ with $\hat{\gamma}(p_0)=\wmed(\{\gamma^\ast_{\ninner}\}_{\ninner=1}^{\Ninner},\{p_0^{\ninner}\}_{\ninner=1}^{\Ninner})$. In our implementation the prior is uniform over the initial uncertainty box $[M_{\mathrm{lower}},M_{\mathrm{upper}}]\times[K_{\mathrm{lower}},K_{\mathrm{upper}}]$; we sample $(M,K)$ from that box, compute $\gamma^\ast(M,K)$ for each sample under the reference contingency, set $\hat{\gamma}=\mathrm{median}(\gamma^\ast)$ and $\mathrm{MOCU}=\mathrm{mean}(|\gamma^\ast-\hat{\gamma}|)$ (same formula, Monte Carlo over the continuous prior). Each new observation adds zero or positive information, so $\mathrm{MOCU}(p_t)$ is \emph{non-increasing} in $t$ along any given run. \emph{Order matters}: different design sequences yield different posteriors and thus different (non-increasing) MOCU curves and different \emph{terminal} MOCU $\mathrm{MOCU}(p_T)$; the myopic rule is \emph{generally suboptimal} for terminal MOCU, since it optimizes only the next step and does not account for complementarity. The goal is to choose a sequence that achieves low terminal MOCU.
+\paragraph{(d) Normalization.}
+The unnormalized weights sum to $Z_t$, the marginal likelihood of $y_t$ given $\xi_t$ and the prior. The \textbf{normalization constant} is
+\begin{equation}
+Z_t\;=\;\sum_{\ninner=1}^{\Ninner}\tilde p_t^{\ninner}.
+\end{equation}
+The \textbf{normalized posterior weights} are
+\begin{equation}
+p_t^{\ninner}\;=\;\frac{\tilde p_t^{\ninner}}{Z_t},\qquad \ninner=1,\dots,\Ninner;\qquad\text{hence}\quad \sum_{\ninner=1}^{\Ninner}p_t^{\ninner}=1.
+\end{equation}
+So $p_t^{\ninner}$ defines a valid discrete distribution over $\theta$.
 
-% -----------------------------------------------------------------------
-\subsection{Optimization goal (sequential design)}
-\label{sec:opt_goal}
+\paragraph{(e) Log-sum-exp implementation.}
+When likelihoods are very small, direct multiplication causes numerical underflow. The update is therefore implemented in log space. Define the log unnormalized weight
+\begin{equation}
+a_t^{\ninner}\;=\;\log \tilde p_t^{\ninner}\;=\;\log p_{t-1}^{\ninner}-\frac{1}{2}\log(2\pi\sigma_{\mathrm{feat}}^2)-\frac{\big(y_t-\mu_{\ninner}^{(t)}\big)^2}{2\sigma_{\mathrm{feat}}^2}.
+\end{equation}
+Let $c_t=\max_{\ninner} a_t^{\ninner}$. Then
+\begin{equation}
+\log Z_t\;=\;c_t+\log\sum_{\ninner'=1}^{\Ninner}\exp\big(a_t^{\ninner'}-c_t\big),
+\end{equation}
+and the normalized weights are
+\begin{equation}
+p_t^{\ninner}\;=\;\exp\big(a_t^{\ninner}-\log Z_t\big),\qquad \ninner=1,\dots,\Ninner.
+\end{equation}
+This log-sum-exp procedure avoids underflow and is numerically stable (Chopin \& Papaspiliopoulos, 2020).
 
-\paragraph{Optimization goal.}
-The \emph{optimization goal} of the sequential design is to minimize \emph{expected terminal MOCU}:
-\[
-\min_{\xi_1,\dots,\xi_T}\;\mathbb{E}\big[\mathrm{MOCU}(p_T)\big],
-\]
-where the expectation is over the randomness in observations $y_1,\dots,y_T$ (and optionally $\vartheta_{\mathrm{true}}\sim p_0$), and $p_T$ is the belief after $T$ steps. \textbf{In plain language:} we choose a design \emph{policy} (or sequence) so that at the end of $T$ experiments the expected remaining cost of uncertainty is as small as possible; then we deploy $\hat{\gamma}(p_T)$. Per-step MOCU is computed for monitoring and for greedy heuristics but is \emph{not} the quantity being optimized.
 
 % -----------------------------------------------------------------------
-\subsection{Assumptions and inputs/outputs}
-\label{sec:assumptions_io}
+\subsection{Supplementary control, decision quantity, and sequential design objective}
+\label{sec:decision}
 
-\paragraph{Assumptions.}
-We assume the safety predicate $\Safe(\gamma;\vartheta)$ is non-decreasing in $\gamma$ (safe set $[\gamma^\ast(\vartheta),\infty)$ so bisection is valid) and that observation noise is Gaussian. The discrete set $\{\vartheta_{\ninner}\}_{\ninner=1}^{\Ninner}$ (inner index $\ninner$) is such that $\gamma^\ast(\vartheta_{\ninner})$ can be evaluated for each $\ninner=1,\dots,\Ninner$. Initial conditions for the swing ODE are fixed so that $\Map(\vartheta,\xi)$ is well-defined.
+\textbf{Added by our framework.}
+Two separate roles are important: the \textbf{learning model} (probing and posterior update) and the \textbf{evaluation model} (downstream safety and $\gamma^\star(\theta)$). The latent plant parameter is $\theta=(H,K)$ (inertia constant $H$, aggregate droop $K$); $M=2HS_n/\omega_s$ is the derived inertia coefficient used in the dynamics when convenient. Three quantities are kept distinct: \textbf{(a)} probe design $\xi$ is for \emph{learning}---it determines $u_{\mathrm{probe}}(\cdot;\xi)$, which is used only to generate informative observations $y_t$ for posterior updating via $p(y_t\mid\theta,\xi_t)$; \textbf{(b)} $\theta=(H,K)$ is the \emph{latent} parameter we infer; \textbf{(c)} supplementary gain $\gamma$ is the \emph{downstream control decision variable} we choose after learning to satisfy frequency security under the fixed evaluation disturbance $d_{\mathrm{ref}}$. The decision quantity $\gamma^\star(\theta)$ depends only on the evaluation problem (dynamics under $d_{\mathrm{ref}}$), \emph{not} on the probing input.
 
-\paragraph{Inputs and outputs.}
-Inputs to Algorithm~\ref{alg:dad_mocu_loop}: $\mathcal{G}$; discrete set $\{\vartheta_{\ninner}\}_{\ninner=1}^{\Ninner}$ and initial belief $\{p_0^{\ninner}\}_{\ninner=1}^{\Ninner}$; design space $\Xi$; $\sigma_{\mathrm{feat}}$, $f_s$, $T_{\mathrm{obs}}$; $(r_{\max},f_{\min})$, $T_c$, $\xi_{\mathrm{ref}}$, $\{g_i\}$, horizon $T$. Outputs: beliefs $\{p_t\}_{t=0}^{T}$, gains $\{\hat{\gamma}(p_t)\}_{t=0}^{T}$, MOCU at $t=0,\dots,T$ (with $t=0$ initial, $t=T$ terminal). At $t=0$ all methods have the same MOCU; the \emph{ultimate} quantity of interest is terminal MOCU at $t=T$, i.e.\ $\mathrm{MOCU}(p_T)$.
+\subsubsection*{Learning model (probing and posterior).}
+The total injection during a probing experiment can be written as $u_i(t)=u_{\mathrm{probe},i}(t;\xi)+u_{\mathrm{ctrl},i}(t;\gamma)$. The probing input $u_{\mathrm{probe}}(\cdot;\xi)$ is chosen by the sBOED policy to obtain observations; the likelihood is $p(y_t\mid\theta,\xi_t)$. The supplementary control $u_{\mathrm{ctrl}}(t;\gamma)=-\gamma\,\Delta\omega(t)$ (aggregate) is a modeling choice for the physical system but is \emph{not} part of the definition of $\gamma^\star(\theta)$: $\gamma^\star(\theta)$ is defined from the evaluation scenario only (see below).
 
-\newpage
+\paragraph{Probe input (for learning).}
+Following the probing paper, $\xi=(b,A,T_p)$ (bus, amplitude, duration) and
+$u_{\mathrm{probe},i}(t;\xi)=A\,h(t;T_p)$ if $i=b$, else $0$, with e.g.\ Hann $h(t;T_p)=\sin^2(\pi t/T_p)$ on $[0,T_p]$. Once $\xi$ is specified, $u_{\mathrm{probe}}(\cdot;\xi)$ is known; it is used only to excite transients for observation $y_t$ and posterior update.
+
+\subsubsection*{Evaluation model (definition of $\gamma^\star(\theta)$).}
+The \textbf{evaluation model} is used solely to define the downstream decision quantity $\gamma^\star(\theta)$. It uses the \textbf{fixed} evaluation disturbance $d_{\mathrm{ref}}$ (contingency) and \textbf{does not} include any probing input.
+
+\paragraph{Control-law motivation.}
+The supplementary feedback $u_{\mathrm{ctrl}}(t;\gamma)=-\gamma\,\Delta\omega(t)$ is inspired by Taher, Olmi, and Schöll (2019), ``Enhancing power grid synchronization and stability through time-delayed feedback control'' (damping-like feedback idea only). Our $\gamma^\star(\theta)$ formulation is defined here from the evaluation dynamics and security constraints, not derived from that paper.
+
+\paragraph{Evaluation dynamics.}
+In the evaluation problem, $\theta=(H,K)$ is the latent parameter, $d_{\mathrm{ref}}$ is fixed and known (contingency), and $\gamma$ is the downstream control decision variable. With $M=2HS_n/\omega_s$, the aggregate evaluation dynamics are
+\begin{equation}
+\label{eq:eval_loop_agg}
+M\,\frac{d\Delta\omega}{dt}
+=
+-\Delta P_e(t;d_{\mathrm{ref}})
+-
+\left(\frac{K}{2\pi}+D+\gamma\right)\Delta\omega(t).
+\end{equation}
+The bus-wise evaluation dynamics are
+\begin{equation}
+\label{eq:eval_loop_bus}
+M_i \dot{\Delta\omega}_i(t)=-\Delta P_{e,i}(t;d_{\mathrm{ref}})-\left(\frac{K_i}{2\pi}+D_i+\gamma\right)\Delta\omega_i(t).
+\end{equation}
+For given $\theta$ and $\gamma\ge 0$, the solution $\Delta\omega(t;\theta,\gamma)$ on $[0,T_c]$ is unique. Frequency and ROCOF on the evaluation window are
+\begin{equation}
+f(t;\theta,\gamma)\;=\;f_0+\frac{\Delta\omega(t;\theta,\gamma)}{2\pi},\qquad \dot f(t;\theta,\gamma)\;=\;\frac{1}{2\pi}\,\frac{d\Delta\omega}{dt}.
+\end{equation}
+They are defined by the trajectory; no closed-form in $H,K,r_{\max},f_{\min}$ is assumed. $\gamma^\star(\theta)$ is located numerically from this trajectory (see below).
+
+\paragraph{Frequency-security conditions and safe $\gamma$ range.}
+On the evaluation window $[0,T_c]$ the two constraints are
+\begin{equation}
+\label{eq:safety_conditions}
+\big|\dot f(t;\theta,\gamma)\big|\le r_{\max},\quad f(t;\theta,\gamma)\ge f_{\min},\qquad \forall t\in[0,T_c].
+\end{equation}
+(For multi-bus, per bus.) $\gamma$ must be large enough to satisfy the ROCOF condition and large enough to satisfy the minimum-frequency condition. So the admissible safe range for $\gamma$ is
+\begin{equation}
+\label{eq:gamma_range}
+\gamma\;\in\;\big[\gamma^\star(\theta),\,\infty\big),
+\end{equation}
+where $\gamma^\star(\theta)$ is the minimum gain required for frequency security. Define $\gammaROCOF(\theta)=\min\{\gamma\ge 0:\;\sup_{t\in[0,T_c]}|\dot f(t;\theta,\gamma)|\le r_{\max}\}$ and $\gammafreq(\theta)=\min\{\gamma\ge 0:\;\inf_{t\in[0,T_c]}f(t;\theta,\gamma)\ge f_{\min}\}$. Under the monotonicity assumption used by the bisection algorithm (Algorithm~\ref{alg:gamma_star})---each condition alone gives an upper interval of the form $[\bar\gamma,\infty)$---we have
+\begin{equation}
+\label{eq:gamma_star}
+\gamma^\star(\theta)\;=\;\max\big\{\gammaROCOF(\theta),\gammafreq(\theta)\big\},\qquad\text{hence}\quad \gamma\;\in\;\big[\gamma^\star(\theta),\,\infty\big).
+\end{equation}
+Any $\gamma\ge\gamma^\star(\theta)$ is safe; $\gamma<\gamma^\star(\theta)$ violates at least one constraint. The security constraints are on the evaluation trajectory; $\Delta\omega(t;\theta,\gamma)$ depends on $\gamma$ through the swing equation, so $\gamma^\star(\theta)$ has no simple closed form in $M,K,r_{\max},f_{\min}$ and is located numerically. $\gamma^\star(\theta)$ does not depend on $\xi$ or $u_{\mathrm{probe}}$.
+
+\paragraph{Numerical location of $\gamma^\star(\theta)$.}
+In practice, $\gamma^\star(\theta)$ is found by: (1)~choose a candidate $\gamma$; (2)~simulate the evaluation trajectory on $[0,T_c]$ under $d_{\mathrm{ref}}$; (3)~check both frequency-security constraints; (4)~bracket safe vs.\ unsafe $\gamma$; (5)~bisect under the monotonicity / upper-interval assumption. This is Algorithm~\ref{alg:gamma_star}.
+
+\paragraph{Set notation (optional).}
+$\GammaROCOF(\theta)=\{\gamma\ge 0:\;\sup_t|\dot f(t;\theta,\gamma)|\le r_{\max}\}$, $\Gammafreq(\theta)=\{\gamma\ge 0:\;\inf_t f(t;\theta,\gamma)\ge f_{\min}\}$; under monotonicity they are upper intervals. $\Gammasafe(\theta)=\GammaROCOF(\theta)\cap\Gammafreq(\theta)$ and $\gamma^\star(\theta)=\inf\Gammasafe(\theta)$.
+
+\paragraph{Connection to MOCU.}
+The posterior $p_t(\theta)$ expresses uncertainty in $\theta=(H,K)$. Each $\theta$ implies a minimum safe gain $\gamma^\star(\theta)$, so uncertainty in $\theta$ induces uncertainty in $\gamma^\star(\theta)$. MOCU measures this downstream decision uncertainty: the posterior expected decision error in $\gamma^\star(\theta)$ when we commit to a point estimate $\hat\gamma_t$. The sequential design objective is to choose probes that reduce uncertainty in the control threshold $\gamma^\star(\theta)$, not only parameter uncertainty in the abstract. Dependence chain:
+\[
+\xi_t\;\longrightarrow\;y_t\;\longrightarrow\;p_t(\theta)\;\longrightarrow\;\text{induced uncertainty in }\gamma^\star(\theta)\;\longrightarrow\;\MOCU(p_t).
+\]
+Under absolute-error loss, the Bayes-optimal point estimator is any weighted median: $\hat\gamma_t\in\wmed(\{\gamma^\star(\theta_{\ninner})\},\{p_t^{\ninner}\})$. The \textbf{mean objective cost of uncertainty (MOCU)} is
+\begin{equation}
+\label{eq:mocu_gamma}
+\MOCU(p_t)\;=\;\mathbb{E}_{\theta\sim p_t}\big[|\gamma^\star(\theta)-\hat\gamma_t|\big]\;=\;\sum_{\ninner=1}^{\Ninner}p_t^{\ninner}\,\big|\gamma^\star(\theta_{\ninner})-\hat\gamma_t\big|.
+\end{equation}
+So the goal is to reduce uncertainty in the minimum safe gain $\gamma^\star(\theta)$, not merely in $\theta$ itself.
+
+\paragraph{Sequential design objective.}
+We use a single indexing convention: at step $t$ we have belief $p_{t-1}$; we choose design $\xi_t\in\Xi$; we observe $y_t$ and update to $p_t$. The sequential design policy selects $\xi_t$ to minimize the expected MOCU of the resulting posterior:
+\begin{equation}
+\label{eq:sboed_gamma}
+\xi_t^\star
+=
+\argmin_{\xi\in\Xi}
+\mathbb{E}_{y_t\mid p_{t-1},\xi}
+\big[
+\MOCU(p_t)
+\big].
+\end{equation}
+The expectation is over $y_t$ given the current belief $p_{t-1}$ and the chosen design $\xi$; $p_t$ is the posterior after observing that $y_t$. The dependence chain is
+\[
+\text{probe design }\xi_t
+\;\longrightarrow\;
+\text{observation }y_t
+\;\longrightarrow\;
+\text{posterior }p_t(\theta)
+\;\longrightarrow\;
+\text{induced uncertainty in }\gamma^\star(\theta)
+\;\longrightarrow\;
+\MOCU(p_t).
+\]
+Probing is used for information acquisition; the decision objective is the minimum supplementary control effort required to satisfy the frequency-security conditions under $d_{\mathrm{ref}}$.
+
 % ============================================================
 % Section 2: Sequential design and learning
 % ============================================================
 \section{Sequential design and learning}
 \label{sec:sequential}
 
-This section gives \textbf{Algorithm~\ref{alg:dad_mocu_loop}}: the \emph{online} execution of one episode of sequential design. The goal is to minimize expected \emph{terminal} MOCU $\mathbb{E}[\mathrm{MOCU}(p_T)]$. The algorithm assumes a \textbf{pre-trained} amortized policy $\pi_\phi$ (e.g.\ trained by REINFORCE with terminal MOCU as reward; training is separate and not shown here). In one episode: at $t=0$ belief is $p_0$ (prior); at each step $t=1,\dots,T$ we \emph{sample} design $\xi_t$ from $\pi_\phi(\cdot\mid h_{t-1})$, observe $y_t$, update belief to $p_t$ (log-domain), and compute $\hat{\gamma}(p_t)$ and $\mathrm{MOCU}(p_t)$. Alternative: a \emph{greedy} (myopic) rule would minimize one-step-ahead expected MOCU at each step (outer loop over simulated futures, inner loop over belief points); that is tractable but generally suboptimal for terminal MOCU. \textbf{Inner/outer (for greedy only):} outer = $\Nouter$ simulated future observations; inner = belief update over $\Ninner$ points. With the amortized policy, we do \emph{not} run outer/inner at deployment---we only run the policy and the belief update for the single real observation per step.
+This section gives \textbf{Algorithm~\ref{alg:dad_mocu_loop}}: the
+\emph{online} execution of one episode of sequential design. The goal is
+to choose the probing design $\xi_t$ at each step so that, in expectation, the mean objective cost of uncertainty in the downstream decision quantity $\gamma^\star(\theta)$ is reduced. This cost is $\MOCU(p_t)$, defined in \eqref{eq:mocu_gamma}. At each step, we update the belief from $p_{t-1}$ to $p_t$, compute the Bayes estimator $\hat\gamma_t$, and evaluate $\MOCU(p_t)$.
+
+The algorithm assumes a \textbf{pre-trained} amortized policy
+\(\pi_\phi\) that maps the experiment history
+\(h_{t-1}=\{(\xi_s,y_s)\}_{s=1}^{t-1}\) to a distribution over the next
+probing design \(\xi_t\). In one online episode, we only execute the
+policy and update the posterior with the single realized observation at
+each step.
 
 \begin{algorithm}[H]
 \caption{Sequential Bayesian Experimental Design (sBOED) using Amortized Policy}
 \label{alg:dad_mocu_loop}
 \small
 \begin{algorithmic}[1]
-\Require Network $\mathcal{G}$; discrete support $\{\vartheta_{\ninner}\}_{\ninner=1}^{\Ninner}$ and prior $\{p_0^{\ninner}\}_{\ninner=1}^{\Ninner}$; noise $\sigma_{\mathrm{feat}}$; precomputed $\gamma^\ast_{\ninner}=\gamma^\ast(\vartheta_{\ninner})$ for all $\ninner$; horizon $T$; \textbf{pre-trained} amortized policy $\pi_\phi$ (e.g.\ neural network trained offline to minimize expected terminal MOCU).
-\Ensure One episode: beliefs $\{p_t\}_{t=0}^{T}$, optimal gains $\{\hat{\gamma}(p_t)\}_{t=0}^{T}$, and MOCU trajectory. The \emph{terminal} output of interest is $\mathrm{MOCU}(p_T)$.
+\Require Network \(\mathcal{G}\); discrete support \(\{\theta_{\ninner}\}_{\ninner=1}^{\Ninner}\) and prior \(\{p_0^{\ninner}\}_{\ninner=1}^{\Ninner}\); precomputed \(\gamma^\star_{\ninner}=\gamma^\star(\theta_{\ninner})\) for all \(\ninner\) (from closed-loop evaluation under \(d_{\mathrm{ref}}\)); noise \(\sigma_{\mathrm{feat}}\); horizon \(T\); \textbf{pre-trained} amortized policy \(\pi_\phi\).
+\Ensure One episode: beliefs \(\{p_t\}_{t=0}^{T}\), posterior Bayes estimators \(\{\hat\gamma_t\}_{t=0}^{T}\), and posterior uncertainties \(\{\MOCU(p_t)\}_{t=0}^{T}\).
 
-\State $h_0 \gets \emptyset$
-\State $\hat{\gamma}(p_0) \gets \wmed\big(\{\gamma^\ast_{\ninner}\}_{\ninner=1}^{\Ninner}, \{p_0^{\ninner}\}_{\ninner=1}^{\Ninner}\big)$
-\State $\MOCU(p_0) \gets \sum_{\ninner=1}^{\Ninner} p_0^{\ninner}\,|\gamma^\ast_{\ninner}-\hat{\gamma}(p_0)|$
+\State \(h_0 \gets \emptyset\)
+\State Compute \(\hat\gamma_0 \in \wmed\big(\{\gamma^\star_{\ninner}\}_{\ninner=1}^{\Ninner},\{p_0^{\ninner}\}_{\ninner=1}^{\Ninner}\big)\)
+\State \(\MOCU(p_0) \gets \sum_{\ninner=1}^{\Ninner} p_0^{\ninner}\,\big|\gamma^\star_{\ninner}-\hat\gamma_0\big|\)
 
-\For{$t=1,\dots,T$}
-    \State \Comment{\textbf{1. Design Phase}}
-    \State $\xi_t \sim \pi_\phi(\cdot \mid h_{t-1})$ \Comment{Sample probe from trained neural network policy}
+\For{\(t=1,\dots,T\)}
+    \State \Comment{\textbf{1. Design phase}}
+    \State \(\xi_t \sim \pi_\phi(\cdot \mid h_{t-1})\)
 
-    \State \Comment{\textbf{2. Physical Observation}}
-    \State $y_t \gets \Map(\vartheta_{\mathrm{true}}, \xi_t) + \epsilon_t$, where $\epsilon_t \sim \mathcal{N}(0, \sigma_{\mathrm{feat}}^2)$
+    \State \Comment{\textbf{2. Physical observation}}
+    \State \(y_t \gets \Map(\theta_{\mathrm{true}}, \xi_t) + \epsilon_t\), where \(\epsilon_t \sim \mathcal{N}(0,\sigma_{\mathrm{feat}}^2)\)
 
-    \State \Comment{\textbf{3. Exact Discrete Belief Update (Log-domain)}}
-    \For{$\ninner=1,\dots,\Ninner$}
-        \State $\log \tilde{p}_t^{\ninner} \gets \log p_{t-1}^{\ninner} - \frac{1}{2}\log(2\pi\sigma_{\mathrm{feat}}^2) - \frac{\big(y_t - \Map(\vartheta_{\ninner}, \xi_t)\big)^2}{2\sigma_{\mathrm{feat}}^2}$
+    \State \Comment{\textbf{3. Exact discrete belief update (log-domain)}}
+    \For{\(\ninner=1,\dots,\Ninner\)}
+        \State \(\log \tilde{p}_t^{\ninner} \gets \log p_{t-1}^{\ninner}
+        - \frac{1}{2}\log(2\pi\sigma_{\mathrm{feat}}^2)
+        - \frac{\big(y_t-\Map(\theta_{\ninner},\xi_t)\big)^2}{2\sigma_{\mathrm{feat}}^2}\)
     \EndFor
-    \State $c_t \gets \max_{\ninner} \log \tilde{p}_t^{\ninner}$ \Comment{Shift constant for Log-Sum-Exp}
-    \State $\log Z_t \gets c_t + \log \sum_{\ninner'=1}^{\Ninner} \exp\big(\log \tilde{p}_t^{\ninner'} - c_t\big)$
-    \For{$\ninner=1,\dots,\Ninner$}
-        \State $p_t^{\ninner} \gets \exp\big(\log \tilde{p}_t^{\ninner} - \log Z_t\big)$
+    \State \(a_t \gets \max_{\ninner}\log \tilde{p}_t^{\ninner}\)
+    \State \(\log Z_t \gets a_t + \log\sum_{\ninner'=1}^{\Ninner}\exp\big(\log \tilde{p}_t^{\ninner'}-a_t\big)\)
+    \For{\(\ninner=1,\dots,\Ninner\)}
+        \State \(p_t^{\ninner} \gets \exp\big(\log \tilde{p}_t^{\ninner}-\log Z_t\big)\)
     \EndFor
 
-    \State \Comment{\textbf{4. Deploy Optimal Gain \& Track MOCU}}
-    \State $\hat{\gamma}(p_t) \gets \wmed\big(\{\gamma^\ast_{\ninner}\}_{\ninner=1}^{\Ninner}, \{p_t^{\ninner}\}_{\ninner=1}^{\Ninner}\big)$
-    \State $\MOCU(p_t) \gets \sum_{\ninner=1}^{\Ninner} p_t^{\ninner}\,|\gamma^\ast_{\ninner}-\hat{\gamma}(p_t)|$
-    \State $h_t \gets h_{t-1} \cup \{(\xi_t, y_t)\}$
+    \State \Comment{\textbf{4. Posterior decision summary}}
+    \State Compute \(\hat\gamma_t \in \wmed\big(\{\gamma^\star_{\ninner}\}_{\ninner=1}^{\Ninner},\{p_t^{\ninner}\}_{\ninner=1}^{\Ninner}\big)\)
+    \State \(\MOCU(p_t) \gets \sum_{\ninner=1}^{\Ninner} p_t^{\ninner}\,\big|\gamma^\star_{\ninner}-\hat\gamma_t\big|\)
+
+    \State \Comment{\textbf{5. History update}}
+    \State \(h_t \gets h_{t-1} \cup \{(\xi_t,y_t)\}\)
 \EndFor
-\State \Return $\{p_t\}_{t=0}^{T}$, $\{\hat{\gamma}(p_t)\}_{t=0}^{T}$, $\{\MOCU(p_t)\}_{t=0}^{T}$
+
+\State \Return \(\{p_t\}_{t=0}^{T}\), \(\{\hat\gamma_t\}_{t=0}^{T}\), \(\{\MOCU(p_t)\}_{t=0}^{T}\)
 \end{algorithmic}
 \end{algorithm}
 
 % ============================================================
-% Section 3: Minimal safe gain
+% Section 3: Computing the model-specific minimum safe gain
 % ============================================================
-\section{Computing the minimal safe gain}
+\section{Computing the model-specific minimum safe gain}
 \label{sec:gamma_star}
 
-This section gives \textbf{Algorithm~\ref{alg:gamma_star}}: for a \emph{given} parameter $\vartheta$, compute the \emph{minimal safe gain} $\gamma^\ast(\vartheta)$---the smallest $\gamma\ge 0$ such that the closed-loop trajectory under the \textbf{reference probe} $\xi_{\mathrm{ref}}$ and control $u^{\mathrm{ctrl}}=\gamma g_i\omega_i$ satisfies $|\dot f|\le r_{\max}$ and $f\ge f_{\min}$ on $[0,T_c]$. This is used to evaluate $\gamma^\ast_{\ninner}$ for each belief point $\vartheta_{\ninner}$ (precomputed or on the fly). We assume the set of safe gains is an interval $[\gamma^\ast(\vartheta),\infty)$ (monotonicity in $\gamma$; see \S\ref{sec:limitations}), so \textbf{bisection} is valid: first \emph{bracket} to find an upper bound $\gamma_U$ that is safe, then \emph{bisect} to narrow to the smallest such $\gamma$. If no safe $\gamma$ exists below a hard cap $\gamma_{\mathrm{cap}}$, the algorithm returns $\gamma_{\mathrm{cap}}$ (``unsolvable'' in the sense that the system cannot be stabilized within the cap).
+This section gives \textbf{Algorithm~\ref{alg:gamma_star}} for
+computing the downstream decision quantity
+\(\gamma^\star(\theta)\) defined in \eqref{eq:gamma_star}. For a given
+plant model \(\theta=(H,K)\) (with \(M=2HS_n/\omega_s\) in the dynamics), the goal is to find the smallest
+additional feedback gain \(\gamma\ge 0\) such that the \emph{evaluation} closed-loop
+trajectory (dynamics \eqref{eq:eval_loop_agg} or \eqref{eq:eval_loop_bus} under \(d_{\mathrm{ref}}\), no probing input) satisfies \eqref{eq:safety_conditions} on \([0,T_c]\).
+
+Define the safety predicate
+\[
+\Safe(\gamma;\theta)=\text{True}
+\quad\Longleftrightarrow\quad
+\text{the solution of the evaluation dynamics \eqref{eq:eval_loop_agg} (or \eqref{eq:eval_loop_bus}) under }(\theta,\gamma,d_{\mathrm{ref}})
+\text{ satisfies \eqref{eq:safety_conditions} on }[0,T_c].
+\]
+Then
+\[
+\gamma^\star(\theta)
+=
+\inf\{\gamma\ge 0:\Safe(\gamma;\theta)=\text{True}\}.
+\]
+Under the monotonicity assumption that \(\Gammasafe(\theta)\) is of the form
+\([\gamma^\star(\theta),\infty)\), \(\gamma^\star(\theta)\) can be
+computed by bracketing followed by bisection.
 
 \begin{algorithm}[H]
-\caption{Minimal Safe Gain $\gamma^\ast(\vartheta)$}
+\caption{Compute the model-specific minimum safe gain \(\gamma^\star(\theta)\)}
 \label{alg:gamma_star}
 \small
 \begin{algorithmic}[1]
-\Require Parameter $\vartheta$; network $\mathcal{G}$; limits $(r_{\max}, f_{\min})$; horizon $T_c$; reference probe $\xi_{\mathrm{ref}}$; tolerances $\varepsilon$ (bisection stop), $N_{\mathrm{expand}}$ (bracketing iterations); caps $\gamma_{\max}$ (initial upper guess), $\gamma_{\mathrm{cap}}$ (hard cap; return this if no safe $\gamma$ below it).
-\Ensure Minimal safe gain $\gamma^\ast(\vartheta)$; or $\gamma_{\mathrm{cap}}$ if the system cannot be stabilized (no $\gamma\le\gamma_{\mathrm{cap}}$ satisfies the safety condition).
+\Require Parameter \(\theta\); network \(\mathcal{G}\); limits \((r_{\max},f_{\min})\); horizon \(T_c\); fixed evaluation scenario \(d_{\mathrm{ref}}\); tolerance \(\varepsilon\); initial upper bound \(\gamma_{\max}\); hard cap \(\gamma_{\mathrm{cap}}\); maximum expansion steps \(N_{\mathrm{expand}}\).
+\Ensure Approximation of \(\gamma^\star(\theta)\); return \(\gamma_{\mathrm{cap}}\) if no safe gain is found up to the cap.
 
-\State \textbf{Define} $\Safe(\gamma;\vartheta) = \text{True}$ \textbf{iff} ODE trajectory under $\xi_{\mathrm{ref}}$ and $u^{\mathrm{ctrl}}=\gamma g_i\omega_i$ satisfies $|\dot{f}| \le r_{\max}$ and $f \ge f_{\min}$ on $[0,T_c]$.
+\State \textbf{Define} \(\Safe(\gamma;\theta)=\text{True}\) iff the trajectory of the \emph{evaluation} dynamics \eqref{eq:eval_loop_agg} (or \eqref{eq:eval_loop_bus}) under \((\theta,\gamma,d_{\mathrm{ref}})\) satisfies \eqref{eq:safety_conditions} on \([0,T_c]\).
 
-\State \Comment{\textbf{1. Bracketing Phase}}
-\State $\gamma_L \gets 0$
-\State $\gamma_U \gets \gamma_{\max}$
-\For{$k=1,\dots,N_{\mathrm{expand}}$}
-    \If{$\Safe(\gamma_U;\vartheta)$ is True}
-        \State \textbf{break} \Comment{Valid upper bound found}
+\State \Comment{\textbf{1. Bracketing phase}}
+\State \(\gamma_L \gets 0\)
+\State \(\gamma_U \gets \gamma_{\max}\)
+
+\For{\(k=1,\dots,N_{\mathrm{expand}}\)}
+    \If{\(\Safe(\gamma_U;\theta)\) is True}
+        \State \textbf{break}
     \EndIf
-    \State $\gamma_U \gets \min(2\gamma_U, \gamma_{\mathrm{cap}})$
-    \If{$\gamma_U = \gamma_{\mathrm{cap}}$}
-        \State \textbf{break} \Comment{Hit hard cap}
+    \State \(\gamma_U \gets \min(2\gamma_U,\gamma_{\mathrm{cap}})\)
+    \If{\(\gamma_U=\gamma_{\mathrm{cap}}\)}
+        \State \textbf{break}
     \EndIf
 \EndFor
 
-\If{\textbf{not} $\Safe(\gamma_U;\vartheta)$}
-    \State \Return $\gamma_{\mathrm{cap}}$ \Comment{System cannot be stabilized}
+\If{\textbf{not} \(\Safe(\gamma_U;\theta)\)}
+    \State \Return \(\gamma_{\mathrm{cap}}\)
 \EndIf
 
-\State \Comment{\textbf{2. Bisection Phase}}
-\While{$\gamma_U - \gamma_L > \varepsilon$}
-    \State $\gamma_M \gets (\gamma_L + \gamma_U) / 2$
-    \If{$\Safe(\gamma_M;\vartheta)$ is True}
-        \State $\gamma_U \gets \gamma_M$ \Comment{Midpoint is safe; lower the upper bound}
+\State \Comment{\textbf{2. Bisection phase}}
+\While{\(\gamma_U-\gamma_L>\varepsilon\)}
+    \State \(\gamma_M \gets (\gamma_L+\gamma_U)/2\)
+    \If{\(\Safe(\gamma_M;\theta)\) is True}
+        \State \(\gamma_U \gets \gamma_M\)
     \Else
-        \State $\gamma_L \gets \gamma_M$ \Comment{Midpoint is unsafe; raise the lower bound}
+        \State \(\gamma_L \gets \gamma_M\)
     \EndIf
 \EndWhile
 
-\State \Return $\gamma_U$
+\State \Return \(\gamma_U\)
 \end{algorithmic}
 \end{algorithm}
+
 
 % ============================================================
 % Section 4: Limitations and modeling choices
@@ -333,19 +453,23 @@ This section states limitations and modeling choices explicitly so that the scop
 
 \subsection{Sequential design and myopic heuristic}
 
-The objective is expected \emph{terminal} MOCU $\mathbb{E}[\mathrm{MOCU}(p_T)]$; the sequential design is order-dependent and MOCU is non-increasing in $t$. The myopic rule minimizes only one-step-ahead expected MOCU and is \emph{generally suboptimal} for terminal MOCU (rarely optimal; in edge cases where designs provide independent information, greedy can align with the optimum); it is a tractable heuristic. In the current setup (scalar ROCOF, reset each probe, reduced $\vartheta$, finite $\Xi$), complementarity between designs may be weak, so myopic may perform close to optimal in practice; to expose a larger gap one could use richer observations, higher-dimensional $\vartheta$, larger $T$, or terminal-aware baselines where tractable.
+The goal is to reduce the terminal cost of uncertainty in the decision quantity $\gamma^\star(\theta)$, for example by minimizing $\mathbb{E}[\MOCU(p_T)]$. The sequential design is order-dependent and $\MOCU(p_t)$ is typically non-increasing in $t$. A myopic rule that at each step $t$ chooses $\xi_t$ to minimize $\mathbb{E}_{y_t\mid p_{t-1},\xi_t}[\MOCU(p_t)]$ is tractable but generally suboptimal for terminal $\MOCU(p_T)$.
 
 \subsection{Parametrization and tractability}
 
-The latent parameter $\vartheta=(M_1,\dots,M_N,K_1,\dots,K_N)\in\mathbb{R}_+^{2N}$ makes a full discrete belief over $2N$ dimensions infeasible for large $N$. Implementations may use a reduced parametrization (e.g.\ common $M$, $K$ and a small grid) or Sequential Monte Carlo (Chopin \& Papaspiliopoulos, 2020; Drovandi et al., 2013). The algorithms in this document apply to any belief representation (grid or particles).
+The latent parameter $\theta=(H,K)$ (or multi-bus extensions) may be discretized on a grid or represented by particles. Implementations may use reduced parametrizations or Sequential Monte Carlo (Chopin \& Papaspiliopoulos, 2020; Drovandi et al., 2013); the algorithms apply to any such belief representation.
 
 \subsection{Observation model and noise}
 
-Observations are scalar ($y=\Map(\vartheta,\xi)+\epsilon$, $\epsilon\sim\mathcal{N}(0,\sigma_{\mathrm{feat}}^2)$). The maximum of noisy signals is not strictly Gaussian; we use a Gaussian likelihood for tractability. During observation we set $u^{\mathrm{ctrl}}\equiv 0$, which isolates parameter identification but is a security concern in operation; a closed-loop formulation with baseline gain $\gamma_{\mathrm{base}}>0$ during probing would extend the model for deployment.
+In our simplified implementation, each experiment yields a scalar feature $y_t=\Map(\theta,\xi_t)+\epsilon_t$ with Gaussian noise; the probing paper instead works with full $\omega(t)$ and $P_e(t)$ and an integrated relation to estimate $(H,K)$. Using richer observations would be closer to the probing paper but more computationally demanding for sBOED.
 
-\subsection{Bisection validity and deployment}
+\subsection{Decision quantity: task-oriented vs.\ estimation-oriented OED}
 
-Algorithm~\ref{alg:gamma_star} assumes the safe set is $[\gamma^\ast,\infty)$ (safety predicate non-decreasing in $\gamma$). Very high gain can cause oscillations or instability in real systems, so monotonicity may fail; we assume it holds over the operational range and reference contingency used here. If not, $\gamma^\ast$ would require grid search or constrained optimization instead of bisection.
+The probing paper (Peng et al., 2024) is estimation-oriented: it chooses probes to estimate $(H,K)$ accurately. Here the decision quantity is the downstream control requirement $\gamma^\star(\theta)$, and the sBOED rule chooses $\xi_t$ to reduce the mean objective cost of uncertainty $\MOCU(p_t)$ in $\gamma^\star(\theta)$, which is a task-oriented objective rather than generic parameter-variance reduction.
+
+\subsection{Bisection validity (optional $\gamma^\star$ computation)}
+
+Algorithm~\ref{alg:gamma_star} computes $\gamma^\star(\theta)$ by bracketing and bisection, assuming the safety predicate is non-decreasing in $\gamma$ over the operational range. If this monotonicity fails, one would need a more general search for $\gamma^\star(\theta)$; this affects only the numerical computation of $\gamma^\star(\theta)$, not the definition of $\MOCU(p_t)$ or the sBOED formulation.
 
 % ============================================================
 % References (APA 7th edition)
@@ -380,6 +504,12 @@ Imani, M., Dehghannasiri, R., Braga-Neto, U.~M., \& Dougherty, E.~R. (2018). Seq
 \url{https://doi.org/10.1177/1176935118790247}
 
 Kundur, P. (1994). \emph{Power system stability and control}. McGraw-Hill.
+
+Peng, L., Hoke, A., Tan, J., Hodge, B.-M., \& Maksimovi\'c, D. (2024). Probing signal-based inertia and frequency response estimation for power systems with high penetration of inverter-based resources. \emph{NREL Technical Report}. National Renewable Energy Laboratory.\\
+\url{https://www.nrel.gov/docs/fy24osti/88994.pdf}
+
+Taher, H., Olmi, S., \& Schöll, E. (2019). Enhancing power grid synchronization and stability through time-delayed feedback control. \emph{Physical Review E}, \emph{100}(6), 062306.\\
+\url{https://doi.org/10.1103/PhysRevE.100.062306}
 
 Ulbig, A., Borsche, T.~S., \& Andersson, G. (2014). Impact of low rotational inertia on power system stability and operation. \emph{IFAC Proceedings Volumes}, \emph{47}(3), 7290--7297.\\
 \url{https://doi.org/10.3182/20140824-6-ZA-1003.02443}
