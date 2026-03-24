@@ -2,7 +2,9 @@
 PI-ready test suite: Design ξ → forward simulation (2nd-order Kuramoto / IEEE-14) → observation y (ROCOF) → prior→posterior sharpening.
 
 NO MOCU predictor, NO DAD policy, NO sequential decisions.
-All outputs (tables, plots) under tests/output/.
+All outputs (tables, plots) under ``tests/posterior_inference/output/``.
+
+Integration test: design pipeline. Fixtures: ``tests/posterior_inference/conftest.py``.
 """
 
 import os
@@ -12,7 +14,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(PROJECT_ROOT))
 
 try:
@@ -35,12 +37,12 @@ try:
 except ImportError:
     perform_probe_experiment = None
 
-# Outputs must stay under tests/
-_TESTS_DIR = Path(__file__).resolve().parent
-OUTPUT_DIR = _TESTS_DIR / "output"
+# Artifacts: ``tests/posterior_inference/output/`` (read by ``tests/simulink_reference/ode_validation``)
+_PKG_DIR = Path(__file__).resolve().parents[1]
+OUTPUT_DIR = _PKG_DIR / "output"
 _resolved = OUTPUT_DIR.resolve()
-_tests_resolved = _TESTS_DIR.resolve()
-assert _resolved == _tests_resolved or str(_resolved).startswith(str(_tests_resolved) + os.sep)
+_pkg_resolved = _PKG_DIR.resolve()
+assert _resolved == _pkg_resolved or str(_resolved).startswith(str(_pkg_resolved) + os.sep)
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 
@@ -538,7 +540,7 @@ IEEE14_LOAD_BUSES = [4, 5, 7, 9, 10, 11, 12, 13, 14]
 
 
 def test_ieee14_diagram_plot():
-    """Draw IEEE 14-bus network diagram (same topology as in project and papers). Save to tests/output/ieee14_diagram.png."""
+    """Draw IEEE 14-bus network diagram (same topology as in project and papers). Save to tests/posterior_inference/output/ieee14_diagram.png."""
     if not HAS_MATPLOTLIB:
         pytest.skip("matplotlib required for plots")
     # Same coupling matrix as used in swing equation and design_part1.tex / published work
@@ -602,7 +604,7 @@ def test_ieee14_diagram_plot():
 
 
 def test_probe_signal_wave_plot(simulation_settings):
-    """Plot in-use probe signal (Hann window, A=0.3) and save to tests/output/probe_signal_wave.png."""
+    """Plot in-use probe signal (Hann window, A=0.3) and save to tests/posterior_inference/output/probe_signal_wave.png."""
     if not HAS_MATPLOTLIB:
         pytest.skip("matplotlib required for plots")
     probe_duration = simulation_settings["probe_duration"]  # 2.0 s

@@ -1,19 +1,14 @@
 """
-Validation tests: run Python ODE (IEEE 14, probe at bus 1) and compare with MATLAB results.
+MATLAB / Python ODE validation helpers (IEEE-14, probe, ROCOF).
 
-These tests prove the Python swing ODE is scientifically consistent by comparing
-with MATLAB Simulink (IEEE 14-bus) results. They are not part of the main project
-pipeline; they validate the ODE and observation definition.
+Used by ``tests/simulink_reference/test_simulink_reference.py`` and runnable as a script:
 
-Key flow:
-  1. Run Python ODE individually (probe at bus 1, same A/Tp/T as MATLAB).
-  2. Optionally derive ROCOF_max, f_min from MATLAB ScopeBus voltage CSVs (same observation definition).
-  3. Compare Python vs MATLAB (side-by-side ROCOF_max, f_min).
+  python -m tests.simulink_reference.ode_validation
+  python -m tests.simulink_reference.ode_validation --table-only
 
 Expects (for full comparison):
-  - matlab/results/fourteen_bus_dynamic/ScopeBus1.csv .. ScopeBus14.csv (from run_fourteen_bus_dynamic_save.m)
-  - tests/output/design_comparison_table.csv (from pytest test_experiment_design_pipeline)
-Output: observation_from_voltage.csv written to matlab/results/... when deriving from MATLAB.
+  - ``matlab/results/fourteen_bus_dynamic/ScopeBus*.csv``
+  - ``tests/posterior_inference/output/design_comparison_table.csv`` (from ``pytest tests/posterior_inference/ -k experiment_design``)
 """
 
 import csv
@@ -21,9 +16,8 @@ import sys
 from pathlib import Path
 
 import numpy as np
-import pytest
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.core.swing_equation_ode import (
@@ -38,8 +32,13 @@ REPO = PROJECT_ROOT
 MATLAB_RESULTS = REPO / "matlab" / "results"
 MATLAB_DYNAMIC = MATLAB_RESULTS / "fourteen_bus_dynamic"
 MATLAB_STEADY = MATLAB_RESULTS / "fourteen_bus"
+# MATLAB pytest scratch files (e.g. ieee14_probe_bus1_observation.txt)
 OUTPUT_DIR = Path(__file__).resolve().parent / "output"
-PYTHON_TABLE = OUTPUT_DIR / "design_comparison_table.csv"
+# Design table produced by ``tests/posterior_inference/integration/test_experiment_design_pipeline.py``
+POSTERIOR_INFERENCE_OUTPUT_DIR = (
+    Path(__file__).resolve().parents[1] / "posterior_inference" / "output"
+)
+PYTHON_TABLE = POSTERIOR_INFERENCE_OUTPUT_DIR / "design_comparison_table.csv"
 F_NOMINAL = 50.0
 FS = 12.0
 
@@ -254,79 +253,6 @@ def load_python_design_table():
         return None
     with open(PYTHON_TABLE) as f:
         return list(csv.DictReader(f))
-
-
-# --- Tests ---
-
-
-def test_python_ode_probe_bus1_runs():
-    """Run Python ODE with probe at bus 1; assert observation in expected range (probe effect)."""
-    obs = run_ieee14_ode_probe_bus1(amplitude=0.2, duration=2.0, T=5.0, device="cpu")
-    assert "ROCOF_max" in obs and "f_min" in obs
-    assert obs["ROCOF_max"] > 0
-    assert 49.0 < obs["f_min"] < 50.0  # probe causes frequency drop
-    assert obs["ROCOF_max"] > 1.0  # probe causes significant ROCOF
-
-
-def test_python_ode_probe_bus1_save_to_output():
-    """Run Python ODE probe bus 1 and save observation to tests/output for comparison."""
-    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    obs = run_ieee14_ode_probe_bus1(amplitude=0.2, duration=2.0, T=5.0, device="cpu")
-    out_file = OUTPUT_DIR / "ieee14_probe_bus1_observation.txt"
-    with open(out_file, "w") as f:
-        f.write(f"ROCOF_max={obs['ROCOF_max']}\n")
-        f.write(f"f_min={obs['f_min']}\n")
-    assert out_file.exists()
-
-
-@pytest.mark.skipif(not MATLAB_DYNAMIC.exists(), reason="MATLAB results not present")
-def test_derive_matlab_observation_from_voltage():
-    """If MATLAB ScopeBus CSVs exist, derive observation_from_voltage.csv (same definition as Python)."""
-    if not (MATLAB_DYNAMIC / "ScopeBus1.csv").exists():
-        pytest.skip("ScopeBus1.csv not found")
-    results = derive_observation_from_matlab_folder(MATLAB_DYNAMIC)
-    assert len(results) == 14
-    obs_path = MATLAB_DYNAMIC / "observation_from_voltage.csv"
-    assert obs_path.exists()
-    rows = load_observation_from_voltage_csv(obs_path)
-    assert len(rows) == 14
-    assert "ROCOF_max" in rows[0] and "f_min" in rows[0]
-
-
-def test_compare_python_ode_with_matlab():
-    """
-    Compare Python ODE results with MATLAB-derived observation.
-    Run Python ODE probe at bus 1; if MATLAB observation exists, assert Python shows probe effect (larger ROCOF).
-    """
-    obs_py = run_ieee14_ode_probe_bus1(amplitude=0.2, duration=2.0, T=5.0, device="cpu")
-    matlab_obs_path = MATLAB_DYNAMIC / "observation_from_voltage.csv"
-    matlab_rows = load_observation_from_voltage_csv(matlab_obs_path) if matlab_obs_path.exists() else None
-    if matlab_rows:
-        rocof_matlab = [float(r["ROCOF_max"]) for r in matlab_rows]
-        # Python with probe at bus 1 gives large ROCOF; MATLAB (no probe) gives small ROCOF
-        assert obs_py["ROCOF_max"] > max(rocof_matlab) or max(rocof_matlab) < 0.5
-    else:
-        # No MATLAB data: just ensure Python ODE runs and gives plausible probe effect
-        assert obs_py["ROCOF_max"] > 1.0
-        assert obs_py["f_min"] < 50.0
-
-
-def test_compare_design_table_with_matlab_if_present():
-    """If design_comparison_table.csv and MATLAB observation exist, load both and sanity-check ranges."""
-    py_rows = load_python_design_table()
-    matlab_obs = load_observation_from_voltage_csv(MATLAB_DYNAMIC / "observation_from_voltage.csv")
-    if not py_rows:
-        pytest.skip("design_comparison_table.csv not found (run test_experiment_design_pipeline first)")
-    if not matlab_obs:
-        pytest.skip("MATLAB observation_from_voltage.csv not found")
-    rocof_py = [float(r["ROCOF_max"]) for r in py_rows]
-    fmin_py = [float(r["f_min"]) for r in py_rows]
-    rocof_matlab = [float(r["ROCOF_max"]) for r in matlab_obs]
-    fmin_matlab = [float(r["f_min"]) for r in matlab_obs]
-    assert len(rocof_py) == 140
-    assert min(rocof_py) >= 0 and max(fmin_py) <= 51
-    # Python (with probe) typically has larger ROCOF range than MATLAB (no probe)
-    assert max(rocof_py) >= max(rocof_matlab) - 0.1
 
 
 # --- Comparison table: MATLAB dynamic, probe + Python per-bus ---

@@ -1,12 +1,11 @@
 """
-torchdiffeq-based MOCU computation for swing equation (second-order Kuramoto).
+**torchdiffeq helpers** for the swing equation (re-uses :mod:`swing_equation_mocu` for ``γ*`` / MOCU).
 
-Second-order Kuramoto (swing equation) based on documents/design_part1.tex:
-- dθ/dt = ω
-- M dω/dt = P_m - Σ B_ij sin(θ_i - θ_j) - D ω - K ω + u_probe + u_ctrl
+Not the main entry point: use :func:`swing_equation_mocu.MOCU_swing_equation` for standard MOCU.
+For **PyCUDA + embedded CUDA C++**, see :mod:`mocu_pycuda`. For **weighted particles**, see :mod:`mocu_particles`.
 
-Based on the paper: "Probing Signal-Based Inertia and Frequency Response Estimation 
-for Power Systems with High Penetration of Inverter-Based Resources"
+Dynamics (design_part1.tex): ``dθ/dt = ω``,
+``M dω/dt = P_m - Σ B_ij sin(θ_i-θ_j) - Dω - Kω + u_probe + u_ctrl``.
 """
 
 import numpy as np

@@ -20,18 +20,18 @@ To run **both** and keep the **dynamic MATLAB run aligned with the Python test**
 
 2. **Python tests (from repo root):**
    ```bash
-   pytest tests/test_experiment_design_pipeline.py -v
+   pytest tests/posterior_inference/ -k experiment_design -v
    ```
-   → Fills `tests/output/design_comparison_table.csv` (140 designs, T=5 s, 50 Hz nominal, same as `tests/conftest.py`).
+   → Fills `tests/posterior_inference/output/design_comparison_table.csv` (140 designs, T=5 s, 50 Hz nominal; fixtures in `tests/posterior_inference/conftest.py`).
 
-3. **Compare (from repo root):** Run the validation test that runs Python ODE and compares with MATLAB:
+3. **Compare (from repo root):** MATLAB vs Python ODE (`tests/simulink_reference/`):
    ```bash
-   python tests/test_matlab_python_comparison.py
+   python -m tests.simulink_reference.ode_validation
    ```
-   or: `pytest tests/test_matlab_python_comparison.py -v`
+   or: `pytest tests/simulink_reference/ -v`
    → Runs Python ODE (probe at bus 1), derives MATLAB observation if needed, prints side-by-side comparison.
 
-**Alignment:** Python test uses `T=5.0` s and 50 Hz nominal (`tests/conftest.py`). The dynamic .mdl uses **StopTime 5 s** and the .mdl is 50 Hz; both produce results over a 5 s window for comparison.
+**Alignment:** The experiment-design test uses `T=5.0` s and 50 Hz nominal (`simulation_settings` in `tests/posterior_inference/conftest.py`). The dynamic .mdl uses **StopTime 5 s** and the .mdl is 50 Hz; both produce results over a 5 s window for comparison.
 
 ## Difference between fourteen_bus and fourteen_bus_dynamic
 
@@ -66,7 +66,7 @@ The **ScopeBus plots show voltage vs time**, not ROCOF. ROCOF (rate of change of
 - **summary.txt** — same values appended
 - **ROCOF_bus1.png** (probe run only) — ROCOF(t) for bus 1 with ROCOF_max annotated
 
-So you **do use calculation** to get ROCOF/ROCOF_max from MATLAB results; the scripts do it for you. For Python-side comparison, run `python tests/test_matlab_python_comparison.py` (it can also derive from ScopeBus CSVs if the CSV was not written by MATLAB).
+So you **do use calculation** to get ROCOF/ROCOF_max from MATLAB results; the scripts do it for you. For Python-side comparison, run `python -m tests.simulink_reference.ode_validation` (it can also derive from ScopeBus CSVs if the CSV was not written by MATLAB).
 
 ### Where are the results after Run?
 
@@ -87,11 +87,11 @@ Both use **Power System Blocks** (Simscape Electrical). They are a detailed elec
 
 ### Probe injection (active probing at bus 1)
 
-The run script **automatically** adds **ProbeInjection** (Controlled Current Source), **ProbeGround**, and **ProbeSnubber** (1 MΩ resistor in parallel), and wires ProbeInjection’s **+** to **Bus 1** (one phase) and **−** to Ground. The snubber is required by the SPS solver when a current source is in series with inductive branches. If automatic wiring fails (e.g. block names differ), connect manually: **ProbeInjection** **+** and **−** to the **Bus 1** node and **ground**, add a high-value resistor (e.g. 1 MΩ) in parallel, save, and re-run. Then run `python tests/test_matlab_python_comparison.py` to compare with Python; you should see larger ROCOF and lower f_min during 0–2 s.
+The run script **automatically** adds **ProbeInjection** (Controlled Current Source), **ProbeGround**, and **ProbeSnubber** (1 MΩ resistor in parallel), and wires ProbeInjection’s **+** to **Bus 1** (one phase) and **−** to Ground. The snubber is required by the SPS solver when a current source is in series with inductive branches. If automatic wiring fails (e.g. block names differ), connect manually: **ProbeInjection** **+** and **−** to the **Bus 1** node and **ground**, add a high-value resistor (e.g. 1 MΩ) in parallel, save, and re-run. Then run `python -m tests.simulink_reference.ode_validation` to compare with Python; you should see larger ROCOF and lower f_min during 0–2 s.
 
 **Alternative:** Use a **Three-Phase Dynamic Load** with external P control at bus 1 and drive its P input from the HannProbe signal (scaled).
 
-**Python (same idea, probe at bus 1):** The test file `tests/test_matlab_python_comparison.py` runs the IEEE 14 swing ODE with probe at bus 1 (A=0.2, Tp=2 s, T=5 s) and compares with MATLAB. Run: `python tests/test_matlab_python_comparison.py` or `pytest tests/test_matlab_python_comparison.py -v`.
+**Python (same idea, probe at bus 1):** `tests/simulink_reference/ode_validation.py` and `tests/simulink_reference/test_simulink_reference.py` run the IEEE 14 swing ODE with probe at bus 1 (A=0.2, Tp=2 s, T=5 s) and compare with MATLAB. Run: `python -m tests.simulink_reference.ode_validation` or `pytest tests/simulink_reference/ -v`.
 
 ## Relation to the project
 
@@ -132,7 +132,7 @@ The 14-bus model has Bus blocks with a second output port that is not wired. Sim
 - **run_fourteen_bus_dynamic_save.m** – Runs **fourteen_bus_dynamic** (5 s, aligned with Python test T). Saves results to `results/fourteen_bus_dynamic/`: CSV (ScopeBus1…14), summary.txt, PNG plots (per bus + all_buses.png).
 - **run_fourteen_bus_dynamic_with_probe_save.m** – Runs **fourteen_bus_dynamic_probe** (5 s with Hann-window probe). Adds probe blocks to the model if not present, then runs and saves to `results/fourteen_bus_dynamic_probe/`: ScopeBus1…14, summary.txt, PNGs (and ProbeOut if logged).
 
-**Analysis vs Python:** After running the MATLAB scripts and the Python design tests (`pytest tests/test_experiment_design_pipeline.py`), run `python tests/test_matlab_python_comparison.py` to run the Python ODE (probe at bus 1) and print a side-by-side comparison with MATLAB. See **`tests/test_matlab_python_comparison.py`** for the full validation flow.
+**Analysis vs Python:** After running the MATLAB scripts and `pytest tests/posterior_inference/ -k experiment_design -v`, run `python -m tests.simulink_reference.ode_validation` to run the Python ODE (probe at bus 1) and print a side-by-side comparison with MATLAB. See **`tests/simulink_reference/`**.
 
 ## Files (sorted)
 
@@ -161,11 +161,11 @@ All files in `matlab/`, grouped and sorted.
 ### Validation tests (run from repo root)
 | Test / script | Description |
 |---------------|-------------|
-| **tests/test_matlab_python_comparison.py** | Runs Python ODE (probe at bus 1), derives ROCOF_max/f_min from MATLAB ScopeBus CSVs when present, prints side-by-side comparison. Run: `python tests/test_matlab_python_comparison.py` or `pytest tests/test_matlab_python_comparison.py -v`. |
+| **tests/simulink_reference/** | Helpers (`ode_validation.py`) + pytest (`test_simulink_reference.py`): Python ODE (probe at bus 1), derives ROCOF_max/f_min from MATLAB ScopeBus CSVs when present. Run: `python -m tests.simulink_reference.ode_validation` · `pytest tests/simulink_reference/ -v`. |
 
 ### Results (generated by run scripts)
 | Path | Description |
 |------|--------------|
 | **results/fourteen_bus/** | tout.csv, summary.txt (from run_fourteen_bus_save.m). |
 | **results/fourteen_bus_dynamic/** | ScopeBus1.csv … ScopeBus14.csv, summary.txt, observation_from_voltage.csv (optional), ode_params_single_design.json (optional). |
-| **results/COMPARISON_TABLE.md** | Summary table: MATLAB dynamic + probe (ROCOF_max, f_min per bus) and Python ODE (probe at bus 1 per-bus, probe at 1..14 system-wide). Generated by `python tests/test_matlab_python_comparison.py --table-only`. |
+| **results/COMPARISON_TABLE.md** | Summary table: MATLAB dynamic + probe (ROCOF_max, f_min per bus) and Python ODE (probe at bus 1 per-bus, probe at 1..14 system-wide). Generated by `python -m tests.simulink_reference.ode_validation --table-only`. |

@@ -18,6 +18,7 @@ sys.path.insert(0, project_root)
 
 from .swing_equation_ode import solve_swing_equation_ode, solve_swing_equation_ode_batch
 from .rocof import extract_rocof, extract_max_rocof
+from .discrete_bayes import log_gaussian_observation_density
 
 
 def mu_theta_xi(theta: Tuple[float, float], xi: Tuple[int, float, float],
@@ -109,18 +110,29 @@ def log_likelihood(y: float, theta: Tuple[float, float], xi: Tuple[int, float, f
     return float(logp)
 
 
-def log_likelihood_batch(y: float, thetas: np.ndarray, xi: Tuple[int, float, float],
-                         sigma: float, B: np.ndarray, P_m: np.ndarray, D: float, g: np.ndarray,
-                         h: float = 1.0/160.0, T: float = 10.0, M_steps: Optional[int] = None,
-                         fs: float = 12.0, device: str = 'cuda', timeout: float = 5.0,
-                         rocof_method: str = 'full_window', T_obs_sec: float = 10.0,
-                         rocof_window_sec: float = 0.5, rocof_eval_sec: float = 1.0) -> np.ndarray:
+def mu_theta_xi_batch(
+    thetas: np.ndarray,
+    xi: Tuple[int, float, float],
+    B: np.ndarray,
+    P_m: np.ndarray,
+    D: float,
+    g: np.ndarray,
+    h: float = 1.0 / 160.0,
+    T: float = 10.0,
+    M_steps: Optional[int] = None,
+    fs: float = 12.0,
+    device: str = "cuda",
+    timeout: float = 5.0,
+    rocof_method: str = "full_window",
+    T_obs_sec: float = 10.0,
+    rocof_window_sec: float = 0.5,
+    rocof_eval_sec: float = 1.0,
+) -> np.ndarray:
     """
-    Compute log-likelihood for a batch of theta values using a single batched ODE solve.
-    Design §5.1; observation noise σ per design §9 (default 0.05 Hz/s).
-    
-    Returns:
-        log_likelihoods: [N_particles] array of log p(y | θ, ξ)
+    Batch learning-model means μ_n = Map(θ_n, ξ) (pseudocode §Likelihood, §observation).
+
+    Same batched ODE path as ``log_likelihood_batch`` but returns only μ, for use with
+    ``discrete_bayes.log_gaussian_observation_density`` / ``single_step_discrete_bayes_report``.
     """
     N_particles = len(thetas)
     N = len(P_m)
@@ -130,37 +142,98 @@ def log_likelihood_batch(y: float, thetas: np.ndarray, xi: Tuple[int, float, flo
     K_batch = thetas[:, 1].astype(np.float64)
     try:
         state_traj = solve_swing_equation_ode_batch(
-            B, P_m, D, M_batch, K_batch, g,
+            B,
+            P_m,
+            D,
+            M_batch,
+            K_batch,
+            g,
             gamma=None,
             probe_bus=probe_bus_internal,
             probe_amplitude=A,
             probe_duration=T_p,
-            h=h, M_steps=M_steps, T=T,
-            device=device, timeout=timeout,
+            h=h,
+            M_steps=M_steps,
+            T=T,
+            device=device,
+            timeout=timeout,
         )
         omega_traj = state_traj[:, :, N:]
         mu_batch = np.zeros(N_particles)
         for i in range(N_particles):
-            if rocof_method == 'full_window':
+            if rocof_method == "full_window":
                 mu_batch[i] = extract_max_rocof(
-                    omega_traj[:, i, :], fs=fs, window_sec=T_obs_sec, h=h,
-                    probe_bus=probe_bus_internal  # Bus-local ROCOF so probe choice matters
+                    omega_traj[:, i, :],
+                    fs=fs,
+                    window_sec=T_obs_sec,
+                    h=h,
+                    probe_bus=probe_bus_internal,
                 )
             else:
                 mu_batch[i] = extract_rocof(
-                    omega_traj[:, i, :], h, fs=fs,
-                    rocof_window_sec=rocof_window_sec, rocof_eval_sec=rocof_eval_sec
+                    omega_traj[:, i, :],
+                    h,
+                    fs=fs,
+                    rocof_window_sec=rocof_window_sec,
+                    rocof_eval_sec=rocof_eval_sec,
                 )
-        logp = -0.5 * (y - mu_batch) ** 2 / (sigma ** 2) - 0.5 * np.log(2.0 * np.pi * sigma ** 2)
-        return logp.astype(np.float64)
-    except Exception as e:
-        log_likelihoods = np.zeros(N_particles)
+        return mu_batch.astype(np.float64)
+    except Exception:
+        mu_batch = np.zeros(N_particles)
         for i in range(N_particles):
             theta = (float(thetas[i, 0]), float(thetas[i, 1]))
-            log_likelihoods[i] = log_likelihood(
-                y, theta, xi, sigma, B, P_m, D, g,
-                h, T, M_steps, fs, device, timeout,
-                rocof_method=rocof_method, T_obs_sec=T_obs_sec,
-                rocof_window_sec=rocof_window_sec, rocof_eval_sec=rocof_eval_sec
+            mu_batch[i] = mu_theta_xi(
+                theta,
+                xi,
+                B,
+                P_m,
+                D,
+                g,
+                h,
+                T,
+                M_steps,
+                fs,
+                device,
+                timeout,
+                rocof_method=rocof_method,
+                T_obs_sec=T_obs_sec,
+                rocof_window_sec=rocof_window_sec,
+                rocof_eval_sec=rocof_eval_sec,
             )
-        return log_likelihoods
+        return mu_batch
+
+
+def log_likelihood_batch(y: float, thetas: np.ndarray, xi: Tuple[int, float, float],
+                         sigma: float, B: np.ndarray, P_m: np.ndarray, D: float, g: np.ndarray,
+                         h: float = 1.0/160.0, T: float = 10.0, M_steps: Optional[int] = None,
+                         fs: float = 12.0, device: str = 'cuda', timeout: float = 5.0,
+                         rocof_method: str = 'full_window', T_obs_sec: float = 10.0,
+                         rocof_window_sec: float = 0.5, rocof_eval_sec: float = 1.0) -> np.ndarray:
+    """
+    Compute log-likelihood for a batch of theta values using a single batched ODE solve.
+    Design §5.1; observation noise σ per design §9 (default 0.05 Hz/s).
+    Internally: μ_batch = ``mu_theta_xi_batch``(...), then ``log_gaussian_observation_density``
+    (same Gaussian as pseudocode §Likelihood).
+
+    Returns:
+        log_likelihoods: [N_particles] array of log p(y | θ, ξ)
+    """
+    mu_batch = mu_theta_xi_batch(
+        thetas,
+        xi,
+        B,
+        P_m,
+        D,
+        g,
+        h=h,
+        T=T,
+        M_steps=M_steps,
+        fs=fs,
+        device=device,
+        timeout=timeout,
+        rocof_method=rocof_method,
+        T_obs_sec=T_obs_sec,
+        rocof_window_sec=rocof_window_sec,
+        rocof_eval_sec=rocof_eval_sec,
+    )
+    return log_gaussian_observation_density(float(y), mu_batch, sigma)

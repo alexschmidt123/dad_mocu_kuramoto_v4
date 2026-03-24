@@ -1,352 +1,126 @@
 # DAD-MOCU: Design Document
 
+**Sequential optimal experimental design for power systems** · *Gaoming Lin · Dr. Byung-Jun Yoon · Jan 2026*
 
-**Sequential Optimal Experimental Design for Power Systems**
-
-*Gaoming Lin · Advisor: Dr. Byung-Jun Yoon · January 2026*
-
-
+Prototype for the project paper. **Keep in sync with `design.md`.**
 
 ---
 
-## 1. Introduction and Goal
+## 1. Goal
 
-This document describes the design of a **sequential Bayesian optimal experimental design (sBOED)** framework for power systems. The system is modeled by the **second-order Kuramoto (swing) equation** on an IEEE-14 bus network. The goal is to design **active probing experiments** that reduce uncertainty in a **decision-relevant quantity**—the minimal safe gain $\gamma^{\ast}(M,K)$—rather than estimating parameters $(M,K)$ for their own sake. The framework uses **Mean Objective Cost of Uncertainty (MOCU)** as the utility and trains a **Deep Adaptive Design (DAD)** policy to select probes non-myopically.
+**sBOED + DAD** on IEEE-14 swing (second-order Kuramoto) dynamics. Reduce uncertainty in a **decision quantity**—the **minimum safe supplementary gain** $\gamma^\ast(\vartheta)$—not $(M,K)$ for their own sake. Utility: **MOCU**; policy: amortized **$\pi_\phi$** (Foster et al., 2021).
+
+**Chain:** $\xi_t \to y_t \to p_t(\vartheta) \to$ uncertainty in $\gamma^\ast(\vartheta) \to \mathrm{MOCU}(p_t)$. Full math: `documents/pseudocode.tex`.
 
 ---
 
-## High-level pipeline
+## 2. Pipeline
 
-Conceptual flow from the physical grid to the DAD policy: **real power grid** → **swing equation ODE** → **MOCU (ODE)** → **MOCU estimation with MPNN** → **DAD**. The swing ODE provides the **likelihood** $p(y \mid \vartheta, \xi)$ (via $\mathrm{Map}(\vartheta, \xi)$); the **posterior** $p(\vartheta \mid y, \xi)$ is computed by Bayes' rule in §5.
+Grid → swing ODE → likelihood $\mathrm{Map}(\vartheta,\xi)$ → posterior → $\gamma^\ast$ → MOCU → (optional) MPNN surrogate → DAD policy.
 
 ```mermaid
-flowchart TB
-    subgraph P1["1. Real power grid"]
-        G["IEEE 14-bus\nvoltages, currents\nSimulink / Simscape"]
-    end
-    subgraph P2["2. Swing equation ODE"]
-        S["Reduced model θ, ω\nM dω/dt = P_m − Σ B_ij sin(θ_i−θ_j) − Dω − Kω + u"]
-    end
-    subgraph P3["3. MOCU (ODE)"]
-        M["Cost J(γ,ϑ)=|γ−γ*|; MOCU(p)=E[J(γ̂(p),ϑ)]\nGround-truth via ODE"]
-    end
-    subgraph P4["4. MOCU estimation with MPNN"]
-        MP["Ĵ(p) ≈ MPNN(state, graph)\nFast surrogate"]
-    end
-    subgraph P5["5. DAD"]
-        D["Policy π_φ(h) → ξ_t\nREINFORCE, terminal MOCU"]
-    end
-    G -->|abstraction / reduction| S
-    S -->|compute γ*, γ̂, MOCU| M
-    M -->|supervised surrogate| MP
-    S -->|likelihood p(y|ϑ,ξ)| D
-    M -->|reward / evaluation| D
-    MP -->|fast expected MOCU| D
-```
-
-<div align="center">
-<img src="images/pipeline_real_grid_to_dad.png" width="75%" alt="Pipeline: real grid → swing ODE → MOCU ODE → MOCU MPNN → DAD." />
-</div>
-
-Likelihood and posterior (observation model, Bayes' rule, grid posterior, sequential update) are defined in **§5**.
-
----
-
-## 2. System Model and Dynamics
-
-### 2.1 Network Topology (IEEE 14-Bus Standard)
-
-The system topology is fixed and defined by the standard IEEE 14-bus test case (Texas A&M University, n.d.). We assume **homogeneous** uncertain parameters: $M\_i = M$ and $K\_i = K$ for all buses $i$, so the latent parameter vector is $\vartheta = (M, K)$ (scalar $M$, $K$).
-* **Bus Set ($\mathcal{V}$):** The set of $N=14$ buses, indexed $i \in \{1, \dots, 14\}$.
-* **Branch Set ($\mathcal{E}$):** The specific set of 20 transmission lines and transformers as defined in the standard IEEE 14-bus data. A physical line exists between bus $i$ and $j$ if $(i, j) \in \mathcal{E}$.
-* **Coupling Structure:** The network connectivity is encoded in the **Susceptance Matrix** $\mathbf{B} \in \mathbb{R}^{N \times N}$. The entry $B\_ {ij} > 0$ represents the magnitude of the line susceptance if $(i, j) \in \mathcal{E}$, and $B\_ {ij} = 0$ otherwise.
-
-**Node types (standard power-system classification):**
-
-| Type | Buses | Role |
-|------|--------|------|
-| **Slack** | 1 | Reference (angle/frequency); balances real/reactive power. |
-| **Generator (PV)** | 2, 3, 6, 8 | Voltage-controlled; inject real power. *PV* = real power P and voltage magnitude V specified. |
-| **Load (PQ)** | 4, 5, 7, 9, 10, 11, 12, 13, 14 | Consume P and Q. *PQ* = real and reactive power (P, Q) specified. |
-
-**Background (P and Q):** In AC power systems, **P** (real power) does useful work; **Q** (reactive power) supports voltage and fields. In power-flow, at a **PV bus** (generator) $P$ and $|V|$ are specified; at a **PQ bus** (load) $P$ and $Q$ are specified; the **slack** bus sets $|V|$ and $\theta$ and solves for $P$, $Q$ to balance the system. The swing-equation model below focuses on frequency dynamics; the above classification guides where to probe.
-
-**Connectivity:** The IEEE 14-bus topology is shown below. Bus 4 is the only degree-5 node (hub); buses 2, 5, 6, 9 have degree 4. Symmetric pairs (10, 14) and (11, 13) have identical connectivity and yield identical design outcomes for the same probe amplitude. Node colors: gold = slack (bus 1), green = generator (2, 3, 6, 8), blue = load (rest).
-
-<div align="center">
-<img src="images/ieee14_diagram.png" width="60%" alt="IEEE 14-bus network topology. Generated by tests/test_experiment_design_pipeline.py::test_ieee14_diagram_plot." />
-</div>
-
-**Experiment design preference:** For maximum information (M/K estimation), prefer high-degree buses: **4** (hub), then **2, 5, 6, 9**. To cover node types use **1** (slack), **2** or **3** (gen), **4** (load hub), **7** (load), and **10** or **14** (load). For minimal redundancy, use one from each symmetric pair (e.g. 10 and 13, or 14 and 11).
-
-### 2.2 Swing Equation (Second-Order Kuramoto Model)
-
-The system state at time $t$ is $\mathbf{x}(t) = [\boldsymbol{\theta}(t), \boldsymbol{\omega}(t)]^\top \in \mathbb{R}^{2N}$. The dynamics follow the **Second-Order Kuramoto Model** (Swing Equation), adapted for structure-preserving power networks.
-
-For each bus $i \in \mathcal{V}$:
-
-```math
-\dot{\theta}_i(t) = \omega_i(t)
-```
-
-```math
-M_i \dot{\omega}_i(t) = P_{m,i} - P_{e,i}(\boldsymbol{\theta}(t)) - (D_i + K_i)\omega_i(t) + u_i(t)
-```
-
-**Injection $u\_i(t)$:** Only two terms: $u\_i = u^{\mathrm{probe}}\_i + u^{\mathrm{ctrl}}\_i$ (no $u^{\mathrm{ref}}$). **Probe** $u^{\mathrm{probe}}$: same formula; parameters depend on context. In the **sBOED loop** we set it from design $\xi\_t$ → observation $y\_t$; when evaluating $\gamma^{\ast}$ we set it to a **reference** (fixed bus/amplitude/duration). So “reference contingency” = $u^{\mathrm{probe}}$ with reference parameters. **Control** $u^{\mathrm{ctrl}}\_i = \gamma g\_i \omega\_i$: used in $\gamma^{\ast}$ evaluation and at deploy; **not** used in the observation step (loop uses only $u^{\mathrm{probe}}$). **Two uses:** (1) **Observation:** ODE with $u^{\mathrm{probe}}$ from $\xi\_t$, no $u^{\mathrm{ctrl}}$ → $y\_t$. (2) **$\gamma^{\ast}$:** ODE with $u^{\mathrm{probe}}$ = reference and $u^{\mathrm{ctrl}}(\gamma)$; if no probe/contingency, $\gamma^{\ast}=0$.
-
-**Where the electrical power flow $P\_ {e,i}$ is:**
-```math
-P_{e,i}(\boldsymbol{\theta}(t)) = \sum_{j \in \mathcal{N}_i} B_{ij} \sin\bigl(\theta_i(t) - \theta_j(t)\bigr)
-```
-(Note: the set of neighbors for bus $i$ is $\mathcal{N}_i = \lbrace j \mid (i, j) \in \mathcal{E} \rbrace $.)
-
-### 2.3 Notation and Units
-
-| Symbol | Definition | Unit / Domain |
-| :--- | :--- | :--- |
-| $\theta\_i$ | Voltage phase angle at bus $i$. | Rad |
-| $\omega\_i$ | Angular frequency deviation from synchronous speed $\omega\_s$. | Rad/s |
-| $P\_ {m,i}$ | Net mechanical power injection (Generation - Load). | p.u. |
-| $B\_ {ij}$ | Line susceptance magnitude between bus $i$ and $j$. | p.u. |
-| $D\_i$ | Load-damping coefficient (frequency sensitivity). | p.u. |
-| $u\_i(t)$ | Total injection: $u^{\mathrm{probe}}\_i + u^{\mathrm{ctrl}}\_i$ (probe + control). | p.u. |
-| **Latent $\vartheta$** | **Uncertain Parameters** | |
-| $M\_i$ ($M$) | **Effective Inertia Coefficient** (homogeneous). $M = 2H/\omega\_s$, $\omega\_s = 2\pi f\_0$. | $s^2/\mathrm{rad}$ |
-| $K\_i$ ($K$) | **Primary frequency response (droop) gain** (homogeneous $K\_i{=}K$). Governor/FFR gain. | p.u. |
-
-### 2.4 Latent Space Prior
-The parameter vector $\vartheta = (M, K)$ has a **uniform prior** $p(\vartheta)$ over a physically validated rectangle. Here $M$ is the effective inertia coefficient, $M = 2H/\omega\_s$ with $\omega\_s = 2\pi f\_0$ (nominal frequency; implementation uses 50 Hz, ENTSO-E).
-* **Inertia ($M$):** $[0.01,\, 0.06]$ $s^2/\mathrm{rad}$ (corresponds to $H \in [2.3,\, 5.0]$ s at $\omega\_s = 2\pi f\_0$; Kundur, 1994).
-* **Droop gain ($K$):** $[0.05,\, 0.50]$ p.u. (Dörfler & Bullo, 2012; NERC/ERCOT.)
-
----
-
-## 3. Decision Objective: Minimal Safe Gain
-
-We aim to estimate the **Minimal Safe Gain** $\gamma^{\ast}$: the smallest $\gamma$ such that the system stays secure **under a reference contingency**. The **reference contingency** is a fixed disturbance scenario (e.g. load step or reference probe) used *only* when evaluating $\gamma^{\ast}$—not the same as the small identification probe $\xi$ used in experiments. Here $f(t)$ and $\dot{f}(t)$ denote (e.g.) system frequency and ROCOF at a reference bus or worst over buses.
-
-```math
-\gamma^{\ast}(\vartheta) = \inf \left\lbrace \gamma \in \mathbb{R}_+ \mid \text{under the reference contingency, } \forall t:\; \lvert \dot{f}(t) \rvert \le r_{\max} \land f(t) \ge f_{\min} \right\rbrace
-```
-
-**Security constraints:** ROCOF limit $r\_ {\max} = 0.1$ Hz/s; frequency nadir $f(t) \ge f\_ {\min}$ (e.g. $f\_ {\min} = 49.8$ Hz at 50 Hz nominal). The code must run the ODE **with the reference contingency** when computing $\gamma^{\ast}$; otherwise $\gamma^{\ast} = 0$ and MOCU is degenerate. Full chain **observation → likelihood → posterior → cost → MOCU** in §5.
-
----
-
-## 4. The Experiment-to-Observation Pipeline
-
-This section details how a **probe** $\xi = (b, A, T\_p)$ (bus $b$, amplitude $A$, duration $T\_p$) is transformed into a scalar observation $y$. The process involves three mapping stages: **Dynamics ($\Phi$)**, **Sampling ($\mathcal{S}$)**, and **Feature Extraction ($\Psi$)**.
-
-### 4.1 Pipeline Overview
-
-```text
-       [1. Dynamics]               [2. Sampling]              [3. Feature Extraction]
-      (Continuous ODE)           (Discrete Measurement)           (Max-Pooling)
-
- u(t) ---> [ SYSTEM ] -- w(t) --> [ PMU SENSOR ] -- f[n] --> [ CALCULATE ROCOF ] -- y -->
-             ^                         ^                            ^
-             |                         |                            |
-        Parameters (M,K)          Noise (eta)                  Max(|df/dt|)
-```
-
-### 4.2 Dynamics, Sampling, and Feature Extraction
-
-**Stage 1: Dynamics (solution map $\Phi$)**  
-Given $\vartheta$ and $\xi = (b, A, T\_p)$, the probe at bus $b$ is $u\_b(t) = A \cdot \tfrac{1}{2}(1 - \cos(2\pi t/T\_p))$ for $t \le T\_p$, and $0$ elsewhere (Hann window); $u\_i(t)=0$ for $i \neq b$. We solve the swing ODE to get $\mathbf{x}(t) = [\boldsymbol{\theta}(t), \boldsymbol{\omega}(t)]^\top$:
-```math
-\mathbf{x}(t) = \Phi_t(\mathbf{x}_0, \vartheta, u^{\mathrm{probe}}_{\xi}), \quad t \in [0, T_{\mathrm{obs}}].
-```
-
-**Stage 2: Discrete Sampling (The Measurement Map $\mathcal{S}$)**
-We sample the frequency deviation $\Delta f\_i(t) = \omega\_i(t)/2\pi$ at $f\_s = 12$ Hz.
-```math
-\tilde{f}_i[n] = \Delta f_i(n \cdot \Delta t) + \eta_n, \quad \Delta t = 1/f_s
-```
-* $\eta\_n$: Measurement noise (negligible).
-
-**Stage 3: Feature Extraction (The Reduction Map $\Psi$)**
-We compute the discrete Rate of Change of Frequency (ROCOF) and pool it into a single scalar statistic $y$.
-1.  **Finite Difference:** $\mathrm{ROCOF}\_i[n] = (\tilde{f}\_i[n] - \tilde{f}\_i[n-1]) / \Delta t$
-2.  **Max-Pooling:**
-
-```math
-y = \Psi(\tilde{\mathbf{f}}) = \max_{i, n} \lvert \mathrm{ROCOF}_i[n] \rvert
-```
-
-### 4.3 The Forward Map (Map)
-We define the composite forward map $\mathrm{Map}(\vartheta, \xi)$ as the deterministic output of this entire pipeline (excluding noise). The final observation $y$ is:
-```math
-y = \mathrm{Map}(\vartheta, \xi) + \epsilon, \quad \epsilon \sim \mathcal{N}(0, \sigma_{\mathrm{feat}}^2)
-```
-* **$\sigma\_ {\mathrm{feat}}$:** Observation noise (Hz/s); default 0.05 (aggregate numerical and PMU uncertainty; NASPI, 2021). Defined in §9.
-
----
-
-## 5. Scientific process: observation → likelihood → posterior → cost → MOCU
-
-This section gives the full mathematical chain from the observation model to the MOCU objective (Boluki et al., 2018; Imani et al., 2018; Foster et al., 2021).
-
-### 5.1 Observation model
-
-The scalar observation is the max ROCOF from the pipeline in §4, with additive Gaussian noise:
-```math
-y = \mathrm{Map}(\vartheta, \xi) + \epsilon, \qquad \epsilon \sim \mathcal{N}(0, \sigma_{\mathrm{feat}}^2).
-```
-$\mathrm{Map}(\vartheta, \xi)$ is the deterministic output: solve swing ODE with $\vartheta$ and probe $\xi$ → sample frequency at $f\_s = 12$ Hz → compute ROCOF → max over buses and time. Default $\sigma\_ {\mathrm{feat}} = 0.05$ Hz/s (§9).
-
-### 5.2 Likelihood
-
-Given $\vartheta$ and $\xi$, the observation $y$ is Gaussian around $\mathrm{Map}(\vartheta, \xi)$:
-```math
-p(y \mid \vartheta, \xi) = \frac{1}{\sqrt{2\pi\sigma_{\mathrm{feat}}^2}} \exp\left( -\frac{\bigl(y - \mathrm{Map}(\vartheta, \xi)\bigr)^2}{2\sigma_{\mathrm{feat}}^2} \right).
-```
-Implementation: $\mathrm{Map}(\vartheta, \xi)$ via swing ODE and ROCOF max-pool (§4.2–4.3).
-
-### 5.3 Prior
-
-$p(\vartheta)$ is uniform over $[M\_ {\min}, M\_ {\max}] \times [K\_ {\min}, K\_ {\max}]$ (see §2.4): constant on that rectangle, zero outside.
-
-### 5.4 Posterior (Bayes' rule)
-
-After observing $y\_ {\mathrm{obs}}$ under design $\xi$:
-```math
-p(\vartheta \mid y_{\mathrm{obs}}, \xi) = \frac{p(y_{\mathrm{obs}} \mid \vartheta, \xi)\, p(\vartheta)}{Z}, \qquad Z = \int p(y_{\mathrm{obs}} \mid \vartheta', \xi)\, p(\vartheta')\, d\vartheta'.
-```
-With a uniform prior, $p(\vartheta \mid y\_ {\mathrm{obs}}, \xi) \propto p(y\_ {\mathrm{obs}} \mid \vartheta, \xi)$ on the prior support; $Z$ is the normalizing integral.
-
-### 5.5 Posterior computation on a grid
-
-We approximate the posterior by a discrete distribution on an $n\_ {\mathrm{grid}} \times n\_ {\mathrm{grid}}$ grid over $(M, K)$:
-
-1. **Grid:** $(M\_i, K\_j)$ with $M\_i \in [M\_ {\min}, M\_ {\max}]$, $K\_j \in [K\_ {\min}, K\_ {\max}]$.
-2. **Log-likelihood:** For each $(M\_i, K\_j)$, compute $\mathrm{Map}(\vartheta\_ {ij}, \xi)$ (ODE solve), then $\ell\_ {ij} = \log p(y\_ {\mathrm{obs}} \mid \vartheta\_ {ij}, \xi)$.
-3. **Stability:** $\ell\_ {ij} \leftarrow \ell\_ {ij} - \max\_ {i,j} \ell\_ {ij}$.
-4. **Unnormalized:** $q\_ {ij} = \exp(\ell\_ {ij})$.
-5. **Normalize:** $p\_ {ij} = q\_ {ij} / \sum\_ {i,j} q\_ {ij}$ → discrete posterior $p(M\_i, K\_j \mid y\_ {\mathrm{obs}}, \xi)$.
-6. **Marginals:** $p(M\_i \mid y, \xi) = \sum\_j p\_ {ij}$, $p(K\_j \mid y, \xi) = \sum\_i p\_ {ij}$ (each renormalized).
-
-### 5.6 Sequential belief update
-
-At step $t$, the belief *before* the observation is $p\_{t-1}(\vartheta)$; after observing $y\_t$ from design $\xi\_t$, the belief updates via Bayes: $p\_t(\vartheta) \propto p(y\_t \mid \vartheta, \xi\_t)\, p\_{t-1}(\vartheta)$, with normalization $Z\_t$. So $p\_0$ is the prior and $p\_t$ is the belief *after* step $t$ (consistent with `documents/pseudocode.tex`). For a discrete representation the denominator is the sum over the support; the implementation uses a log-domain (log-sum-exp) update for numerical stability (see pseudocode §Posterior update and numerical stability).
-
-### 5.7 Operational cost $J(\gamma, \vartheta)$
-
-The operator chooses a single control gain $\gamma \in \mathbb{R}_+$ to deploy. Too low $\gamma$ → risk of violating ROCOF/frequency limits; too high $\gamma$ → excess capacity or cost. The **operational cost** (objective cost) when deploying $\gamma$ and true system is $\vartheta$ is
-```math
-J(\gamma, \vartheta) = \bigl\lvert \gamma - \gamma^{\ast}(\vartheta) \bigr\rvert.
-```
-Over-provision costs $\gamma - \gamma^{\ast}(\vartheta)$; under-provision costs $\gamma^{\ast}(\vartheta) - \gamma$. For fixed $\vartheta$, the minimizer is $\gamma^{\ast}(\vartheta)$ (§3). For this cost, the Bayes-optimal decision under belief is the median (e.g. Ferguson, 1967).
-
-### 5.8 Bayes-optimal decision $\hat{\gamma}(p)$
-
-Given belief $p(\vartheta)$, the optimal deployed gain minimizes expected cost:
-```math
-\hat{\gamma}(p) = \arg\min_{\gamma \ge 0} \mathbb{E}_{\vartheta \sim p}\bigl[ J(\gamma, \vartheta) \bigr] = \mathrm{median}_{\vartheta \sim p} \bigl[ \gamma^{\ast}(\vartheta) \bigr].
-```
-
-### 5.9 MOCU $(p)$ — mean objective cost of uncertainty
-
-**MOCU** is the **expected objective cost of uncertainty** under belief $p$: the expected cost we incur by deploying the Bayes decision $\hat{\gamma}(p)$ when the true system is $\vartheta$ (Boluki et al., 2018; Imani et al., 2018):
-```math
-\mathrm{MOCU}(p) = \mathbb{E}_{\vartheta \sim p}\bigl[\, J(\hat{\gamma}(p), \vartheta) \,\bigr] = \mathbb{E}_{\vartheta \sim p}\bigl[\, \bigl\lvert \gamma^{\ast}(\vartheta) - \hat{\gamma}(p) \bigr\rvert \,\bigr].
-```
-So: **$J(\gamma, \vartheta)$ is the cost** (operational cost); **$\mathrm{MOCU}(p)$ is the MOCU**. This is the only MOCU formula used.
-
-### 5.10 Design objective (risk)
-
-The optimal next probe $\xi^{\ast}$ minimizes the **risk** (expected MOCU after the experiment):
-```math
-\mathcal{R}(\xi; p_t) = \mathbb{E}_{y \sim p(y \mid p_t, \xi)} \left[ \mathrm{MOCU}\bigl( p_{t+1}(\cdot \mid y, \xi) \bigr) \right].
-```
-The sequential design objective is to minimize expected terminal MOCU (DAD §6.2; Foster et al., 2021).
-
-
-
-## 6. Deep Adaptive Design (DAD) Framework
-
-We implement **Deep Adaptive Design** (Foster et al., 2021) to amortize the cost of finding optimal experiments. Instead of optimizing $\xi$ via gradient descent at runtime (which is slow), we train a **policy network** $\pi\_\phi$.
-
-### 6.1 Design Policy
-The policy $\pi\_\phi$ maps the current experiment history $h\_ {t-1}$ to the next optimal design:
-```math
-\xi_t = \pi_\phi(h_{t-1})
-```
-* **Input:** History embedding (encoding previous probes $\xi\_ {1:t-1}$ and observations $y\_ {1:t-1}$).
-* **Output:** Distribution over candidate buses $\mathcal{B}$ and amplitudes $\mathcal{A}$.
-
-### 6.2 Optimization Objective
-The network is trained to minimize the **Terminal MOCU** over the entire experimental horizon $T$. We find parameters $\phi^{\ast}$ such that:
-```math
-\phi^{\ast} = \arg\min_\phi \mathbb{E}_{\vartheta \sim p(\vartheta),\; y_{1:T} \sim p(y \mid \vartheta, \pi_\phi)} \left[ \mathrm{MOCU}(p_T) \right]
-```
-This end-to-end objective ensures the policy learns **non-myopic** strategies (e.g., probing different areas of the grid to disambiguate coupled parameters).
-
----
-
-## 7. Fast MOCU Estimation via MPNN
-
-Calculating the true MOCU $\mathrm{MOCU}(p)$ requires integrating over the expensive $\gamma^{\ast}(\vartheta)$ landscape (binary search over ODE solutions). To scale DAD training, we use a neural surrogate for $\mathrm{MOCU}(p)$.
-
-### 7.1 The MPNN Estimator
-We use a **Message Passing Neural Network (MPNN)** that takes the grid structure and belief summary and outputs a scalar estimate of MOCU:
-
-```math
-\widehat{\mathrm{MOCU}}(p_t) \approx \mathrm{MPNN}_{\psi}(\mathrm{State}_t, \mathcal{G})
-```
-
-* **Graph Input ($\mathcal{G}$):** Admittance matrix nodes and edges (IEEE-14 topology).
-* **State Input ($\mathrm{State}\_t$):** Summary statistics of the current belief $p\_t$ (e.g. bounds or moments of $M$, $K$).
-* **Output:** Predicted scalar MOCU value (surrogate for $\mathrm{MOCU}(p\_t)$).
-
-### 7.2 Training the Surrogate
-The MPNN is trained via supervised learning to match the ground-truth MOCU computed by the physics-based ODE (the same $\mathrm{MOCU}(p)$ defined in §5.9):
-```math
-\mathcal{L}_{\psi} = \left\lVert \widehat{\mathrm{MOCU}}_{\mathrm{MPNN}}(p) - \mathrm{MOCU}_{\mathrm{Physics}}(p) \right\rVert^2
+flowchart LR
+  G[IEEE-14 / Sim] --> ODE[Swing ODE]
+  ODE --> L[p(y|ϑ,ξ)]
+  ODE --> GS[γ* search]
+  GS --> M[MOCU]
+  M --> DAD[DAD π_φ]
+  L --> DAD
 ```
 
 ---
 
-## 8. Sequential Execution Loop
+## 3. Model (brief)
 
-The complete **sBOED** loop runs for $t = 1$ to $T$ (one *episode*). For the amortized-policy procedure see **Algorithm 1** in `documents/pseudocode.tex`; for $\gamma^\ast(\vartheta)$ see **Algorithm 2** there.
+- **Topology:** Standard IEEE-14; susceptance $\mathbf{B}$; homogeneous uncertain $\vartheta=(M,K)$ with $M_i=M$, $K_i=K$.
+- **Swing (per bus):** $\dot{\theta}_i=\omega_i$;  
+  $M_i\dot{\omega}_i = P_{m,i}-P_{e,i}(\boldsymbol{\theta})-(D_i+K_i)\omega_i + u_i$ with  
+  $P_{e,i}=\sum_{j\in\mathcal{N}_i} B_{ij}\sin(\theta_i-\theta_j)$.
+- **Injection:** $u_i = u^{\mathrm{probe}}_i + u^{\mathrm{ctrl}}_i$. **Supplementary** control $u^{\mathrm{ctrl}}_i = \gamma\, g_i\, \omega_i$ (implementation sign/convention must match code).
 
-Steps for $t = 1$ to $T$:
+**Terminology (aligned with `pseudocode.tex`):**
 
-1.  **Policy Step:** The DAD network observes history $h\_ {t-1}$ and outputs $\xi\_t$.
-2.  **Experiment:** Execute $\xi\_t$ on the system, measure $y\_t$.
-3.  **Inference:** Update belief $p\_t(\vartheta)$ using the likelihood $p(y\_t \mid \vartheta, \xi\_t)$.
-4.  **Evaluation:** (Optional) Estimate current MOCU using the MPNN for progress tracking.
+- **Droop $K$** (with $H$ in $\vartheta$): **latent plant parameters**—coefficients in the swing ODE, **not** control variables you set or learn exactly after finite data.
+- **$\gamma$** and **$u^{\mathrm{ctrl}}$**: **supplementary** control for **evaluation** / security (minimum threshold $\gamma^\ast(\vartheta)$, MOCU on $\gamma^\ast$). This is the closest analogue to the **control-oscillator coupling** $a_{N+1}$ in uncertain Kuramoto OED (Chen et al., 2023; Hong et al., 2021), **not** $K$.
+- **$\xi$**: **design of experiments** (probe)—**not** “primary control.”
+- **Avoid** calling **$K$** “primary control”: that phrase suggests a precisely known or chosen input; **$K$** stays uncertain.
+
+**Two uses (do not mix):**
+
+| Mode | Probe | Control | Purpose |
+|------|--------|---------|---------|
+| **Learning (sBOED)** | From design $\xi_t=(b,A,T_p)$ | Off ($\gamma=0$) | $y_t=\mathrm{Map}(\vartheta,\xi_t)+\epsilon$ |
+| **Evaluation ($\gamma^\ast$)** | **Not** the learning probe $\xi_t$; fixed **evaluation scenario** $d_{\mathrm{ref}}$ (contingency / reference disturbance in code) | Candidate $\gamma$ | Security limits on $[0,T_c]$ |
+
+*Pseudocode note:* `pseudocode.tex` defines $\gamma^\ast$ from **evaluation dynamics under fixed $d_{\mathrm{ref}}$** without mixing in the identification probe. Implementation must apply a **non-trivial** contingency when computing $\gamma^\ast$ or MOCU degenerates.
+
+**Prior:** Uniform on $M\in[0.01,0.06]$ $s^2$/rad, $K\in[0.05,0.50]$ p.u. (see `Parameter_references_table.md`).
 
 ---
 
-## 9. Probe and Observation Parameters
+## 4. Minimal safe gain $\gamma^\ast$
 
-| Parameter | Symbol | Value / Set | Justification |
-|-----------|--------|-------------|----------------|
-| Probe location | $b\_t$ | $\mathcal{B} \subset \lbrace 1,\dots,14 \rbrace$ | Buses with IBR actuation. |
-| Probe amplitude | $A\_t$ | $\lbrace 0.05, 0.1, 0.2, \dots \rbrace$ (e.g. up to 0.5) | ROCOF above PMU noise. |
-| Probe duration | $T\_p$ | 2 s | Excites inertial dynamics (Peng et al., 2024). |
-| Sampling rate | $f\_s$ | 12 Hz | PMU/ROCOF reporting standards. |
-| Observation window | $T\_ {\mathrm{obs}}$ | [0,10] s | Captures ROCOF peak. |
-| Observation noise | $\sigma\_ {\mathrm{feat}}$ | 0.05 Hz/s | Likelihood std; aggregate numerical/PMU uncertainty (§4.3, §5.1). |
+For $\vartheta$ fixed, $\gamma^\ast(\vartheta)$ is the smallest $\gamma\ge 0$ such that on $[0,T_c]$ (reference bus or worst over buses):
+
+$$\sup_t |\dot f(t)| \le r_{\max}, \qquad f(t) \ge f_{\min}.$$
+
+Typical: $r_{\max}=0.1$ Hz/s; $f_{\min}$ e.g. 49.8 Hz @ 50 Hz nominal. Under monotonicity (bisection in `pseudocode` Algorithm 2), $\gamma\in[\gamma^\ast(\vartheta),\infty)$ is safe; often $\gamma^\ast=\max\{\gamma_{\mathrm{ROCOF}},\gamma_{\mathrm{freq}}\}$ from the two constraints. **No closed form** in $(M,K,r_{\max},f_{\min})$—**simulate trajectory**, check constraints, bracket, bisect.
 
 ---
 
-## References
+## 5. Observation → Bayes → MOCU
 
-Dörfler, F., & Bullo, F. (2012). Synchronization in complex oscillator networks and power grids. *Automatica*, *48*(3), 653–660. https://arxiv.org/abs/0910.5673
+- **Feature:** Hann probe at $b$; solve ODE; sample $\Delta f$ at $f_s{=}12$ Hz; $y=\max_{i,n}|\mathrm{ROCOF}_i[n]|$.
+- **Likelihood:** $y=\mathrm{Map}(\vartheta,\xi)+\epsilon$, $\epsilon\sim\mathcal{N}(0,\sigma_{\mathrm{feat}}^2)$ (default $\sigma_{\mathrm{feat}}=0.05$ Hz/s).
+- **Posterior:** $p(\vartheta\mid y,\xi)\propto p(y\mid\vartheta,\xi)p(\vartheta)$. Sequential: $p_t\propto p(y_t\mid\vartheta,\xi_t)p_{t-1}$. Discrete grid: log-likelihood → log-sum-exp normalize (see pseudocode §Posterior).
 
-ENTSO-E. (2020). *Inertia and rate of change of frequency (RoCoF)*. https://www.entsoe.eu/
+- **Cost:** $J(\gamma,\vartheta)=|\gamma-\gamma^\ast(\vartheta)|$. Bayes action under $L_1$: **median** $\hat\gamma$ of $\gamma^\ast(\vartheta)$ under $p$.
+- **MOCU:** $\mathrm{MOCU}(p)=\mathbb{E}_{\vartheta\sim p}[|\gamma^\ast(\vartheta)-\hat\gamma|]$ (Boluki et al., 2018; Imani et al., 2018).
 
-Foster, A., Ivanova, D. R., Malik, I., & Rainforth, T. (2021). Deep adaptive design: Amortizing sequential Bayesian experimental design. *Proceedings of the 38th International Conference on Machine Learning (ICML)* (pp. 3384–3395). PMLR.
+**Myopic design risk** (aligned with `pseudocode.tex`): choose $\xi$ to minimize  
+$\mathbb{E}_{y_t \mid p_{t-1},\xi}\big[\mathrm{MOCU}(p_t)\big]$  
+where $p_t$ is the posterior **after** observing $y_t$ under $\xi$ (equivalently $\mathrm{MOCU}(p_{t+1})$ if you index the post-update belief as $p_{t+1}$).
 
-IEEE. (2011). *IEEE Standard for Synchrophasor Measurements for Power Systems* (IEEE Std C37.118.1-2011). https://standards.ieee.org/ieee/C37.118.1/4902/
+**DAD training:** $\phi^\ast=\arg\min_\phi \mathbb{E}[\mathrm{MOCU}(p_T)]$ over episodes (terminal MOCU).
 
-Kundur, P. (1994). *Power system stability and control*. McGraw-Hill.
+---
 
-NASPI. (2021). *PMU and measurement quality*. North American SynchroPhasor Initiative. https://www.naspi.org/node/899
+## 6. MPNN (optional acceleration)
 
-Peng, J., et al. (2024). *Grid-forming inverters and frequency response* (NREL/CP-5D00-87925). National Renewable Energy Laboratory. https://docs.nrel.gov/docs/fy24osti/87925.pdf
+$\widehat{\mathrm{MOCU}}(p)\approx \mathrm{MPNN}_\psi(\mathrm{state}_t,\mathcal{G})$ trained with MSE to physics $\mathrm{MOCU}(p)$. *Contribution:* value surrogate on graph; validate vs exact MOCU and policy quality.
 
-Texas A&M University. (n.d.). *IEEE 14-bus system*. Electric Grid Test Cases. https://electricgrids.engr.tamu.edu/electric-grid-test-cases/ieee-14-bus-system/
+---
+
+## 7. Episode loop
+
+For $t=1,\ldots,T$: $\xi_t\sim\pi_\phi(h_{t-1})$ → run probe → $y_t$ → update $p_t$ → (optional) track $\widehat{\mathrm{MOCU}}$. Algorithms: `pseudocode.tex` Alg. 1 (sBOED loop), Alg. 2 ($\gamma^\ast$).
+
+---
+
+## 8. Default probe / observation settings
+
+| Item | Value |
+|------|--------|
+| $\xi$ | $(b,A,T_p)$, $T_p=2$ s |
+| $f_s$ | 12 Hz |
+| $T_{\mathrm{obs}}$ | e.g. [0,10] s |
+| $\sigma_{\mathrm{feat}}$ | 0.05 Hz/s |
+
+---
+
+## 9. Standalone validation (subfolders under `tests/`)
+
+**Math (canonical):** `src/core/discrete_bayes.py` — Gaussian likelihood, log-sum-exp posterior (pseudocode §Likelihood, §Posterior), **MOCU** = $\sum_n p^n|\gamma^\star_n-\hat\gamma|$ with $\hat\gamma$ a weighted median (eq.~mocu\_gamma). **`compute_mocu`** in `src/core/mocu_particles.py` uses the same definition. **Backends:** `swing_equation_mocu.py` (Torch MC), `mocu_pycuda.py` (PyCUDA + CUDA C++), `mocu_torchdiffeq.py` (helpers).
+
+| Folder | Content |
+|--------|---------|
+| **`tests/posterior_inference/`** | Posterior / MOCU: tests `unit/`, `integration/`, `conftest.py`, `episode_helpers.py`; outputs under `tests/posterior_inference/output/`. |
+| **`tests/simulink_reference/`** | Python swing ODE vs Simulink/MATLAB reference: `ode_validation.py`, `test_simulink_reference.py`; scratch under `tests/simulink_reference/output/`. |
+
+**Run:** `pytest tests/posterior_inference tests/simulink_reference -v` · `python -m tests.simulink_reference.ode_validation`.
+
+---
+
+## References (short)
+
+Boluki et al. (2018); Chen et al. (2023); Hong et al. (2021); Imani et al. (2018); Foster et al. (2021); Dörfler & Bullo (2012); Kundur (1994); Peng et al. (2024 NREL); ENTSO-E; NASPI; IEEE C37.118; Texas A&M IEEE-14 test case.

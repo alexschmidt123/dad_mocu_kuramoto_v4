@@ -1,9 +1,19 @@
 """
-PyCUDA-accelerated MOCU computation for swing equation.
+**PyCUDA + embedded CUDA C++** MOCU for the swing equation (second-order Kuramoto).
 
-Based on accelerateOED mocu_cuda.py structure. Implements second-order Kuramoto
-(swing equation) with active probing. Each thread computes γ*(M,K) via RK4 + binary
-search for one (M,K) sample. Kernel is compiled per N (cached).
+This module is **not** plain PyTorch: kernels are **CUDA C++ source strings**, compiled at
+runtime via **PyCUDA** (`pycuda.compiler.SourceModule`). Each GPU thread runs RK4 + binary
+search for one ``(M, K)`` sample.
+
+**When to use:** optional **fast** path from :func:`swing_equation_mocu.get_mocu_swing_computer`
+when ``USE_PYCUDA=1`` and nvcc/driver work. Same MOCU definition as
+:class:`~swing_equation_mocu.MOCU_swing_equation` (median \\(\\hat\\gamma\\), mean \\(|\\gamma^*-\\hat\\gamma|\\)).
+
+**See also (same math, different backends):**
+
+- :mod:`mocu_particles` — NumPy, **given** particle weights (no i.i.d. sampling).
+- :mod:`swing_equation_mocu` — **PyTorch** + torchdiffeq (default pipeline).
+- :mod:`mocu_torchdiffeq` — thin torchdiffeq helpers built on ``swing_equation_mocu``.
 """
 
 import numpy as np
@@ -233,7 +243,7 @@ def MOCU_swing_pycuda(
     seed: int = 0,
 ) -> float:
     """
-    Compute MOCU using PyCUDA kernel (swing equation with active probing).
+    MOCU via PyCUDA: sample ``(M,K)``, compute ``γ*`` per sample on GPU, then median / mean |·|.
 
     Returns:
         MOCU value (float)

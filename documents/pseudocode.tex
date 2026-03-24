@@ -84,19 +84,22 @@ These limits are used in the definition of the model-specific minimum safe gain 
 \]
 with mechanical power $P_m$ and electrical power $P_e$.
 
-\paragraph{Primary control (fixed aggregate droop, from paper).}
-Primary control is modeled by aggregate droop. Let $\Delta f(t)=[\omega(t)-\omega(0)]/(2\pi)$ (frequency deviation in Hz). Then
+\paragraph{Aggregate droop in the plant model (Peng et al.).}
+Peng et al.\ model \textbf{aggregate droop} (they refer to $K$ as an aggregate primary-frequency-response droop constant in MW/Hz). Let $\Delta f(t)=[\omega(t)-\omega(0)]/(2\pi)$ (frequency deviation in Hz). Then
 \[
 \Delta P_m(t)\;=\;-K\,\Delta f(t),
 \qquad\text{equivalently}\quad
 P_m(t)\;=\;P_m(0)-\frac{K}{2\pi}\big[\omega(t)-\omega(0)\big].
 \]
-With this primary-control model, writing $\Delta P_e(t)=P_e(t)-P_e(0)$, $\Delta\omega(t)=\omega(t)-\omega(0)$, and assuming $P_m(0)=P_e(0)+D\omega(0)$ in steady state gives the \textbf{reduced swing dynamics} (Eq.\ (3) of the paper):
+With this droop model, writing $\Delta P_e(t)=P_e(t)-P_e(0)$, $\Delta\omega(t)=\omega(t)-\omega(0)$, and assuming $P_m(0)=P_e(0)+D\omega(0)$ in steady state gives the \textbf{reduced swing dynamics} (Eq.\ (3) of the paper):
 \begin{equation}
 \label{eq:swing3}
 \boxed{\;\frac{2HS_n}{\omega_s}\,\frac{d\omega(t)}{dt}=-\Delta P_e(t)-\left(\frac{K}{2\pi}+D\right)\Delta\omega(t).\;}
 \end{equation}
-This is the \textbf{closed-loop short-time frequency-response model} used for evaluation. The probing paper uses it for inertia and droop estimation from $\omega$ and $P_e$ measurements after a disturbance; our framework uses the same model as the physical basis for sequential design. This droop law defines the plant's native primary response; any supplementary gain $\gamma$ introduced later is modeled as an additional feedback input, not a change to $K$.
+This is the \textbf{closed-loop short-time frequency-response model} used for evaluation. The probing paper uses it for inertia and droop estimation from $\omega$ and $P_e$ measurements after a disturbance; our framework uses the same model as the physical basis for sequential design. In \textbf{our} sBOED formulation, $K$ is \textbf{latent} (part of $\theta$): it is a \textbf{coefficient in the ODE}, not a control input we set. Any supplementary gain $\gamma$ introduced in Section~\ref{sec:decision} is modeled as an additional feedback input, not a change to $K$.
+
+\paragraph{Terminology: avoid ``primary control'' for $K$ or $\xi$.}
+We reserve \textbf{supplementary control} for the actuation $u_{\mathrm{ctrl}}(\cdot;\gamma)$ and gain $\gamma\ge 0$ used in the \textbf{evaluation} model for frequency security (Section~\ref{sec:decision}). The droop coefficient $K$ is \textbf{not} ``primary control'' in the sense of a knob that is known or chosen precisely after experiments---it remains uncertain. The probe design $\xi$ is \textbf{design of experiments} for learning, not operational plant control. For comparison, uncertain Kuramoto OED (Chen et al., 2023; Hong et al., 2021) introduces a \textbf{control oscillator} with coupling $a_{N+1}$; the minimum nonnegative $a_{N+1}$ needed for synchronization defines an operational cost (Chen et al.\ denote this map by $\xi(\mathbf{a})$---not to be confused with our probe design $\xi=(b,A,T_p)$). \textbf{That} cost role parallels \textbf{$\gamma$ and $\gamma^\star(\theta)$} here, not latent~$K$.
 
 \paragraph{Relationship between $M$ and $H$.}
 The coefficient of $d\omega/dt$ is often denoted $M$: $M=2HS_n/\omega_s$, so $H=M\omega_s/(2S_n)$. Then $M\,\frac{d\omega(t)}{dt}=-\Delta P_e(t)-\left(\frac{K}{2\pi}+D\right)\Delta\omega(t)$. The latent parameter is $\theta=(H,K)$ (or $(M,K)$ via the $M$--$H$ relation).
@@ -486,6 +489,9 @@ Algorithm~\ref{alg:gamma_star} computes $\gamma^\star(\theta)$ by bracketing and
 Boluki, S., Qian, X., \& Dougherty, E.~R. (2018). Experimental design via generalized mean objective cost of uncertainty. \emph{arXiv:1805.01143}.\\
 \url{https://arxiv.org/abs/1805.01143}
 
+Chen, Q., Chen, X., Woo, H.-M., \& Yoon, B.-J. (2023). Neural message-passing for objective-based uncertainty quantification and optimal experimental design. \emph{Engineering Applications of Artificial Intelligence}, \emph{123}, 106171.\\
+\url{https://doi.org/10.1016/j.engappai.2023.106171}
+
 Chopin, N., \& Papaspiliopoulos, O. (2020). \emph{An introduction to sequential Monte Carlo}. Springer.\\
 \url{https://doi.org/10.1007/978-3-030-47845-2}
 
@@ -499,6 +505,9 @@ Ferguson, T.~S. (1967). \emph{Mathematical statistics: A decision theoretic appr
 
 Foster, A., Ivanova, D.~R., Malik, I., \& Rainforth, T. (2021). Deep adaptive design: Amortizing sequential Bayesian experimental design. In M.~Meila \& T.~Zhang (Eds.), \emph{Proceedings of the 38th International Conference on Machine Learning} (Vol.~139, pp.~3384--3395). PMLR.\\
 \url{https://proceedings.mlr.press/v139/foster21a.html}
+
+Hong, S., Yoon, B.-J., \& Woo, H.-M. (2021). Uncertain Kuramoto model and optimal experimental design for robust synchronization. \emph{IEEE Transactions on Signal Processing}, \emph{69}, 4455--4470.\\
+\url{https://doi.org/10.1109/TSP.2021.3092562}
 
 Imani, M., Dehghannasiri, R., Braga-Neto, U.~M., \& Dougherty, E.~R. (2018). Sequential experimental design for optimal structural intervention in gene regulatory networks based on the mean objective cost of uncertainty. \emph{Cancer Informatics}, \emph{17}, 1--11.\\
 \url{https://doi.org/10.1177/1176935118790247}

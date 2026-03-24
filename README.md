@@ -1,6 +1,6 @@
 # DAD-MOCU: Deep Adaptive Design for Optimal Experimental Design
 
-Sequential optimal experimental design for power systems using the second-order Kuramoto (swing equation) model with active probing. The framework learns probe-selection policies to minimize **MOCU** (Mean Objective Cost of Uncertainty) for estimating uncertain parameters $(M, K)$ (inertia and droop gain).
+Sequential optimal experimental design for power systems using the second-order Kuramoto (swing equation) model with active probing. The framework learns probe-selection policies to minimize **MOCU** in the **decision quantity** $\gamma^\ast(\vartheta)$ (minimum safe supplementary gain), not $(M,K)$ for their own sake; uncertain parameters are $\vartheta=(M,K)$.
 
 ---
 
@@ -10,7 +10,8 @@ Sequential optimal experimental design for power systems using the second-order 
 - **Uncertain parameters:** $(M, K)$ — inertia and primary frequency response (droop) gain.
 - **Actions:** Probe signals $\xi = (b, A, T_p)$: bus $b$, amplitude $A$, $T_p = 2$ s fixed.
 - **Observations:** ROCOF-only, $y_t = \mathrm{ROCOF}_{\max}$ at 12 Hz sampling.
-- **Objective:** Minimize MOCU via sequential probe selection (reduce uncertainty in $(M, K)$).
+- **Objective:** Minimize MOCU($p$) = $\mathbb{E}_p[|\gamma^\ast(\vartheta)-\hat\gamma|]$ (median Bayes rule under $L_1$) via sequential probe selection.
+- **Validation:** **`tests/posterior_inference/`** (unit/integration) · **`tests/simulink_reference/`** (Python vs Simulink).
 - **Methods:** Baselines RANDOM, ENTROPY, ODE, iNN, NN; learned policy DAD.
 
 ---

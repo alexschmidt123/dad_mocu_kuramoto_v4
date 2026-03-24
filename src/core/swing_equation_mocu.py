@@ -1,13 +1,18 @@
 """
-MOCU computation for second-order Kuramoto (swing equation).
+**Primary Torch path:** MOCU for the swing equation via **PyTorch** + ODE solves + binary search.
 
-Notation (design §5, ChatGPT-aligned):
-  J(γ, ϑ) = operational cost = |γ − γ*(ϑ)|.
-  γ̂(p) = Bayes-optimal decision = median over p of γ*(ϑ).
-  MOCU(p) = expected objective cost of uncertainty = E_p[J(γ̂(p), ϑ)] = E_p[|γ*(ϑ) − γ̂(p)|].
+**How this file fits (read this first):**
 
-Implemented by MOCU_swing_equation() and MOCU_swing_equation_design_j() (same value).
-γ*(ϑ) is computed via binary search under a reference contingency (r_max, f_min).
+- **This module** — Monte Carlo MOCU: draw ``K_max`` i.i.d. ``(M,K)`` in a box, compute
+  ``γ*(M,K)`` per sample (``binary_search_gamma_star`` / batched variants), then
+  ``median(γ*)`` and ``mean |γ* - median|`` (same definition everywhere).
+- **`mocu_particles`** — You **already have** particle weights ``w_i`` on fixed ``θ_i``;
+  uses :func:`mocu_particles.compute_mocu` (no i.i.d. box sampling).
+- **`mocu_pycuda`** — Same MC idea as here, but ``γ*`` is computed in **CUDA C++** kernels
+  via **PyCUDA** (optional fast path in :func:`get_mocu_swing_computer`).
+- **`mocu_torchdiffeq`** — Extra torchdiffeq helpers; core MOCU API is still here.
+
+Notation (design §5): ``J(γ, ϑ) = |γ − γ*(ϑ)|``, ``γ̂`` = median, ``MOCU = E[|γ* − γ̂|]``.
 """
 
 import numpy as np
@@ -362,7 +367,7 @@ def get_mocu_swing_computer(use_pycuda: bool = None):
         use_pycuda = os.environ.get('USE_PYCUDA', '1') in ('1', 'true', 'yes')
     if use_pycuda:
         try:
-            from . import mocu_cuda_swing
+            from . import mocu_pycuda
             from .swing_equation_params import get_default_swing_equation_params
 
             # One-time probe: run a minimal MOCU to verify PyCUDA compiles and runs
@@ -371,7 +376,7 @@ def get_mocu_swing_computer(use_pycuda: bool = None):
                 B = np.ascontiguousarray(params['B'].astype(np.float64))
                 P_m = np.ascontiguousarray(params['P_m'].astype(np.float64))
                 g = np.ascontiguousarray(params['g'].astype(np.float64))
-                mocu_cuda_swing.MOCU_swing_pycuda(
+                mocu_pycuda.MOCU_swing_pycuda(
                     4, B, P_m, params['D'],
                     params['M_lower'], params['M_upper'], params['K_lower'], params['K_upper'],
                     g, r_max=0.5, f_min=49.8, seed=42)
@@ -391,7 +396,7 @@ def get_mocu_swing_computer(use_pycuda: bool = None):
                 ref_bus = 0 if reference_probe_bus is None else int(reference_probe_bus)
                 ref_amp = 0.5 if reference_probe_amplitude is None else float(reference_probe_amplitude)
                 ref_dur = 2.0 if reference_probe_duration is None else float(reference_probe_duration)
-                return mocu_cuda_swing.MOCU_swing_pycuda(
+                return mocu_pycuda.MOCU_swing_pycuda(
                     K_max, B, P_m, D, M_lower, M_upper, K_lower, K_upper, g,
                     r_max=r_max, f_min=f_min, h=h, T=T,
                     reference_probe_bus=ref_bus, reference_probe_amplitude=ref_amp, reference_probe_duration=ref_dur,
