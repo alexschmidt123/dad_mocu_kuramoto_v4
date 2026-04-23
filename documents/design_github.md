@@ -114,7 +114,7 @@ For $t=1,\ldots,T$: $\xi_t\sim\pi_\phi(h_{t-1})$ → run probe → $y_t$ → upd
 
 | Folder | Content |
 |--------|---------|
-| **`tests/posterior_inference/`** | Posterior / MOCU: tests `unit/`, `integration/`, `conftest.py`, `episode_helpers.py`; outputs under `tests/posterior_inference/output/`. |
+| **`tests/posterior_inference/`** | Posterior / MOCU: tests `unit/`, `integration/`, `conftest.py`, `episode_helpers.py` (YAML → swing physics), `cli.py` (single-step JSON); generated outputs under `output/` (gitignored). |
 | **`tests/simulink_reference/`** | Python swing ODE vs Simulink/MATLAB reference: `ode_validation.py`, `test_simulink_reference.py`; scratch under `tests/simulink_reference/output/`. |
 
 **Run:** `pytest tests/posterior_inference tests/simulink_reference -v` · `python -m tests.simulink_reference.ode_validation`.

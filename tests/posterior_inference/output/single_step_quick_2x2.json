@@ -1,0 +1,131 @@
+{
+  "initial_setup": {
+    "config_path": "/home/grads/g/g.lin/Documents/dad_mocu_kuramoto_v4/config/early_test.yaml",
+    "top_level": {
+      "N": 14,
+      "N_global": 15,
+      "model_type": "second_order"
+    },
+    "swing_equation": {
+      "topology": "ieee14",
+      "coupling_strength": 1.0,
+      "damping": 0.1,
+      "base_power": 1.0,
+      "M_lower": 0.01,
+      "M_upper": 0.06,
+      "K_lower": 0.05,
+      "K_upper": 0.5,
+      "r_max": 0.5,
+      "f_min": 49.8,
+      "reference_probe_bus": 0,
+      "reference_probe_amplitude": 0.5,
+      "reference_probe_duration": 2.0,
+      "probe_duration": 2.0,
+      "probe_amplitudes": [
+        0.05,
+        0.1,
+        0.2
+      ],
+      "fs_hz": 12.0,
+      "rocof_window_sec": 0.5,
+      "rocof_eval_sec": 1.0,
+      "T_obs_sec": 10.0,
+      "sigma": 0.1
+    },
+    "experiment": {
+      "num_simulations": 2,
+      "update_count": 4,
+      "it_idx": 2,
+      "K_max": 64,
+      "methods": [
+        "RANDOM",
+        "ENTROPY",
+        "ODE"
+      ],
+      "uncertainty_ratio_min": 1.0,
+      "update_strength": 0.05
+    },
+    "discrete_bayes_single_step": {
+      "T": 1,
+      "grid_side": 2,
+      "n_support": 4,
+      "prior_on_theta": "uniform on (M,K) tensor-product grid in [M_lower,M_upper]\u00d7[K_lower,K_upper]",
+      "seed": 123,
+      "device": "cuda",
+      "note": "T is the sBOED sequential experiment length (probe\u2013observe rounds). experiment.update_count is the baseline evaluation horizon, not T."
+    }
+  },
+  "device": "cuda",
+  "physics_kw_from_config": {
+    "ode_horizon_sec": 10.0,
+    "ode_timeout": 30.0,
+    "sigma_feat": 0.1,
+    "xi": [
+      4,
+      0.1,
+      2.0
+    ],
+    "r_max": 0.5,
+    "f_min": 49.8,
+    "reference_probe_bus": 0,
+    "reference_probe_amplitude": 0.5,
+    "reference_probe_duration": 2.0
+  },
+  "physics_meta": {
+    "sigma_feat": 0.1,
+    "xi": [
+      4,
+      0.1,
+      2.0
+    ],
+    "reference_probe_bus": 0,
+    "reference_probe_amplitude": 0.5,
+    "reference_probe_duration": 2.0,
+    "r_max": 0.5,
+    "f_min": 49.8,
+    "ode_horizon_sec": 10.0
+  },
+  "xi": [
+    4,
+    0.1,
+    2.0
+  ],
+  "grid_side": 2,
+  "n_support": 4,
+  "theta_true": [
+    0.044117593162407175,
+    0.07421945846100021
+  ],
+  "sigma_feat": 0.1,
+  "y_clean": 17.362932205200195,
+  "y_step": 17.49172473132912,
+  "noise": 0.128792526128926,
+  "gamma_star_true": 51.324462890625,
+  "u_ctrl_max_abs": 5.370658147928355,
+  "gamma_hat_prior": 100.0,
+  "gamma_hat_post": 100.0,
+  "mocu_prior": 50.0,
+  "mocu_post": 0.0,
+  "single_step_report": {
+    "y": 17.49172473132912,
+    "sigma_feat": 0.1,
+    "mu": [
+      50.40019226074219,
+      6.903018951416016,
+      13.461210250854492,
+      6.285463333129883
+    ],
+    "p0": [
+      0.25,
+      0.25,
+      0.25,
+      0.25
+    ],
+    "p1": [
+      0.0,
+      0.0,
+      1.0,
+      0.0
+    ]
+  }
+}

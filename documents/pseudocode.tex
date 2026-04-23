@@ -218,7 +218,7 @@ This log-sum-exp procedure avoids underflow and is numerically stable (Chopin \&
 Two separate roles are important: the \textbf{learning model} (probing and posterior update) and the \textbf{evaluation model} (downstream safety and $\gamma^\star(\theta)$). The latent plant parameter is $\theta=(H,K)$ (inertia constant $H$, aggregate droop $K$); $M=2HS_n/\omega_s$ is the derived inertia coefficient used in the dynamics when convenient. Three quantities are kept distinct: \textbf{(a)} probe design $\xi$ is for \emph{learning}---it determines $u_{\mathrm{probe}}(\cdot;\xi)$, which is used only to generate informative observations $y_t$ for posterior updating via $p(y_t\mid\theta,\xi_t)$; \textbf{(b)} $\theta=(H,K)$ is the \emph{latent} parameter we infer; \textbf{(c)} supplementary gain $\gamma$ is the \emph{downstream control decision variable} we choose after learning to satisfy frequency security under the fixed evaluation disturbance $d_{\mathrm{ref}}$. The decision quantity $\gamma^\star(\theta)$ depends only on the evaluation problem (dynamics under $d_{\mathrm{ref}}$), \emph{not} on the probing input.
 
 \subsubsection*{Learning model (probing and posterior).}
-The total injection during a probing experiment can be written as $u_i(t)=u_{\mathrm{probe},i}(t;\xi)+u_{\mathrm{ctrl},i}(t;\gamma)$. The probing input $u_{\mathrm{probe}}(\cdot;\xi)$ is chosen by the sBOED policy to obtain observations; the likelihood is $p(y_t\mid\theta,\xi_t)$. The supplementary control $u_{\mathrm{ctrl}}(t;\gamma)=-\gamma\,\Delta\omega(t)$ (aggregate) is a modeling choice for the physical system but is \emph{not} part of the definition of $\gamma^\star(\theta)$: $\gamma^\star(\theta)$ is defined from the evaluation scenario only (see below).
+The total injection during a probing experiment can be written as $u_i(t)=u_{\mathrm{probe},i}(t;\xi)+u_{\mathrm{ctrl},i}(t;\gamma)$. The probing input $u_{\mathrm{probe}}(\cdot;\xi)$ is chosen by the sBOED policy to obtain observations; the likelihood is $p(y_t\mid\theta,\xi_t)$. The supplementary control $u_{\mathrm{ctrl}}$ is a modeling choice for the physical system but is \emph{not} part of the definition of $\gamma^\star(\theta)$: $\gamma^\star(\theta)$ is defined from the evaluation scenario only (see below). Its functional form is fixed when simulating trajectories; we use the instantaneous nodewise law in \eqref{eq:uctrl_nodewise} (see Section~\ref{sec:taher_motivation}).
 
 \paragraph{Probe input (for learning).}
 Following the probing paper, $\xi=(b,A,T_p)$ (bus, amplitude, duration) and
@@ -227,8 +227,14 @@ $u_{\mathrm{probe},i}(t;\xi)=A\,h(t;T_p)$ if $i=b$, else $0$, with e.g.\ Hann $h
 \subsubsection*{Evaluation model (definition of $\gamma^\star(\theta)$).}
 The \textbf{evaluation model} is used solely to define the downstream decision quantity $\gamma^\star(\theta)$. It uses the \textbf{fixed} evaluation disturbance $d_{\mathrm{ref}}$ (contingency) and \textbf{does not} include any probing input.
 
-\paragraph{Control-law motivation.}
-The supplementary feedback $u_{\mathrm{ctrl}}(t;\gamma)=-\gamma\,\Delta\omega(t)$ is inspired by Taher, Olmi, and Schöll (2019), ``Enhancing power grid synchronization and stability through time-delayed feedback control'' (damping-like feedback idea only). Our $\gamma^\star(\theta)$ formulation is defined here from the evaluation dynamics and security constraints, not derived from that paper.
+\paragraph{Relation to Taher et al.\ (2019) and our control law.}
+\label{sec:taher_motivation}
+Taher, Olmi, and Schöll (2019) study synchronization and stability in a power-grid model using \textbf{time-delayed} feedback applied to \textbf{selected important nodes}. Their formulation introduces \textbf{nodewise gain factors} on controlled buses and compares delayed feedback with an \textbf{instantaneous} feedback variant, showing that gain-weighted feedback can improve stability. Our work is inspired by this \textbf{gain-weighted, damping-like} supplementary control idea, but we do \textbf{not} model explicit time delay: a delayed law would couple $u_{\mathrm{ctrl}}(t)$ to past $\omega$ and would complicate the definition of $\gamma^\star(\theta)$ and the MOCU layer. We instead adopt the simpler \textbf{instantaneous} supplementary feedback
+\begin{equation}
+\label{eq:uctrl_nodewise}
+u_{\mathrm{ctrl},i}(t;\gamma,\mathbf g)=-\gamma\, g_i\,\Delta\omega_i(t),
+\end{equation}
+where $\mathbf g=(g_i)_{i=1}^{N_{\mathrm{bus}}}$ is a fixed nonnegative weight vector (e.g.\ from generator participation in the swing model). When a single scalar gain multiplies aggregate frequency deviation in a reduced model, this collapses to $u_{\mathrm{ctrl}}(t;\gamma)\propto -\gamma\,\Delta\omega(t)$ as used in the learning-model shorthand above. The decision quantity $\gamma^\star(\theta)$ below is defined from the \textbf{evaluation} dynamics and frequency-security constraints under \eqref{eq:uctrl_nodewise} (equivalently \eqref{eq:eval_loop_agg}--\eqref{eq:eval_loop_bus}); it is \textbf{not} taken from Taher et al.
 
 \paragraph{Evaluation dynamics.}
 In the evaluation problem, $\theta=(H,K)$ is the latent parameter, $d_{\mathrm{ref}}$ is fixed and known (contingency), and $\gamma$ is the downstream control decision variable. With $M=2HS_n/\omega_s$, the aggregate evaluation dynamics are
@@ -245,7 +251,7 @@ The bus-wise evaluation dynamics are
 \label{eq:eval_loop_bus}
 M_i \dot{\Delta\omega}_i(t)=-\Delta P_{e,i}(t;d_{\mathrm{ref}})-\left(\frac{K_i}{2\pi}+D_i+\gamma\right)\Delta\omega_i(t).
 \end{equation}
-For given $\theta$ and $\gamma\ge 0$, the solution $\Delta\omega(t;\theta,\gamma)$ on $[0,T_c]$ is unique. Frequency and ROCOF on the evaluation window are
+The term linear in $\Delta\omega_i$ in \eqref{eq:eval_loop_bus} is the specialization of \eqref{eq:uctrl_nodewise} when the supplementary channel is modeled as a uniform scalar $\gamma$ on each bus (weights $g_i$ absorbed or set to unity in the reduced notation). For given $\theta$ and $\gamma\ge 0$, the solution $\Delta\omega(t;\theta,\gamma)$ on $[0,T_c]$ is unique. Frequency and ROCOF on the evaluation window are
 \begin{equation}
 f(t;\theta,\gamma)\;=\;f_0+\frac{\Delta\omega(t;\theta,\gamma)}{2\pi},\qquad \dot f(t;\theta,\gamma)\;=\;\frac{1}{2\pi}\,\frac{d\Delta\omega}{dt}.
 \end{equation}

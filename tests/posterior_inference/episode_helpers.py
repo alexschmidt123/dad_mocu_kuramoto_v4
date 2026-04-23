@@ -1,15 +1,16 @@
 """
 Helpers for posterior/MOCU episode tests (pseudocode.tex Alg. dad_mocu_loop, no π_φ).
 
-**Physics “main body” (same code for any horizon T)**  
+**Physics “main body” (same code for any sBOED horizon T)**  
 :func:`run_physics_episode` — precompute ``γ*(θ_n)``, ``Map(θ_n,ξ)``, then sequential
-Gaussian likelihood updates. **Single-step simulation** is this loop with
-``num_probe_steps=1`` (one probe–observe round), not a different model.
+Gaussian likelihood updates. **T = 1** (single design step) is the same loop with one
+probe–observe round—a special case of sequential BOED, not a different model.
 
 **Convenience**  
-:func:`run_single_step_physics_episode` wraps ``run_physics_episode(..., num_probe_steps=1)``
+:func:`run_single_step_physics_episode` wraps ``run_physics_episode(..., T=1)``
 and adds :func:`~src.core.discrete_bayes.single_step_discrete_bayes_report` plus
-``γ*(θ_true)`` / ``u_ctrl`` diagnostics.
+``γ*(θ_true)`` / ``u_ctrl`` diagnostics. Real swing parameters come **only** from
+``DEFAULT_SWING_YAML`` (``config/early_test.yaml``) via :func:`swing_physics_kwargs_from_yaml`.
 
 **Staged T=1 (ξ → y → posterior → γ/u_ctrl → MOCU)**  
 :func:`main_body_single_step_simulation` — same core as the multi-step physics body, nested
@@ -25,18 +26,111 @@ Use it for cheap unit tests, not as the one-step version of the physics body.
 """
 from __future__ import annotations
 
+import copy
+import os
+from pathlib import Path
 from typing import Any
 
 import numpy as np
+import yaml
 
-# --- Episode horizon T: probe–observe rounds ---
-DEFAULT_NUM_PROBE_STEPS = 4
+# --- sBOED: sequential experiment length T (probe–observe rounds); not ODE horizon ---
+DEFAULT_T = 4
 
-# --- ODE integration horizon (seconds), not algorithm T ---
+# --- ODE integration horizon (seconds), not sBOED T ---
 ODE_HORIZON_DEFAULT = 5.0
 ODE_HORIZON_QUICK = 3.0
 QUICK_PHYSICS_GRID = 2
 QUICK_PHYSICS_TIMEOUT = 15.0
+
+# Real swing physics always uses this YAML (see ``cli.py``).
+DEFAULT_SWING_YAML = Path(__file__).resolve().parents[2] / "config" / "early_test.yaml"
+
+
+def resolve_inference_device(explicit: str | None = None) -> str:
+    """
+    Device string for PyTorch swing ODE / γ* (``device='cuda'`` or ``'cpu'``).
+
+    This path uses **PyTorch + CUDA**, not the separate **PyCUDA** MOCU kernels in
+    ``mocu_pycuda`` (those are for bulk MOCU Monte Carlo elsewhere).
+
+    Resolution: ``explicit`` if given; else env ``POSTERIOR_DEVICE`` (``cpu`` / ``cuda``);
+    else ``cuda`` when ``torch.cuda.is_available()``, else ``cpu``.
+    """
+    if explicit is not None:
+        return explicit
+    v = os.environ.get("POSTERIOR_DEVICE", "").strip().lower()
+    if v in ("cpu", "cuda"):
+        return v
+    try:
+        import torch
+
+        return "cuda" if torch.cuda.is_available() else "cpu"
+    except ImportError:
+        return "cpu"
+
+
+def load_yaml_config(config_path: str | Path) -> dict[str, Any]:
+    path = Path(config_path)
+    with path.open(encoding="utf-8") as f:
+        raw = yaml.safe_load(f)
+    return raw if raw is not None else {}
+
+
+def initial_setup_document(
+    config_path: str | Path,
+    *,
+    grid_side: int,
+    seed: int,
+    device: str,
+    T: int = 1,
+) -> dict[str, Any]:
+    path = Path(config_path).resolve()
+    cfg = load_yaml_config(path)
+    sw = copy.deepcopy(cfg.get("swing_equation") or {})
+    exp = copy.deepcopy(cfg.get("experiment") or {})
+    top = {k: cfg[k] for k in ("N", "N_global", "model_type") if k in cfg}
+    return {
+        "config_path": str(path),
+        "top_level": top,
+        "swing_equation": sw,
+        "experiment": exp,
+        "discrete_bayes_single_step": {
+            "T": int(T),
+            "grid_side": int(grid_side),
+            "n_support": int(grid_side) ** 2,
+            "prior_on_theta": "uniform on (M,K) tensor-product grid in [M_lower,M_upper]×[K_lower,K_upper]",
+            "seed": int(seed),
+            "device": str(device),
+            "note": (
+                "T is the sBOED sequential experiment length (probe–observe rounds). "
+                "experiment.update_count is the baseline evaluation horizon, not T."
+            ),
+        },
+    }
+
+
+def swing_physics_kwargs_from_yaml(config_path: str | Path) -> dict[str, Any]:
+    cfg = load_yaml_config(config_path)
+    sw = cfg.get("swing_equation") or {}
+    probe_duration = float(sw.get("probe_duration", 2.0))
+    amps = list(sw.get("probe_amplitudes") or [0.2])
+    mid = len(amps) // 2
+    amp = float(amps[mid])
+    xi = (4, amp, probe_duration)
+    ode_horizon = float(sw.get("T_obs_sec", 3.0))
+    ode_timeout = max(15.0, 3.0 * ode_horizon)
+    return {
+        "ode_horizon_sec": ode_horizon,
+        "ode_timeout": ode_timeout,
+        "sigma_feat": float(sw.get("sigma", 0.05)),
+        "xi": xi,
+        "r_max": float(sw.get("r_max", 0.1)),
+        "f_min": float(sw.get("f_min", 49.8)),
+        "reference_probe_bus": int(sw.get("reference_probe_bus", 3)),
+        "reference_probe_amplitude": float(sw.get("reference_probe_amplitude", 0.2)),
+        "reference_probe_duration": float(sw.get("reference_probe_duration", 2.0)),
+    }
 
 
 def _synthetic_grid(grid_side: int = 3) -> tuple[np.ndarray, int]:
@@ -58,7 +152,7 @@ def _gamma_star_surrogate(theta_m: float, theta_k: float) -> float:
 
 
 def run_synthetic_episode(
-    num_probe_steps: int = DEFAULT_NUM_PROBE_STEPS,
+    T: int = DEFAULT_T,
     seed: int = 0,
     grid_side: int = 3,
     sigma_feat: float = 0.05,
@@ -69,7 +163,7 @@ def run_synthetic_episode(
 
     This is **not** the one-step reduction of :func:`run_physics_episode`; it is a cheap
     stand-in for tests. For the real single-step body, use ``run_physics_episode(...,
-    num_probe_steps=1)`` or :func:`run_single_step_physics_episode`.
+    T=1)`` or :func:`run_single_step_physics_episode`.
 
     ``log_p0``: optional length-``N`` log prior on the support (default uniform).
     Pass the **same** ``log_p0`` to ``single_step_discrete_bayes_report`` when testing T=1.
@@ -93,11 +187,11 @@ def run_synthetic_episode(
         dtype=np.float64,
     )
 
-    mu_steps = np.tile(mu_row, (num_probe_steps, 1))
+    mu_steps = np.tile(mu_row, (T, 1))
     y_steps = np.array(
         [
             _map_surrogate(M_true, K_true) + float(rng.normal(0.0, sigma_feat))
-            for _ in range(num_probe_steps)
+            for _ in range(T)
         ],
         dtype=np.float64,
     )
@@ -115,7 +209,7 @@ def run_synthetic_episode(
 
     return {
         "mode": "synthetic",
-        "num_probe_steps": num_probe_steps,
+        "T": T,
         "n": n,
         "grid": grid,
         "mu_predictions": mu_steps,
@@ -131,20 +225,28 @@ def run_synthetic_episode(
 
 
 def run_physics_episode(
-    num_probe_steps: int = DEFAULT_NUM_PROBE_STEPS,
+    T: int = DEFAULT_T,
     seed: int = 42,
     grid_side: int = QUICK_PHYSICS_GRID,
     device: str = "cpu",
     ode_horizon_sec: float = ODE_HORIZON_QUICK,
     ode_timeout: float = QUICK_PHYSICS_TIMEOUT,
+    *,
+    sigma_feat: float | None = None,
+    xi: tuple | None = None,
+    r_max: float | None = None,
+    f_min: float | None = None,
+    reference_probe_bus: int | None = None,
+    reference_probe_amplitude: float | None = None,
+    reference_probe_duration: float | None = None,
 ) -> dict[str, Any]:
     """
     IEEE-14 physics body: precompute ``γ*(θ_n)``, ``μ_n = Map(θ_n,ξ)``, then sequential
     Gaussian likelihood updates and MOCU on the support.
 
-    **Single-step simulation:** set ``num_probe_steps=1`` — same pipeline as multi-step,
-    one observation ``y`` and one posterior update (see also
-    :func:`run_single_step_physics_episode` for the same T=1 run plus a detailed report).
+    **T** is the sBOED sequential experiment length (probe–observe rounds). **T = 1** is the
+    single-step test—same pipeline as multi-step, one observation and one posterior update
+    (see :func:`run_single_step_physics_episode` for T = 1 plus a detailed report).
     """
     from src.core.discrete_bayes import (
         log_prior_uniform_discrete,
@@ -181,10 +283,13 @@ def run_physics_episode(
 
     h = 1.0 / 160.0
     M_steps = int(ode_horizon_sec / h)
-    sigma_feat = DEFAULT_SIGMA
-    xi = (4, 0.2, 2.0)
-    ref_bus, ref_amp, ref_dur = 3, 0.2, 2.0
-    r_max, f_min = 0.1, 49.8
+    sigma_feat = DEFAULT_SIGMA if sigma_feat is None else float(sigma_feat)
+    xi = (4, 0.2, 2.0) if xi is None else xi
+    ref_bus = 3 if reference_probe_bus is None else int(reference_probe_bus)
+    ref_amp = 0.2 if reference_probe_amplitude is None else float(reference_probe_amplitude)
+    ref_dur = 2.0 if reference_probe_duration is None else float(reference_probe_duration)
+    r_max_v = 0.1 if r_max is None else float(r_max)
+    f_min_v = 49.8 if f_min is None else float(f_min)
 
     gamma_star_n = binary_search_gamma_star_batch(
         grid[:, 0],
@@ -193,8 +298,8 @@ def run_physics_episode(
         P_m,
         D,
         g,
-        r_max=r_max,
-        f_min=f_min,
+        r_max=r_max_v,
+        f_min=f_min_v,
         h=h,
         T=ode_horizon_sec,
         M_steps=M_steps,
@@ -234,9 +339,9 @@ def run_physics_episode(
         T_obs_sec=ode_horizon_sec,
     )
 
-    log_L_steps = np.zeros((num_probe_steps, n), dtype=np.float64)
-    y_steps = np.zeros(num_probe_steps, dtype=np.float64)
-    for t in range(num_probe_steps):
+    log_L_steps = np.zeros((T, n), dtype=np.float64)
+    y_steps = np.zeros(T, dtype=np.float64)
+    for t in range(T):
         y_steps[t] = float(y_clean + rng.normal(0.0, sigma_feat))
         log_L_steps[t] = log_gaussian_observation_density(
             float(y_steps[t]), mu_map, sigma_feat
@@ -254,11 +359,11 @@ def run_physics_episode(
 
     return {
         "mode": "physics",
-        "num_probe_steps": num_probe_steps,
+        "T": T,
         "ode_horizon_sec": ode_horizon_sec,
         "n": n,
         "grid": grid,
-        "mu_predictions": np.tile(mu_map, (num_probe_steps, 1)),
+        "mu_predictions": np.tile(mu_map, (T, 1)),
         "grid_side": grid_side,
         "xi": xi,
         "theta_true": (M_true, K_true),
@@ -269,29 +374,46 @@ def run_physics_episode(
         "mocu_trace": mocu_trace,
         "ghat_trace": ghat_trace,
         "gamma_star_support": gamma_star_n,
+        "physics_meta": {
+            "sigma_feat": sigma_feat,
+            "xi": xi,
+            "reference_probe_bus": ref_bus,
+            "reference_probe_amplitude": ref_amp,
+            "reference_probe_duration": ref_dur,
+            "r_max": r_max_v,
+            "f_min": f_min_v,
+            "ode_horizon_sec": ode_horizon_sec,
+        },
     }
 
 
 def run_single_step_physics_episode(
     seed: int = 42,
-    grid_side: int = QUICK_PHYSICS_GRID,
-    device: str = "cpu",
-    ode_horizon_sec: float = ODE_HORIZON_QUICK,
-    ode_timeout: float = QUICK_PHYSICS_TIMEOUT,
+    grid_side: int = 8,
+    device: str | None = None,
+    config_path: str | Path | None = None,
+    *,
+    sigma_feat: float | None = None,
 ) -> dict[str, Any]:
     """
-    **T=1** call to the physics body: :func:`run_physics_episode` with ``num_probe_steps=1``,
-    plus extras below. Same ``γ*`` batch search, same ``μ``/likelihood path as any ``T``.
+    **T = 1** (single sBOED step): :func:`run_physics_episode` with ``T=1``, plus Bayes report
+    and ``γ*(θ_true)`` / ``u_ctrl``. Swing / likelihood / reference probe come **only** from
+    ``config_path`` (default ``config/early_test.yaml`` via :func:`swing_physics_kwargs_from_yaml`).
 
-    Additionally:
+    ``device``: pass ``\"cpu\"`` / ``\"cuda\"`` or ``None`` for :func:`resolve_inference_device`.
 
-    - :func:`~src.core.discrete_bayes.single_step_discrete_bayes_report` for that round
-    - ``γ*(θ_true)`` via scalar binary search and a forward ODE with ``u_ctrl = -γ g ⊙ ω``
-      (reference contingency aligned with the batch ``γ*`` search: bus 3 in the default block)
-
-    For bisection-level ``γ*`` without the report / ``u_ctrl`` sample, you can call
-    ``run_physics_episode(..., num_probe_steps=1)`` directly.
+    ``sigma_feat``: if set, overrides YAML ``swing_equation.sigma`` for the Gaussian likelihood
+    (and synthetic observation noise). Larger values soften the update and typically keep
+    posterior MOCU away from numerical zero; smaller values sharpen the posterior.
     """
+    dev = resolve_inference_device(device)
+    path = Path(config_path) if config_path else DEFAULT_SWING_YAML
+    merged = swing_physics_kwargs_from_yaml(path)
+    ode_horizon_sec = float(merged.pop("ode_horizon_sec"))
+    ode_timeout = float(merged.pop("ode_timeout"))
+    if sigma_feat is not None:
+        merged["sigma_feat"] = float(sigma_feat)
+
     from src.core.discrete_bayes import (
         log_prior_uniform_discrete,
         single_step_discrete_bayes_report,
@@ -301,12 +423,13 @@ def run_single_step_physics_episode(
     from src.core.swing_equation_params import get_default_swing_equation_params
 
     base = run_physics_episode(
-        num_probe_steps=1,
+        T=1,
         seed=seed,
         grid_side=grid_side,
-        device=device,
+        device=dev,
         ode_horizon_sec=ode_horizon_sec,
         ode_timeout=ode_timeout,
+        **merged,
     )
 
     n = int(base["n"])
@@ -337,10 +460,14 @@ def run_single_step_physics_episode(
     g = params["g"]
     M_true, K_true = base["theta_true"]
 
+    meta = base["physics_meta"]
     h = 1.0 / 160.0
-    M_steps = int(ode_horizon_sec / h)
-    r_max, f_min = 0.1, 49.8
-    ref_bus, ref_amp, ref_dur = 3, 0.2, 2.0
+    M_steps = int(float(meta["ode_horizon_sec"]) / h)
+    r_max = float(meta["r_max"])
+    f_min = float(meta["f_min"])
+    ref_bus = int(meta["reference_probe_bus"])
+    ref_amp = float(meta["reference_probe_amplitude"])
+    ref_dur = float(meta["reference_probe_duration"])
     probe_bus_internal = (ref_bus - 1) if ref_bus >= 1 else ref_bus
 
     gamma_star_true = binary_search_gamma_star(
@@ -353,12 +480,12 @@ def run_single_step_physics_episode(
         r_max=r_max,
         f_min=f_min,
         h=h,
-        T=ode_horizon_sec,
+        T=float(meta["ode_horizon_sec"]),
         M_steps=M_steps,
         reference_probe_bus=ref_bus,
         reference_probe_amplitude=ref_amp,
         reference_probe_duration=ref_dur,
-        device=device,
+        device=dev,
     )
 
     state = solve_swing_equation_ode(
@@ -374,8 +501,8 @@ def run_single_step_physics_episode(
         probe_duration=ref_dur,
         h=h,
         M_steps=M_steps,
-        T=ode_horizon_sec,
-        device=device,
+        T=float(meta["ode_horizon_sec"]),
+        device=dev,
         timeout=ode_timeout,
     )
     n_bus = len(P_m)
@@ -383,7 +510,7 @@ def run_single_step_physics_episode(
     g_row = np.asarray(g, dtype=np.float64).reshape(1, -1)
     u_ctrl = -float(gamma_star_true) * g_row * omega
 
-    return {
+    result = {
         **base,
         "log_p0": log_p0,
         "single_step_report": single_step_report,
@@ -391,18 +518,19 @@ def run_single_step_physics_episode(
         "u_ctrl_trajectory": u_ctrl,
         "u_ctrl_max_abs": float(np.max(np.abs(u_ctrl))),
         "u_ctrl_reference_probe": (ref_bus, ref_amp, ref_dur),
+        "device": dev,
     }
+    return result
 
 
 def main_body_single_step_simulation(
     seed: int = 42,
-    grid_side: int = QUICK_PHYSICS_GRID,
-    device: str = "cpu",
-    ode_horizon_sec: float = ODE_HORIZON_QUICK,
-    ode_timeout: float = QUICK_PHYSICS_TIMEOUT,
+    grid_side: int = 8,
+    device: str | None = None,
+    config_path: str | Path | None = None,
 ) -> dict[str, Any]:
     """
-    **T=1** slice of the swing experiment-design core: same machinery as multi-step
+    **T = 1** (single sBOED step) slice of the swing experiment-design core: same machinery as multi-step
     :func:`run_physics_episode`, staged for readability. **Omits** policy/DAD training,
     baseline comparisons, and evaluation harnesses — only the physics + discrete Bayes + MOCU chain.
 
@@ -426,8 +554,7 @@ def main_body_single_step_simulation(
         seed=seed,
         grid_side=grid_side,
         device=device,
-        ode_horizon_sec=ode_horizon_sec,
-        ode_timeout=ode_timeout,
+        config_path=config_path,
     )
     rep = raw["single_step_report"]
     y = float(rep["y"])

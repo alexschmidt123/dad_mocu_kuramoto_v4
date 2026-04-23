@@ -12,7 +12,9 @@ import numpy as np
 import pytest
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
+_POSTERIOR_INF_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
+sys.path.insert(0, str(_POSTERIOR_INF_DIR))
 
 from src.core.discrete_bayes import (
     log_gaussian_observation_density,
@@ -24,15 +26,14 @@ from src.core.discrete_bayes import (
     single_step_discrete_bayes_report,
     weighted_median,
 )
-from tests.posterior_inference.episode_helpers import (
-    DEFAULT_NUM_PROBE_STEPS,
-    ODE_HORIZON_QUICK,
-    QUICK_PHYSICS_GRID,
-    QUICK_PHYSICS_TIMEOUT,
+from episode_helpers import (
+    DEFAULT_T,
+    DEFAULT_SWING_YAML,
     main_body_single_step_simulation,
     run_physics_episode,
     run_single_step_physics_episode,
     run_synthetic_episode,
+    swing_physics_kwargs_from_yaml,
 )
 
 
@@ -75,17 +76,17 @@ def test_sequential_log_likelihoods_one_step():
 
 
 def test_synthetic_episode_default_steps():
-    r = run_synthetic_episode(num_probe_steps=DEFAULT_NUM_PROBE_STEPS, seed=0)
-    assert r["num_probe_steps"] == DEFAULT_NUM_PROBE_STEPS
-    assert len(r["mocu_trace"]) == DEFAULT_NUM_PROBE_STEPS + 1
-    assert len(r["p_trace"]) == DEFAULT_NUM_PROBE_STEPS + 1
+    r = run_synthetic_episode(T=DEFAULT_T, seed=0)
+    assert r["T"] == DEFAULT_T
+    assert len(r["mocu_trace"]) == DEFAULT_T + 1
+    assert len(r["p_trace"]) == DEFAULT_T + 1
     assert r["grid"].shape[0] == r["n"]
 
 
 def test_synthetic_single_step_is_special_case():
-    """One probe--observe round: ``p_trace`` has prior + posterior (length 2)."""
-    r = run_synthetic_episode(num_probe_steps=1, seed=0)
-    assert r["num_probe_steps"] == 1
+    """T = 1 (one probe–observe round): ``p_trace`` has prior + posterior (length 2)."""
+    r = run_synthetic_episode(T=1, seed=0)
+    assert r["T"] == 1
     assert len(r["mocu_trace"]) == 2
     assert len(r["p_trace"]) == 2
 
@@ -102,7 +103,7 @@ def test_single_step_discrete_bayes_report_matches_sequential_posterior():
     log_p0 = log_prior_uniform_discrete(n)
 
     r = run_synthetic_episode(
-        num_probe_steps=1,
+        T=1,
         seed=0,
         grid_side=grid_side,
         log_p0=log_p0,
@@ -115,14 +116,10 @@ def test_single_step_discrete_bayes_report_matches_sequential_posterior():
         y, mu, r["sigma_feat"], gamma_n, log_p0=log_p0
     )
 
-    # Sequential path: p_trace[0]=prior, p_trace[1]=posterior after one y
     assert np.allclose(rep["p0"], r["p_trace"][0], rtol=1e-12, atol=1e-14)
     assert np.allclose(rep["p1"], r["p_trace"][1], rtol=1e-6, atol=1e-10)
-
-    # Normalizer: Z = sum_n tilde p^n (report field Z)
     assert abs(rep["Z"] - float(np.sum(rep["tilde_p"]))) < 1e-8
 
-    # MOCU(p1) and γ̂ from report match direct mocu_gamma_star on p1
     m_direct, gh_direct = mocu_gamma_star(rep["p1"], gamma_n)
     assert abs(rep["mocu_post"] - m_direct) < 1e-12
     assert abs(rep["gamma_hat_post"] - gh_direct) < 1e-12
@@ -145,13 +142,17 @@ def test_posterior_gaussian_sequence_matches_manual_one_step():
 def test_physics_episode_smoke():
     pytest.importorskip("torch")
     pytest.importorskip("torchdiffeq")
+    kw = swing_physics_kwargs_from_yaml(DEFAULT_SWING_YAML)
+    oh = kw.pop("ode_horizon_sec")
+    ot = kw.pop("ode_timeout")
     run_physics_episode(
-        num_probe_steps=1,
+        T=1,
         seed=123,
-        grid_side=QUICK_PHYSICS_GRID,
+        grid_side=2,
         device="cpu",
-        ode_horizon_sec=ODE_HORIZON_QUICK,
-        ode_timeout=QUICK_PHYSICS_TIMEOUT,
+        ode_horizon_sec=oh,
+        ode_timeout=ot,
+        **kw,
     )
 
 
@@ -160,13 +161,7 @@ def test_main_body_single_step_stages_match_raw():
     """Staged pipeline dict agrees with run_single_step_physics_episode."""
     pytest.importorskip("torch")
     pytest.importorskip("torchdiffeq")
-    out = main_body_single_step_simulation(
-        seed=7,
-        grid_side=QUICK_PHYSICS_GRID,
-        device="cpu",
-        ode_horizon_sec=ODE_HORIZON_QUICK,
-        ode_timeout=QUICK_PHYSICS_TIMEOUT,
-    )
+    out = main_body_single_step_simulation(seed=7, grid_side=2, device="cpu")
     raw = out["raw"]
     rep = out["posterior"]["single_step_report"]
     assert out["mocu"]["mocu_post"] == rep["mocu_post"]
@@ -188,14 +183,8 @@ def test_single_step_physics_episode_matches_physics_one_step_and_includes_u_ctr
     """Full γ* bisection + single_step_discrete_bayes_report + u_ctrl sample at θ_true."""
     pytest.importorskip("torch")
     pytest.importorskip("torchdiffeq")
-    r = run_single_step_physics_episode(
-        seed=123,
-        grid_side=QUICK_PHYSICS_GRID,
-        device="cpu",
-        ode_horizon_sec=ODE_HORIZON_QUICK,
-        ode_timeout=QUICK_PHYSICS_TIMEOUT,
-    )
-    assert r["num_probe_steps"] == 1
+    r = run_single_step_physics_episode(seed=123, grid_side=2, device="cpu")
+    assert r["T"] == 1
     rep = r["single_step_report"]
     assert np.allclose(rep["p0"], r["p_trace"][0])
     assert np.allclose(rep["p1"], r["p_trace"][1])
