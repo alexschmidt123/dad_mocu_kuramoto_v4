@@ -18,10 +18,26 @@ swing_equation:
   coupling_strength: 1.0       # Base coupling strength for B matrix
   damping: 0.1                # Damping coefficient D
   base_power: 1.0              # Base mechanical power P_m
-  M_lower: 0.01                # M = 2H/ω_s; H ∈ [2.3, 5] s → M ∈ [0.01, 0.06]
-  M_upper: 0.06                # Inertia upper bound (physical range from Kundur)
-  K_lower: 0.05                # Control gain lower bound (5% droop equivalent)
-  K_upper: 0.50                # Control gain upper bound (50% response)
+  # Publication reference (global envelope, not used directly in node-specific mode):
+  # M in [0.01, 0.06], K in [0.05, 0.50]
+  # Node-specific uncertainty (28D): each bus i has [M_i_lower, M_i_upper] and [K_i_lower, K_i_upper].
+  # Active parameterization is node-specific only (no active global M/K bounds).
+  use_node_specific_mk: true
+  # Bus functional types for IEEE-14 (1-indexed): slack=1; PV={2,3,6,8}; PQ={4,5,7,9,10,11,12,13,14}
+  bus_types: [slack, pv, pv, pq, pq, pv, pq, pv, pq, pq, pq, pq, pq, pq]
+  # Node-specific bounds constrained by publication global envelope:
+  # for all i: M_i in [0.01, 0.06], K_i in [0.05, 0.50]
+  M_lower_nodes: [0.026, 0.021, 0.020, 0.010, 0.010, 0.016, 0.010, 0.015, 0.010, 0.010, 0.010, 0.010, 0.010, 0.010]
+  M_upper_nodes: [0.060, 0.052, 0.050, 0.032, 0.034, 0.043, 0.030, 0.041, 0.034, 0.029, 0.028, 0.028, 0.028, 0.028]
+  K_lower_nodes: [0.170, 0.130, 0.125, 0.050, 0.050, 0.095, 0.050, 0.090, 0.050, 0.050, 0.050, 0.050, 0.050, 0.050]
+  K_upper_nodes: [0.500, 0.430, 0.420, 0.205, 0.220, 0.345, 0.190, 0.335, 0.220, 0.180, 0.170, 0.170, 0.170, 0.170]
+  # Additional multi-node initialization controls (used by ODE layer in next sub-step):
+  use_node_specific_damping: false
+  D_nodes: [0.10, 0.10, 0.10, 0.10, 0.10, 0.10, 0.10, 0.10, 0.10, 0.10, 0.10, 0.10, 0.10, 0.10]
+  use_node_specific_mechanical_power: false
+  P_m_nodes: [1.00, 1.00, 1.00, 1.00, 1.00, 1.00, 1.00, 1.00, 1.00, 1.00, 1.00, 1.00, 1.00, 1.00]
+  theta0_nodes: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+  omega0_nodes: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
   r_max: 0.5                   # ROCOF limit (Hz/s); 0.1 required γ>220→ODE NaN; 0.5 yields non-trivial MOCU
   f_min: 49.8                   # Minimum frequency constraint (Hz), 50 Hz nominal (aligned with MATLAB .mdl / ENTSO-E)
                                 # Normal band 49.5-50.5 Hz; we use 49.8 (stricter) to require control
