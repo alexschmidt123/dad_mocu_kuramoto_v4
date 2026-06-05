@@ -1,0 +1,16 @@
+# Pinned to conda env mocu_optimized (Python 3.10, CUDA 12.1).
+# Create env: conda create -n mocu_optimized python=3.10
+# Install CUDA toolkit 12.1 (conda: nvidia/label/cuda-12.1.1::cuda-toolkit) before PyCUDA.
+#
+# PyTorch (CUDA 12.1):
+#   pip install torch==2.4.0 torchvision==0.19.0 torchaudio==2.4.0 \
+#     --index-url https://download.pytorch.org/whl/cu121
+#
+# Then: pip install -r requirements.txt
+
+numpy==2.2.6
+scipy==1.15.2
+PyYAML==6.0.3
+matplotlib==3.10.7
+pycuda==2025.1.2
+torch==2.4.0

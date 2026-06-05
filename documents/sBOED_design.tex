@@ -1,0 +1,486 @@
+\documentclass[10pt]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb,bm,mathtools}
+\usepackage{microtype}
+\usepackage[hyphens]{url}
+\usepackage{hyperref}
+\usepackage{booktabs}
+\usepackage{enumitem}
+\usepackage{float}
+
+\urlstyle{same}
+\hypersetup{colorlinks=true,linkcolor=blue,citecolor=blue,urlcolor=blue}
+
+% ---------- Notation ----------
+\DeclareMathOperator*{\argmax}{arg\,max}
+\DeclareMathOperator*{\argmin}{arg\,min}
+\newcommand{\E}{\mathbb{E}}
+\newcommand{\N}{\mathcal{N}}
+\newcommand{\X}{\mathcal{X}}
+\newcommand{\Aset}{\mathcal{A}}
+\newcommand{\I}{\mathcal{I}}
+\newcommand{\LsPCE}{\mathcal{L}_{\mathrm{sPCE}}}
+\newcommand{\ROCOF}{\mathrm{ROCOF}}
+\newcommand{\dd}{\mathrm{d}}
+\newcommand{\MSE}{\mathrm{MSE}}
+\newcommand{\TEIG}{\mathrm{TEIG}}
+\newcommand{\yclean}{y_{\mathrm{clean}}}
+\newcommand{\yobs}{y_{\mathrm{obs}}}
+
+\begin{document}
+\pagestyle{plain}
+
+\begin{center}
+{\Large \textbf{Methods}}\\[0.4em]
+{\normalsize Sequential deep adaptive design for swing-equation probing}
+\end{center}
+
+\section{Methods}
+\label{sec:methods}
+
+We study sequential Bayesian optimal experimental design (BOED) for identifying inertia and frequency-response parameters in a linearized swing-equation model.
+The latent vector is
+\begin{equation}
+\label{eq:theta_intro}
+    \theta=(\mathbf M,\mathbf K),
+    \qquad
+    \mathbf M=(M_1,\ldots,M_{N_b}),
+    \quad
+    \mathbf K=(K_1,\ldots,K_{N_b}),
+\end{equation}
+with $N_b=14$ buses on the IEEE-14 benchmark, so $\dim\theta=2N_b=28$.
+Each experiment applies a short, ordered sequence of probing actions; after each probe, a scalar frequency-stability feature is observed.
+Designs are chosen adaptively by a history-dependent policy trained with sequential prior contrastive estimation (sPCE) in the deep adaptive design (DAD) framework~\cite{foster2021dad}.
+The primary performance criterion is an sPCE lower bound on expected information gain (EIG) about the full latent $\theta$.
+A secondary, simulation-only metric reports mean-squared error between the posterior mean $\hat\theta\in\mathbb R^{28}$ and the known test draw.
+
+Throughout, ${\yclean}_t$ denotes the \emph{clean} forward-model output (noiseless max-ROCOF) and ${\yobs}_t$ the \emph{noisy} measurement used in the likelihood and in policy inputs.
+Offline tables store both fields; the policy never observes ${\yclean}_t$.
+
+\subsection{Physical model}
+\label{sec:simulator}
+
+Let $\Delta\omega(t)$ denote angular-frequency deviation from nominal.
+The linearized swing balance is
+\begin{equation}
+\label{eq:general_swing}
+    M\frac{\dd \Delta\omega(t)}{\dd t}
+    =
+    \Delta P_m(t)-\Delta P_e(t)-D\Delta\omega(t),
+\end{equation}
+with mechanical and electrical power deviations $\Delta P_m$, $\Delta P_e$, and damping $D$.
+The inertia coefficient obeys
+\begin{equation}
+\label{eq:M_def}
+    M=\frac{2HS_n}{\omega_s},
+\end{equation}
+for inertia constant $H$, rating $S_n$, and synchronous speed $\omega_s$.
+Following standard probing formulations for inertia estimation, the mechanical term is modelled as droop on frequency,
+\begin{equation}
+\label{eq:pm_droop}
+    \Delta P_m(t)=-K\Delta f(t),
+    \qquad
+    \Delta f(t)=\Delta\omega(t)/(2\pi),
+\end{equation}
+which yields the reduced equation
+\begin{equation}
+\label{eq:nrel_style_swing}
+    M\frac{\dd \Delta\omega(t)}{\dd t}
+    =
+    -\Delta P_e(t)
+    -\left(\frac{K}{2\pi}+D\right)\Delta\omega(t).
+\end{equation}
+For BOED, the probe design $\xi$ specifies an effective input $u_{\mathrm{probe}}(t;\xi)\equiv-\Delta P_e(t;\xi)$, so that
+\begin{equation}
+\label{eq:swing_model}
+    M\frac{\dd \Delta\omega(t)}{\dd t}
+    =
+    -\left(\frac{K}{2\pi}+D\right)\Delta\omega(t)
+    +u_{\mathrm{probe}}(t;\xi).
+\end{equation}
+Transient responses away from equilibrium encode information about $(M,K)$; between sequential probes the ODE state is carried forward rather than reset.
+
+The prior is
+\begin{equation}
+\label{eq:prior}
+    \theta=(M_{1:N_b},K_{1:N_b})\sim p_0(\theta),
+\end{equation}
+with independent uniform components on bus-specific intervals.
+Training and test draws use the same $p_0(\theta)$ but independent samples and noise.
+At evaluation, uncertainty is represented by a \emph{particle posterior} on $\mathbb R^{28}$, not by a low-dimensional surrogate such as a single shared scalar $(M,K)$ pair.
+
+\subsection{Design space, forward map, and policy}
+\label{sec:sequential_design}
+
+\paragraph{Designs and histories.}
+The one-step design space is $\X$.
+A probe at step $t$ is
+\begin{equation}
+\label{eq:design_tuple}
+    \xi_t=(a_t,b_t,d_t),
+\end{equation}
+where $a_t$ is amplitude, $b_t$ the bus index, and $d_t$ duration (fixed at $0.2$\,s in our experiments).
+For horizon $T$,
+\begin{equation}
+\label{eq:design_obs_sequence}
+    \xi_{1:T}=(\xi_1,\ldots,\xi_T),
+    \qquad
+    {\yobs}_{1:T}=({\yobs}_1,\ldots,{\yobs}_T),
+\end{equation}
+and the information state after $t$ steps is
+\begin{equation}
+\label{eq:history_def}
+    h_t=\{(\xi_i,{\yobs}_i)\}_{i=1}^{t},
+    \qquad h_0=\emptyset.
+\end{equation}
+Repeated probes within one trajectory are disallowed: $\xi_t\in\Aset_t(h_{t-1})\subseteq\X$ excludes previously used actions.
+
+\paragraph{Forward observation map.}
+The forward function $F$ maps $(\theta,\xi_t,h_{t-1})$ to a clean scalar feature,
+\begin{equation}
+\label{eq:F_def}
+    {\yclean}_t = F(\theta,\xi_t,h_{t-1})
+    = g\!\left(S(\theta,\xi_t,h_{t-1})\right),
+\end{equation}
+where $S$ is the swing-equation simulator producing $\{\Delta f(\tau),\ROCOF(\tau)\}_{\tau\in[0,T_{\mathrm{obs}}]}$ and
+\begin{equation}
+\label{eq:g_extractor}
+    g(\cdot)=\max_{\tau\in[0,T_{\mathrm{obs}}]}|\ROCOF(\tau)|.
+\end{equation}
+Observations are
+\begin{equation}
+\label{eq:yobs_noise}
+    {\yobs}_t = {\yclean}_t + \epsilon_t,
+    \qquad
+    \epsilon_t\sim\N(0,\sigma_y^2).
+\end{equation}
+Because online simulation is prohibitive at training and evaluation scale, $F$ is precomputed on a trajectory bank: for system $i$ and design $\xi^{(j)}$,
+\begin{equation}
+\label{eq:F_table}
+    \widehat F_{\mathrm{table}}(\theta^{(i)},\xi^{(j)}) = {\yclean}^{(i,j)}.
+\end{equation}
+Noisy values ${\yobs}^{(i,j)}$ are stored alongside ${\yclean}^{(i,j)}$ for each table row.
+
+\paragraph{Adaptive design policy.}
+A parameterized policy $\pi_\phi$ selects designs sequentially,
+\begin{equation}
+\label{eq:dad_policy}
+    \xi_t = \pi_\phi(h_{t-1}),
+    \qquad t=1,\ldots,T.
+\end{equation}
+On the IEEE-14 setup we use three amplitudes, fourteen buses, and fixed duration, giving $|\mathcal{X}|=42$ one-step actions and $P(42,T)$ feasible no-repeat sequences (e.g.\ $68{,}880$ for $T=3$).
+
+\subsection{Likelihood and sequential information objective}
+\label{sec:likelihood}
+
+Conditional on $\theta$ and the committed design sequence,
+\begin{equation}
+\label{eq:history_likelihood_product}
+    p(h_T\mid \theta,\xi_{1:T})
+    =
+    \prod_{t=1}^{T}
+    \N\big({\yobs}_t;F(\theta,\xi_t,h_{t-1}),\sigma_y^2\big).
+\end{equation}
+Under an adaptive policy, $\xi_t=\pi_\phi(h_{t-1})$ and
+\begin{equation}
+\label{eq:rollout_likelihood}
+    p(h_T\mid \theta,\pi_\phi)
+    =
+    \prod_{t=1}^{T}
+    p({\yobs}_t\mid \theta,\xi_t,h_{t-1}).
+\end{equation}
+The marginal history density is $p(h_T\mid\pi_\phi)=\int p(h_T\mid\theta,\pi_\phi)p_0(\theta)\,\dd\theta$.
+
+Before step $t$, belief is $p(\theta\mid h_{t-1})\propto p_0(\theta)\prod_{j<t}p({\yobs}_j\mid\theta,\xi_j,h_{j-1})$.
+The one-step information score for candidate $\xi$ is
+\begin{equation}
+\label{eq:conditional_eig}
+    \I_t(\xi\mid h_{t-1}) = I(\theta;{\yobs}_t\mid h_{t-1},\xi).
+\end{equation}
+The $T$-step objective for policy learning is
+\begin{equation}
+\label{eq:total_policy_info}
+    \I_T(\pi_\phi) = I(\theta;h_T\mid\pi_\phi),
+\end{equation}
+equivalent to expected posterior entropy reduction,
+\begin{equation}
+\label{eq:entropy_reduction_view}
+    \I_T(\pi_\phi)
+    =
+    H[p_0(\theta)]
+    -
+    \E_{p(h_T\mid\pi_\phi)}\!\left[H[p(\theta\mid h_T)]\right].
+\end{equation}
+
+\subsection{Offline trajectory banks}
+\label{sec:data_generation}
+
+We construct two independent banks $\Dtrain$ and $\Dtest$ with identical physics, design spaces, and constraints but different seeds, $\theta$ samples, and noise.
+For each training index $i$,
+\begin{equation}
+\label{eq:train_theta}
+    \theta_{\mathrm{tr}}^{(i)}\sim p_0(\theta),
+    \qquad
+    {\yclean}_{1:T}^{(i)} = F(\theta_{\mathrm{tr}}^{(i)},\xi_{1:T}),
+    \qquad
+    {\yobs}_{1:T}^{(i)} = {\yclean}_{1:T}^{(i)} + \epsilon_{1:T}^{(i)}.
+\end{equation}
+Each system row in the bank lists all feasible no-repeat sequences $\xi_{1:T}$ with paired $({\yclean}_{1:T},{\yobs}_{1:T})$.
+Test instances $\theta_{\mathrm{te}}^{(m)}$ are drawn similarly and reserved for evaluation only.
+Horizon $T$ and sample sizes $N_{\mathrm{tr}}$, $N_{\mathrm{te}}$ are experiment metadata.
+
+\subsection{Policy training}
+\label{sec:spce_training}
+
+Direct optimization of $\I_T(\pi_\phi)$ is intractable because $p(h_T\mid\pi_\phi)$ integrates over latent $\theta$ and stochastic design--observation paths.
+We therefore maximize the sPCE surrogate~\cite{foster2021dad}.
+For each training episode, draw a target $\theta_0\sim p_0$ and contrasts $\theta_{1:L}\sim p_0$, and form a history $h_T$ (designs from the bank; ${\yobs}_{1:T}$ from the same row).
+The training objective is
+\begin{equation}
+\label{eq:spce_objective}
+    \LsPCE(\phi)
+    =
+    \E\!\left[
+    \log
+    \frac{p(h_T\mid\theta_0,\pi_\phi)}
+         {\frac{1}{L+1}\sum_{\ell=0}^{L}p(h_T\mid\theta_\ell,\pi_\phi)}
+    \right],
+\end{equation}
+The policy parameters $\phi$ are \emph{not} updated by backprop through $\LsPCE$ directly; instead, a scalar reward $\widehat I_{\mathrm{sPCE}}$ from the same contrastive likelihood supplies a learning signal for discrete action choices (Section~\ref{sec:policy_train_discrete}).
+
+\paragraph{Information access at training.}
+The network $\pi_\phi$ conditions only on past $(\xi,{\yobs})$ encoded as $(a_{1:t-1},{\yobs}_{1:t-1})$; it does not receive $\theta_0$ or ${\yclean}_t$.
+In the sPCE reward, $\theta_0$ is the $28$-vector of the sampled training system and enters only through banked ${\yclean}_t(\theta_0,\cdot)$ in Gaussian factors.
+Thus the reward scores how informative a realized $(\xi_{1:T},{\yobs}_{1:T})$ is about the row's latent, while $\pi_\phi$ learns which discrete probes to select.
+
+\paragraph{Monte Carlo sPCE estimator.}
+For fixed $(\xi_{1:T},{\yobs}_{1:T})$,
+\begin{equation}
+\label{eq:log_hist_likelihood}
+    \log p(h_T\mid \theta,\xi_{1:T})
+    =
+    \sum_{t=1}^{T}
+    \log
+    \N\big({\yobs}_t;{\yclean}_t(\theta,\xi_t,h_{t-1}),\sigma_y^2\big),
+\end{equation}
+with centres from the bank (no online ODE).
+The plug-in estimator is
+\begin{equation}
+\label{eq:spce_mc}
+    \widehat I_{\mathrm{sPCE}}(\theta;h_T)
+    =
+    \log p(h_T\mid \theta_0,\xi_{1:T})
+    -
+    \log\!\left(
+    \frac{1}{L+1}\sum_{\ell=0}^{L}
+    p(h_T\mid \theta_\ell,\xi_{1:T})
+    \right),
+\end{equation}
+evaluated by log-sum-exp.
+The per-step estimator is
+\begin{equation}
+\label{eq:spce_step}
+    \widehat I_{t,\mathrm{sPCE}}
+    =
+    \log \N\big({\yobs}_t;{\yclean}_t(\theta_0,\xi_t,h_{t-1}),\sigma_y^2\big)
+    -
+    \log\!\left(
+    \frac{1}{L+1}\sum_{\ell=0}^{L}
+    \N\big({\yobs}_t;{\yclean}_t(\theta_\ell,\xi_t,h_{t-1}),\sigma_y^2\big)
+    \right).
+\end{equation}
+Reported stepwise and total sPCE-EIG average $\widehat I_{t,\mathrm{sPCE}}$ over $t$ and Eq.~\eqref{eq:spce_mc} over $h_T$, respectively.
+
+\subsubsection{Discrete policy parameterization and training}
+\label{sec:policy_train_discrete}
+
+\paragraph{Discrete action catalogue.}
+Each one-step design $\xi\in\X$ is indexed by an integer $a\in\{0,\ldots,A-1\}$ with $A=|\mathcal{X}|$ (e.g.\ $A=42$ on IEEE-14).
+A fixed catalogue maps $a\mapsto\xi_a=(a^{\mathrm{amp}}_a,b_a,d)$.
+At step $t$, the feasible set $\Aset_t(h_{t-1})$ excludes indices already used in $h_{t-1}$ (no-repeat constraint).
+
+\paragraph{Stochastic policy.}
+The policy is a categorical distribution over feasible indices,
+\begin{equation}
+\label{eq:policy_categorical}
+    \pi_\phi(a_t\mid h_{t-1})
+    =
+    \frac{\exp(\ell_{\phi,a_t}(h_{t-1}))}
+         {\sum_{a'\in\Aset_t(h_{t-1})}\exp(\ell_{\phi,a'}(h_{t-1}))},
+    \qquad
+    a_t\in\Aset_t(h_{t-1}),
+\end{equation}
+where $\ell_{\phi,a}$ are logits from a history encoder and linear head.
+Infeasible actions receive logit $-\infty$ before softmax.
+Training rollouts sample $a_t\sim\pi_\phi(\cdot\mid h_{t-1})$; evaluation uses $a_t=\arg\max_a\pi_\phi(a\mid h_{t-1})$.
+
+\paragraph{History encoding (inputs to $\ell_\phi$).}
+For $t\ge1$, the network sees only prior \emph{committed} pairs $(a_i,{\yobs}_i)_{i=1}^{t-1}$.
+Each step is embedded as $[\mathbf e_{a_i};\,{\yobs}_i]\in\mathbb R^{A+1}$ with $\mathbf e_{a_i}$ the $A$-dimensional one-hot of $a_i$; step embeddings are passed through a shared MLP, masked-averaged over time, and mapped to logits over all $A$ actions.
+At $t=1$, $h_0=\emptyset$ and the encoder receives an empty history.
+No component of $\theta$ or ${\yclean}$ enters $\ell_\phi$.
+
+\paragraph{Table-consistent rollouts (no ODE at train time).}
+After choosing $a_t$, the probe $\xi_{a_t}$ is fixed and the scalar ${\yobs}_t$ is read from the training trajectory bank by prefix lookup on the partial sequence $(a_1,\ldots,a_t)$.
+The ODE is never run during optimization; the policy is trained entirely on offline $(\xi,{\yobs})$ pairs consistent with the banked forward model.
+
+\paragraph{Reward for a completed trajectory.}
+Fix a training system with latent $\theta_0$ and an realized length-$T$ sequence $(a_{1:T},{\yobs}_{1:T})$ (from policy sampling or from a table row).
+The training reward is $R=\widehat I_{\mathrm{sPCE}}(\theta_0;h_T)$ in Eq.~\eqref{eq:spce_mc}, with contrastive latents drawn from the particle support $\{\theta^{(n)}\}$ and all ${\yclean}$ centres taken from banked $F$ on that support.
+The trajectory $(a_{1:T},{\yobs}_{1:T})$ is held fixed when evaluating contrastive likelihoods (Foster contrastive protocol).
+
+\paragraph{Default objective: REINFORCE with sPCE advantage.}
+Let $L_{\mathrm{pg}}(\phi)=\sum_{t=1}^{T}\log\pi_\phi(a_t\mid h_{t-1})$ along an \emph{on-policy} rollout where each $a_t$ is sampled from $\pi_\phi$ and ${\yobs}_t$ is table-looked up.
+With Monte Carlo reward $R$ above and exponential moving-average baseline $b$, define advantage $A=R-b$.
+One training step minimizes
+\begin{equation}
+\label{eq:reinforce_loss}
+    \mathcal L_{\mathrm{REINFORCE}}(\phi)
+    =
+    -L_{\mathrm{pg}}(\phi)\,A.
+\end{equation}
+Gradients flow only through the sampled discrete actions (log-probability terms); $R$ is treated as a scalar weight (no differentiation through the sPCE contrastive sum).
+Batches average $\mathcal L_{\mathrm{REINFORCE}}$ over several independent rollouts; Adam updates $\phi$ with gradient clipping.
+
+\paragraph{Alternative: weighted behaviour cloning.}
+When \texttt{objective=weighted\_bc}, each step samples a training trajectory row with probability proportional to its banked sPCE-EIG (curriculum over high-information designs).
+For a row with index sequence $(a_1^{\mathrm{row}},\ldots,a_T^{\mathrm{row}})$ and noisy ${\yobs}_{1:T}^{\mathrm{row}}$, define teacher-forced history $h_{t-1}$ from the row prefix and minimize
+\begin{equation}
+\label{eq:bc_loss}
+    \mathcal L_{\mathrm{BC}}(\phi)
+    =
+    -\sum_{t=1}^{T}\log\pi_\phi\!\left(a_t^{\mathrm{row}}\mid h_{t-1}\right).
+\end{equation}
+Here $h_{t-1}$ is built from $(a_i^{\mathrm{row}},{\yobs}_i^{\mathrm{row}})_{i<t}$; no sPCE multiplier is applied.
+This phase imitation encourages $\pi_\phi$ to assign mass to empirically informative discrete probes before or instead of REINFORCE fine-tuning.
+
+\paragraph{What is \emph{not} trained.}
+The forward map $F$, the particle support, and the trajectory bank are fixed before policy training.
+Contrastive counts $L$, noise $\sigma_y$, and catalogue $\{a\mapsto\xi_a\}$ are exogenous.
+Test-time $\pi_\phi$ outputs the same discrete indices $a_t$, which are mapped to $\xi_{a_t}$ and evaluated on $\Dtest$ by table lookup.
+
+\subsection{Evaluation protocol}
+\label{sec:eval_plain}
+
+At test time the ODE is not re-run.
+Each method selects $\xi_{1:T}^{(m)}$ on instance $m$; ${\yobs}_t^{(m)}$ is retrieved from $\Dtest$ by prefix-consistent table lookup once $\xi_t^{(m)}$ is fixed.
+True $\theta_{\mathrm{te}}^{(m)}$ is withheld from design selection and used only in scoring.
+
+\paragraph{Particle posterior on $\mathbb R^{28}$.}
+Let $\{\theta^{(n)}\}_{n=1}^{N}$ be a fixed support of $N$ training-bank latents, each $\theta^{(n)}=(\mathbf M^{(n)},\mathbf K^{(n)})\in\mathbb R^{28}$ with independent bus-wise entries drawn from $p_0$.
+We assign uniform prior weights $p_n^{(0)}=1/N$.
+After observing rollout $h_T^{(m)}$, the unnormalized posterior weights are
+\begin{equation}
+\label{eq:particle_posterior}
+    \tilde p_n^{(T)}
+    \propto
+    \prod_{t=1}^{T}
+    \N\big({\yobs}_t^{(m)};F(\theta^{(n)},\xi_t^{(m)},h_{t-1}^{(m)}),\sigma_y^2\big),
+    \qquad
+    p_n^{(T)}=\frac{\tilde p_n^{(T)}}{\sum_{j=1}^{N}\tilde p_j^{(T)}}.
+\end{equation}
+Thus $p^{(T)}$ is a discrete distribution on full $28$-dimensional particles; each particle carries its own per-bus $(M_b,K_b)$ and its own banked forward values $F(\theta^{(n)},\cdot)$.
+Shannon entropy is
+\begin{equation}
+\label{eq:entropy_def}
+    H[p^{(T)}]=-\sum_{n=1}^{N} p_n^{(T)}\log p_n^{(T)},
+\end{equation}
+and reported uncertainty reduction is
+\begin{equation}
+\label{eq:entropy_reduction_theta}
+    \Delta H_{\theta}^{(m)} = H[p^{(0)}]-H[p^{(T)}].
+\end{equation}
+The myopic baseline updates the same particle weights sequentially using banked ${\yclean}$ centres on this support.
+
+\paragraph{Primary metrics (information).}
+For method-produced $h_T^{(m)}$, we set $\theta_0=\theta_{\mathrm{te}}^{(m)}$ in Eqs.~\eqref{eq:spce_mc}--\eqref{eq:spce_step} and average over $m=1,\ldots,N_{\mathrm{te}}$.
+Contrastive terms draw additional $\theta_\ell\sim p_0$ (full $28$-vectors); sPCE likelihoods use banked $F(\theta_\ell,\cdot)$ on the training table.
+Information scores $(\widehat I_{t,\mathrm{sPCE}},\widehat I_{\mathrm{sPCE}})$ and $\Delta H_{\theta}$ all refer to reduction of uncertainty about the \emph{joint} latent $\theta$, not about scalar summaries of $\theta$.
+
+\paragraph{Stepwise EIG vs.\ posterior entropy reduction.}
+At step $t$, the \emph{exact} expected information gain is
+\begin{equation}
+\label{eq:step_eig_exact}
+    I(\theta;{\yobs}_t\mid h_{t-1},\xi_t)
+    =
+    H[p(\theta\mid h_{t-1})]
+    -
+    \E_{p({\yobs}_t\mid h_{t-1},\xi_t)}\!\left[H[p(\theta\mid h_t)]\right].
+\end{equation}
+After observing a \emph{realized} ${\yobs}_t$, the plug-in entropy drop on the particle posterior is
+\begin{equation}
+\label{eq:step_delta_h}
+    \Delta H_t
+    =
+    H[p^{(t-1)}]-H[p^{(t)}],
+\end{equation}
+where $p^{(t)}$ is the belief in Eq.~\eqref{eq:particle_posterior} after $t$ observations.
+One has $\E[\Delta H_t\mid h_{t-1},\xi_t]=I(\theta;{\yobs}_t\mid h_{t-1},\xi_t)$ under the correct model, so $\Delta H_t$ is a single-sample Monte Carlo counterpart of step-EIG, whereas $\sum_{t=1}^{T}\Delta H_t=\Delta H_{\theta}$ need not equal total EIG when nonlinearities accumulate.
+We report:
+\begin{itemize}[noitemsep,leftmargin=*]
+    \item $\widehat I_{t,\mathrm{sPCE}}$ (Eq.~\eqref{eq:spce_step}): Foster contrastive \emph{lower bound} on step information, evaluated at $\theta_0=\theta_{\mathrm{te}}$;
+    \item $\widehat I_{\mathrm{sPCE}}$ (Eq.~\eqref{eq:spce_mc}): bound on full-history information (``Tot.sPCE'' in logs);
+    \item $\Delta H_t$ and $\Delta H_{\theta}$: discrete entropy reduction on the $N$ training particles (``step-$\Delta H$'' / ``$\Delta H$'' in logs).
+\end{itemize}
+These three are aligned in spirit but not identical: do not equate ``sPCE-EIG'' with ``$\Delta H$'' without stating that the former is a contrastive EIG bound and the latter is plug-in Shannon entropy on a finite particle support.
+Eval JSON stores per-step lists \texttt{step\_spce\_eig} and \texttt{step\_delta\_h}; summaries include \texttt{mean\_spce\_eig\_by\_step} and \texttt{mean\_delta\_h\_by\_step}.
+
+\paragraph{Secondary metric (recovery in $\mathbb R^{28}$).}
+The posterior mean is the barycenter of particles,
+\begin{equation}
+\label{eq:posterior_mean_vector}
+    \hat\theta^{(m)}
+    =
+    \sum_{n=1}^{N} p_n^{(T)}\,\theta^{(n)}
+    \in\mathbb R^{28},
+\end{equation}
+with bus blocks $\hat{\mathbf M}^{(m)}$ and $\hat{\mathbf K}^{(m)}$.
+Against the known test vector $\theta_{\mathrm{te}}^{(m)}$, we report
+\begin{equation}
+\label{eq:mse_instance}
+    \mathrm{MSE}_{\theta}^{(m)}
+    =
+    \|\hat\theta^{(m)}-\theta_{\mathrm{te}}^{(m)}\|_2^2
+    =
+    \sum_{b=1}^{N_b}\big(\hat M_b^{(m)}-M_b^{(m)}\big)^2
+    +\sum_{b=1}^{N_b}\big(\hat K_b^{(m)}-K_b^{(m)}\big)^2.
+\end{equation}
+Component-wise summaries ($\mathrm{MSE}_M$, $\mathrm{MSE}_K$) average squared errors over buses within each block.
+Higher sPCE-EIG does not imply lower $\mathrm{MSE}_{\theta}$.
+
+\paragraph{Baselines.}
+We compare four strategies on identical $\Dtest$ instances:
+\begin{itemize}[noitemsep,leftmargin=*]
+    \item \emph{Random:} uniform feasible $\xi_t\in\Aset_t(h_{t-1})$.
+    \item \emph{Fixed open-loop:} single $\xi_{1:T}$ applied to all test systems (default: first training-bank sequence).
+    \item \emph{Myopic $\Delta H$:} greedy maximization of Eq.~\eqref{eq:myopic_delta_h} on the particle support $\{\theta^{(n)}\}$, with banked centres $F(\theta^{(n)},\xi)$ and plug-in mean $\hat{\yobs}=\sum_n p_n^{(t-1)}F(\theta^{(n)},\xi)$.
+    \item \emph{DAD--sPCE:} $\xi_t=\pi_\phi(h_{t-1})$ with $\pi_\phi$ trained as above.
+\end{itemize}
+All methods share the same scoring routine for sPCE-EIG, $\Delta H$, and MSE.
+The myopic score is
+\begin{equation}
+\label{eq:myopic_delta_h}
+    \Delta H_t(\xi)
+    =
+    H[p^{(t-1)}]
+    -
+    H\!\left[p^{(t-1)} \cdot \N(\hat{\yobs};F(\theta^{(n)},\xi),\sigma_y^2)\right].
+\end{equation}
+Here $p^{(t-1)}$ denotes the particle weights $(p_1^{(t-1)},\ldots,p_N^{(t-1)})$ on $\{\theta^{(n)}\}_{n=1}^N$.
+
+\subsection{Summary}
+\label{sec:logic_summary}
+
+The proposed pipeline is: (i)~simulate and tabulate $({\yclean},{\yobs})$ for all feasible probe sequences under $p_0(\theta)$;
+(ii)~train $\pi_\phi$ by sPCE with histories that expose only $(\xi,{\yobs})$;
+(iii)~evaluate frozen policies and baselines by table lookup on $\Dtest$, updating a particle posterior on $\mathbb R^{28}$ with sPCE-EIG and $\Delta H$ as primary information metrics and $\|\hat\theta-\theta_{\mathrm{te}}\|_2^2$ as a secondary recovery diagnostic.
+The forward map $F=g\circ S$ encodes swing dynamics and max-ROCOF extraction; sequential coupling enters through carried ODE state in $h_{t-1}$.
+
+% --- Bibliography stub (replace with your .bib) ---
+\begin{thebibliography}{9}
+\bibitem{foster2021dad}
+A.~Foster, A.~Rahimi, and Y.~Gal, ``Deep adaptive design,'' in \emph{Proc.\ ICML}, 2021.
+\end{thebibliography}
+
+\end{document}

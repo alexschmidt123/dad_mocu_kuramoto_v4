@@ -1,150 +1,52 @@
-# Full Publication-Level Configuration for IEEE-14 Bus System
-# Based on documents/design_part1.tex and design_part2.tex (probing / MOCU sBOED)
-# Use this for final publication experiments (publication-quality, practical runtime)
-# 
-# Design rationale:
-# - samples_per_type: 1200 provides sufficient diversity for MPNN training (4D input space)
-# - K_max: 1024 gives ~3.1% relative error (sufficient for publication, standard practice)
-# - num_simulations: 12 provides statistical significance (mean, std, CI)
-# - Estimated runtime: ~4-5 days on RTX 4090 (much more practical than 15 days)
-# 
-# Design Principles:
-# 1. Statistically sound: Sufficient samples for reliable MOCU estimation and MPNN training
-# 2. Reproducible: Fixed seeds, clear parameters, documented rationale
-# 3. Rigorous: Multiple independent runs for statistical significance
-# 4. Realistic: Production-quality parameters aligned with design_part1.tex
-# 5. Feasible: Estimated runtime ~3-5 days on RTX 4090 (sequential processing)
-#
-# Reference: documents/design_part1.tex, documents/design_part2.tex
+# Full sBOED config — 500 train / 200 test (M,K) per-bus systems; longer T_obs and training
 
-# System parameters
-N: 14  # IEEE-14 bus system (design_part1.tex)
-N_global: 15  # N + 1 for CUDA kernel
+N: 14
 
-# Model type: 'second_order' (swing equation with active probing)
-model_type: 'second_order'
-
-# Second-order model parameters (swing equation for IEEE-14)
-# All parameters from design_part1.tex Section 1 and Section 3
 swing_equation:
-  topology: 'ieee14'          # IEEE-14 bus network topology
-  coupling_strength: 1.0       # Base coupling strength for B matrix
-  damping: 0.1                # Damping coefficient D
-  base_power: 1.0             # Base mechanical power P_m
-  M_lower: 0.01               # M = 2H/ω_s; H ∈ [2.3, 5] s (Kundur)
-  M_upper: 0.06               # Inertia upper bound (physical range)
-  K_lower: 0.05               # Control gain lower bound (5% droop equivalent)
-  K_upper: 0.50               # Control gain upper bound (50% response)
-  r_max: 0.1                  # Maximum ROCOF constraint (Hz/s) - tightened for non-trivial control
-                               # Reference: ENTSO-E grid codes use 0.5-1.0 Hz/s for protection
-                               # We use 0.1 Hz/s (stricter) to ensure control is needed for meaningful MOCU
-                               # design_part1.tex table: r_max; we tighten for research rigor
-  f_min: 49.8                 # Minimum frequency constraint (Hz), 50 Hz nominal (aligned with MATLAB .mdl / ENTSO-E)
-                               # Normal band 49.5-50.5 Hz; we use 49.8 (stricter) to require control
-  reference_probe_bus: 0
-  reference_probe_amplitude: 0.5
-  reference_probe_duration: 2.0
-  probe_duration: 2.0         # T_p = 2 s (design_part1.tex Section 3, Peng et al.)
-  probe_amplitudes: [0.05, 0.1, 0.2]  # A_set; 3 amplitudes → 42 designs (ODE tractable)
-  sigma: 0.05                 # Observation noise σ_feat (Hz/s), design §9
-  # Observation (design.md §4)
-  fs_hz: 12.0                # Sampling rate (PMU-like), ENTSO-E/NASPI
-  rocof_window_sec: 0.5      # Sliding window for ROCOF (linear fit)
-  rocof_eval_sec: 1.0       # Evaluate ROCOF_max over first 1 s only
-  T_obs_sec: 10.0           # Observation window [0, 10] s for simulation
+  topology: ieee14
+  coupling_strength: 1.0
+  damping: 0.1
+  base_power: 1.0
+  M_lower: 0.01
+  M_upper: 0.06
+  K_lower: 0.05
+  K_upper: 0.50
+  use_node_specific_damping: true
+  D_nodes: [0.08, 0.09, 0.09, 0.14, 0.13, 0.10, 0.15, 0.10, 0.16, 0.15, 0.14, 0.14, 0.14, 0.16]
+  P_m_nodes: [1.20, 0.55, 0.40, -0.35, -0.30, 0.45, -0.25, 0.30, -0.40, -0.30, -0.28, -0.22, -0.25, -0.55]
+  theta0_nodes: [0.00, -0.03, -0.06, -0.08, -0.10, -0.09, -0.12, -0.11, -0.14, -0.16, -0.15, -0.17, -0.18, -0.20]
+  omega0_nodes: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+  probe_amplitudes: [0.05, 0.1, 0.2]
+  probe_duration: 0.2
+  T_obs_sec: 10.0
+  fs_hz: 12.0
+  sigma: 0.05
 
-# Dataset generation for MPNN MOCU predictor training
-# Statistical requirements for publication:
-# - Sufficient diversity in (M, K) bounds for robust MPNN training
-# - K_max: Sufficient Monte Carlo samples for accurate MOCU estimation
-# - samples_per_type: Enough training data for MPNN (rule of thumb: 10x-20x input dimension)
-# - Train/validation split: 80/20 for model selection and early stopping
-dataset:
-  samples_per_type: 1200      # 1200 unique (M_lower, M_upper, K_lower, K_upper) bounds
-                              # Rationale: 4D input space, 1200 provides sufficient diversity for MPNN training.
-                              # Standard practice: 500-2000 samples. 1200 is a good balance.
-  train_size: 960             # 80% for training (1200 * 0.8 = 960)
-                              # Remaining 240 samples used for validation
-  K_max: 1024                 # Monte Carlo samples for MOCU computation
-                              # Rationale: 1024 samples provide ~3.1% relative error (1/sqrt(1024) ≈ 3.1%)
-                              # This is sufficient for publication-level accuracy.
-                              # Standard practice: 512-2048 samples. 1024 is commonly used in literature.
-                              # Time savings: 50% reduction vs K_max=2048, with acceptable accuracy trade-off.
-  save_json: false            # Don't save JSON (saves disk space)
+prior:
+  mc_samples: 256
+  mc_support_seed: 1
 
-# Data generation optimization settings
-data_generation:
-  num_workers: 1              # Sequential processing (CUDA multiprocessing can hang)
-                              # Note: GPU is still used for ODE solving, but samples are processed sequentially
-  chunk_size: 10              # Samples per worker batch
-
-# Training parameters for Swing MPNN MOCU predictor
-training:
-  model_name: "ieee14_full"  # Model identifier
-  epochs: 400                 # Sufficient for convergence (monitor validation loss for early stopping)
-  constrain_weight: 0.0001    # Regularization weight (L2 penalty)
-  batch_size: 128             # Standard batch size for MPNN
-  learning_rate: 0.001        # Standard learning rate for Adam optimizer
-  train_split: 0.8            # 80/20 train/validation split (set in training script)
-
-# Experiment parameters for method evaluation
-# Based on design_part1.tex Section 6: Sequential experimental design
 experiment:
-  num_simulations: 12         # Number of independent random systems to test
-                              # Rationale: 12 runs provide statistical significance
-                              # - Can compute mean, std, confidence intervals
-                              # - Standard practice: 10-20 independent runs for publication
-                              # - 12 is sufficient and more practical than 20
-                              # - Time savings: 40% reduction vs 20 simulations
-  update_count: 4             # T=4 design steps (5 MOCU points: 0,1,2,3,4); terminal MOCU is goal
-                              # Rationale: 10 steps (0-10) provides sufficient learning trajectory
-                              # Matches design_part1.tex: T=10 sequential design steps
-                              # This allows methods to show clear improvement over time
-  it_idx: 10                  # MOCU averaging iterations (for robustness)
-                              # Rationale: 10 iterations reduce variance in MOCU estimates
-                              # Each MOCU computation uses different random seed (0 to it_idx-1)
-                              # Final MOCU = mean over it_idx iterations
-  K_max: 1024                 # Match dataset K_max for consistency
-                              # Same rationale as dataset.K_max: 2048 samples for accurate MOCU
-  methods: [RANDOM, ENTROPY, ODE, iNN, NN, DAD]
-  uncertainty_ratio_min: 1.0   # Full bounds (harder, method differences visible)
-  update_strength: 0.05        # Gentler bound updates
+  step_number: 3
+  methods: [random, fixed_open_loop, myopic_delta_h, dad_spce, dad_delta_h]
 
-# DAD policy training data generation (if using DAD)
-dad_data:
-  num_episodes: 5000          # Number of trajectories for DAD training
-                              # Rationale: 5000 episodes sufficient for policy learning
-                              # Typical: 1000-10000 episodes depending on complexity
-                              # 5000 is a good balance for publication
-  K: 4                         # Must match experiment.update_count (T=4)
-                              # Number of sequential experiments per trajectory
-  use_precomputed_mocu: true  # Use MPNN predictor for terminal MOCU (recommended)
-                              # This speeds up DAD training significantly
+spce:
+  L: 8
 
-# Reproducibility settings
-# Note: Seeds should be set in code for full reproducibility
-# These are documented here for reference
-reproducibility:
-  random_seed: 42             # Random seed for data generation (if implemented)
-  train_seed: 42              # Random seed for train/validation split (set in training script)
-  experiment_seed: None       # Random seed for experiments (None = different seed per run)
+data_generation:
+  backend: cuda
+  cuda_batch_size: 512
+  theta_sample_size_train: 500
+  theta_sample_size_test: 200
+  train_seed: 0
+  test_seed: 1
 
-# Paths (relative to project root; results go under experiments/<run>/)
-paths:
-  data_dir: "data"
-  models_dir: "models"
-
-# Estimated Runtime (on RTX 4090, sequential processing)
-# Step 1: MOCU data generation
-#   - 1200 samples × ~300s per sample (with K_max=1024) = ~100 hours ≈ 4.2 days
-#   - Note: This is the main bottleneck. Can run overnight/weekend.
-# Step 2: MPNN training
-#   - ~30-60 minutes (depends on convergence)
-# Step 3: Baseline evaluation
-#   - 12 simulations × 5 methods × ~10 steps × ~15s per MOCU = ~2.5 hours
-# Total: ~4-5 days (much more practical than 15 days)
-#
-# This configuration maintains publication quality while being 3x faster:
-# - K_max=1024: 3.1% error (vs 2.2% with 2048) - still publication-quality
-# - samples_per_type=1200: Sufficient for MPNN training
-# - num_simulations=12: Statistically significant (10-20 is standard)
+training:
+  objective: reinforce
+  curriculum_candidates: 64
+  curriculum_min_weight: 1.0e-8
+  reinforce_baseline_ema: 0.9
+  grad_clip: 1.0
+  epochs: 100
+  batch_size: 16
+  learning_rate: 0.001

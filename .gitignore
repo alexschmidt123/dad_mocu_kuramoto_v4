@@ -44,7 +44,6 @@ htmlcov/
 nosetests.xml
 coverage.xml
 *.cover
-.pytest_cache/
 
 # Jupyter Notebook
 .ipynb_checkpoints
@@ -113,17 +112,9 @@ $RECYCLE.BIN/
 *.hdf5
 *.mat
 
-# JSON data files (can be large)
-**/data/*.json
-
-# Experiment outputs folder (contains all runs)
-experiments/
-../experiments/
-
-# Data, models, and results folders (generated files, not in git)
+# Generated train/test JSON (shared across experiments with same config + T)
 data/
 models/
-!src/models/
 # results/ removed: all outputs go under experiments/
 Experiment/
 ../experiments/

@@ -1,102 +1,56 @@
-# Fast Configuration for Quick Testing
-# Based on documents/design.md and documents/pseudocode.tex
-# 
-# Use this for quick testing and component verification
-# Estimated Runtime: ~1 hour on RTX 4090
-# ⚠️ NOT for actual experiments - only for quick testing!
+# Fast sBOED config — 100 train / 50 test (M,K) systems; complete trajectory table per system
 
-# System parameters
-N: 14  # IEEE-14 bus system
-N_global: 15  # N + 1 for CUDA kernel
+N: 14
 
-# Model type: 'second_order' (swing equation with active probing)
-model_type: 'second_order'  # Use second-order Kuramoto (swing equation) with active probing
-
-# Second-order model parameters (swing equation for IEEE-14)
 swing_equation:
-  topology: 'ieee14'          # IEEE-14 bus network topology
-  coupling_strength: 1.0       # Base coupling strength for B matrix
-  damping: 0.1                # Damping coefficient D
-  base_power: 1.0              # Base mechanical power P_m
-  # Publication reference (global envelope, not used directly in node-specific mode):
-  # M in [0.01, 0.06], K in [0.05, 0.50]
-  # Node-specific uncertainty (28D): each bus i has [M_i_lower, M_i_upper] and [K_i_lower, K_i_upper].
-  # Active parameterization is node-specific only (no active global M/K bounds).
-  use_node_specific_mk: true
-  # Bus functional types for IEEE-14 (1-indexed): slack=1; PV={2,3,6,8}; PQ={4,5,7,9,10,11,12,13,14}
-  bus_types: [slack, pv, pv, pq, pq, pv, pq, pv, pq, pq, pq, pq, pq, pq]
-  # Node-specific bounds constrained by publication global envelope:
-  # for all i: M_i in [0.01, 0.06], K_i in [0.05, 0.50]
-  M_lower_nodes: [0.026, 0.021, 0.020, 0.010, 0.010, 0.016, 0.010, 0.015, 0.010, 0.010, 0.010, 0.010, 0.010, 0.010]
-  M_upper_nodes: [0.060, 0.052, 0.050, 0.032, 0.034, 0.043, 0.030, 0.041, 0.034, 0.029, 0.028, 0.028, 0.028, 0.028]
-  K_lower_nodes: [0.170, 0.130, 0.125, 0.050, 0.050, 0.095, 0.050, 0.090, 0.050, 0.050, 0.050, 0.050, 0.050, 0.050]
-  K_upper_nodes: [0.500, 0.430, 0.420, 0.205, 0.220, 0.345, 0.190, 0.335, 0.220, 0.180, 0.170, 0.170, 0.170, 0.170]
-  # Additional multi-node initialization controls (used by ODE layer in next sub-step):
-  use_node_specific_damping: false
-  D_nodes: [0.10, 0.10, 0.10, 0.10, 0.10, 0.10, 0.10, 0.10, 0.10, 0.10, 0.10, 0.10, 0.10, 0.10]
-  use_node_specific_mechanical_power: false
-  P_m_nodes: [1.00, 1.00, 1.00, 1.00, 1.00, 1.00, 1.00, 1.00, 1.00, 1.00, 1.00, 1.00, 1.00, 1.00]
-  theta0_nodes: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+  topology: ieee14
+  coupling_strength: 1.0
+  damping: 0.1
+  base_power: 1.0
+  M_lower: 0.01
+  M_upper: 0.06
+  K_lower: 0.05
+  K_upper: 0.50
+  use_node_specific_damping: true
+  D_nodes: [0.08, 0.09, 0.09, 0.14, 0.13, 0.10, 0.15, 0.10, 0.16, 0.15, 0.14, 0.14, 0.14, 0.16]
+  P_m_nodes: [1.20, 0.55, 0.40, -0.35, -0.30, 0.45, -0.25, 0.30, -0.40, -0.30, -0.28, -0.22, -0.25, -0.55]
+  theta0_nodes: [0.00, -0.03, -0.06, -0.08, -0.10, -0.09, -0.12, -0.11, -0.14, -0.16, -0.15, -0.17, -0.18, -0.20]
   omega0_nodes: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
-  r_max: 0.5                   # ROCOF limit (Hz/s); 0.1 required γ>220→ODE NaN; 0.5 yields non-trivial MOCU
-  f_min: 49.8                   # Minimum frequency constraint (Hz), 50 Hz nominal (aligned with MATLAB .mdl / ENTSO-E)
-                                # Normal band 49.5-50.5 Hz; we use 49.8 (stricter) to require control
-  # Reference contingency for γ* (design §3): γ* is defined under a fixed disturbance so MOCU is non-trivial.
-  # If amplitude is too small, γ* = 0 for all (M,K) and MOCU ≈ 0 (all methods look the same).
-  reference_probe_bus: 0        # Bus index for reference probe (0-indexed)
-  reference_probe_amplitude: 0.5   # Reference contingency; γ* search uses gamma_max=300 (correct u_ctrl=-γgω)
-  reference_probe_duration: 2.0  # Reference probe duration (s)
-  probe_duration: 2.0          # T_p = 2 s (design_part1.tex)
-  # probe_amplitudes: 3 → 42 designs (14×3). Tradeoff: large space lets DAD stand out, but ODE is only tractable when space is small.
-  probe_amplitudes: [0.05, 0.1, 0.2]  # A_t in A
-  fs_hz: 12.0                  # Observation: design_part1.tex Section 4
-  rocof_window_sec: 0.5
-  rocof_eval_sec: 1.0
-  T_obs_sec: 10.0
-  sigma: 0.05                 # Observation noise σ_feat (Hz/s), design §9 (match balanced/full)
+  probe_amplitudes: [0.05, 0.1, 0.2]
+  probe_duration: 0.2
+  T_obs_sec: 5.0
+  fs_hz: 12.0
+  sigma: 0.05
 
-# Dataset generation (minimal for ~1 hour runtime)
-dataset:
-  samples_per_type: 30     # Minimal samples for quick testing
-  train_size: 24           # 80% for training (30 * 0.8 = 24)
-  K_max: 64                # Reduced for speed with tighter constraints (was 128)
-                           # Rationale: 64 samples provide ~12.5% relative error (acceptable for fast testing)
-                           # With tighter constraints (r_max=0.1), binary search is slower, so reduce K_max
-  save_json: false
-  
-# Data generation optimization settings (for testing speed)
-data_generation:
-  num_workers: 1           # Use 1 worker (sequential) - CUDA multiprocessing can hang
-  chunk_size: 10           # Samples per worker batch
+prior:
+  mc_samples: 128          # subsample of train latent θ for myopic / ΔH / MSE support
+  mc_support_seed: 1
 
-# Training parameters (minimal for quick testing)
-training:
-  model_name: "fast_config"  # Model folder: models/fast_config/ (MPNN + DAD + loss curves)
-  epochs: 50              # Minimal epochs for quick testing
-  constrain_weight: 0.0001
-  batch_size: 16          # Small batch for small dataset
-  learning_rate: 0.001
-
-# Experiment parameters (minimal for ~1 hour runtime)
-# Bounds enforce min width (2% of base range) so MOCU does not collapse to 0; keeps problem non-trivial.
 experiment:
-  num_simulations: 1       # Single run only (for quick testing)
-  update_count: 4          # 4 iterations = 5 steps total (0,1,2,3,4)
-  it_idx: 3                # Minimal MOCU averaging iterations
-  K_max: 64                # Match dataset K_max (reduced for speed with tighter constraints)
-  methods: [RANDOM, ENTROPY, ODE, iNN, NN, DAD]
-  # Problem difficulty: makes method differences visible (otherwise all converge to same curve)
-  uncertainty_ratio_min: 1.0   # 1.0 = full base bounds (harder); 0.3 = narrowed (easier, all same)
-  update_strength: 0.05        # Gentler bound updates (0.1 = aggressive, 0.05 = method choice matters)
+  step_number: 3
+  methods: [random, fixed_open_loop, myopic_delta_h, dad_spce, dad_delta_h]
 
-# DAD policy training data generation
-dad_data:
-  num_episodes: 1000       # Number of trajectories to generate (increased for better training)
-  K: 4                     # Number of sequential experiments per trajectory (4 design steps, OPTIMAL: 40% of pairs, leaves room for differences)
-  use_precomputed_mocu: true  # Pre-compute terminal MOCU using MPNN predictor (recommended)
+spce:
+  L: 4
 
-# Paths (relative to project root; results go under experiments/<run>/)
-paths:
-  data_dir: "data"
-  models_dir: "models"
+data_generation:
+  # θ = (M_{1:14}, K_{1:14}) → 28-D; joint uniform sample per system (see dataset.py)
+  # θ=(M,K) sample counts: fast dev ≥100/50; publication ≥300–500 train, ≥150–200 test
+  backend: cuda
+  cuda_batch_size: 512
+  theta_sample_size_train: 100
+  theta_sample_size_test: 50
+  train_seed: 0
+  test_seed: 1
 
+training:
+  force_retrain: false       # set true or rm model/policy.pth to train again
+  # reinforce: on-policy π, advantage = sPCE-EIG(y + y_sim centres)
+  objective: reinforce
+  curriculum_candidates: 32
+  curriculum_min_weight: 1.0e-8
+  reinforce_baseline_ema: 0.9
+  grad_clip: 1.0
+  epochs: 40
+  batch_size: 8
+  learning_rate: 0.001

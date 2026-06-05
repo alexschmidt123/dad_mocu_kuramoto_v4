@@ -1,57 +1,46 @@
-# DAD-MOCU: Deep Adaptive Design for Optimal Experimental Design
+# Setup and Run
 
-Sequential optimal experimental design for power systems using the second-order Kuramoto (swing equation) model with active probing. The framework learns probe-selection policies to minimize **MOCU** in the **decision quantity** $\gamma^\ast(\vartheta)$ (minimum safe supplementary gain), not $(M,K)$ for their own sake; uncertain parameters are $\vartheta=(M,K)$.
-
----
-
-## Experimental Design
-
-- **Model:** Second-order Kuramoto (swing equation) on IEEE-14 bus network.
-- **Uncertain parameters:** $(M, K)$ — inertia and primary frequency response (droop) gain.
-- **Actions:** Probe signals $\xi = (b, A, T_p)$: bus $b$, amplitude $A$, $T_p = 2$ s fixed.
-- **Observations:** ROCOF-only, $y_t = \mathrm{ROCOF}_{\max}$ at 12 Hz sampling.
-- **Objective:** Minimize MOCU($p$) = $\mathbb{E}_p[|\gamma^\ast(\vartheta)-\hat\gamma|]$ (median Bayes rule under $L_1$) via sequential probe selection.
-- **Validation:** **`tests/posterior_inference/`** (unit/integration) · **`tests/simulink_reference/`** (Python vs Simulink).
-- **Methods:** Baselines RANDOM, ENTROPY, ODE, iNN, NN; learned policy DAD.
-
----
-
-## Installation
+## Conda environment installation
 
 ```bash
-conda create -n dad_mocu python=3.10 -y
-conda activate dad_mocu
-
-# Base dependencies
-conda install -y -c conda-forge numpy scipy matplotlib tqdm pyyaml pandas pip setuptools wheel
-
-# CUDA toolkit (required for PyCUDA)
-conda install -c nvidia cuda-toolkit=12.1 -y
-
-# PyTorch + CUDA
-pip install torch==2.4.0 torchvision==0.19.0 torchaudio==2.4.0 --index-url https://download.pytorch.org/whl/cu121
-pip install torch-geometric torch-scatter torch-sparse torch-cluster torch-spline-conv -f https://data.pyg.org/whl/torch-2.4.0+cu121.html
-pip install openpyxl torchdiffeq
-
-# PyCUDA (for fast RANDOM/ENTROPY/ODE baselines)
+conda create -n mocu_optimized python=3.11 -y
+conda activate mocu_optimized
+pip install -r requirements.txt
 pip install pycuda
 ```
 
-**PyCUDA system deps (Ubuntu/Debian):**  
-`sudo apt-get install -y build-essential python3-dev libboost-python-dev libboost-thread-dev`
-
-**RANDOM/ENTROPY/ODE** use PyCUDA for MOCU when available (faster). Disable with `USE_PYCUDA=0` to fall back to PyTorch.
-
----
-
-## Running
-
-From the project root, run the full pipeline (data generation, training, evaluation) with a config file:
+## Project setup
 
 ```bash
-conda activate dad_mocu
-bash run.sh config/fast_config.yaml
+cd /path/to/dad_mocu_kuramoto_v4
+export PYTHONPATH="$(pwd)"
 ```
 
-Results are written to `experiments/<config>_<timestamp>/`.
+## Run full pipeline with `run.sh`
 
+```bash
+# default T=3
+./run.sh -config fast_config
+
+# set horizon T explicitly
+./run.sh -config fast_config -T 1
+
+# reuse an existing experiment directory
+./run.sh -config fast_config -T 1 -exp-dir experiments/<run_name>
+```
+
+## Run scripts in `scripts/` folder
+
+```bash
+# 1) data generation
+./scripts/data_generation.sh -config fast_config -T 1
+
+# 2) training
+./scripts/dad_training.sh -exp-dir experiments/<run_name>
+
+# 3) evaluation (all methods)
+./scripts/evaluation.sh -exp-dir experiments/<run_name>
+
+# evaluate one method only
+./scripts/evaluation.sh -exp-dir experiments/<run_name> -method dad_spce
+```

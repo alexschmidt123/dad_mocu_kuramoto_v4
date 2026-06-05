@@ -1,0 +1,111 @@
+step_number: 3
+source_config: /home/grads/g/g.lin/Documents/dad_mocu_kuramoto_v4/config/fast_config.yaml
+data_dir: /home/grads/g/g.lin/Documents/dad_mocu_kuramoto_v4/data/fast_config_T3
+N: 14
+swing_equation:
+  topology: ieee14
+  coupling_strength: 1.0
+  damping: 0.1
+  base_power: 1.0
+  M_lower: 0.01
+  M_upper: 0.06
+  K_lower: 0.05
+  K_upper: 0.5
+  use_node_specific_damping: true
+  D_nodes:
+  - 0.08
+  - 0.09
+  - 0.09
+  - 0.14
+  - 0.13
+  - 0.1
+  - 0.15
+  - 0.1
+  - 0.16
+  - 0.15
+  - 0.14
+  - 0.14
+  - 0.14
+  - 0.16
+  P_m_nodes:
+  - 1.2
+  - 0.55
+  - 0.4
+  - -0.35
+  - -0.3
+  - 0.45
+  - -0.25
+  - 0.3
+  - -0.4
+  - -0.3
+  - -0.28
+  - -0.22
+  - -0.25
+  - -0.55
+  theta0_nodes:
+  - 0.0
+  - -0.03
+  - -0.06
+  - -0.08
+  - -0.1
+  - -0.09
+  - -0.12
+  - -0.11
+  - -0.14
+  - -0.16
+  - -0.15
+  - -0.17
+  - -0.18
+  - -0.2
+  omega0_nodes:
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  probe_amplitudes:
+  - 0.05
+  - 0.1
+  - 0.2
+  probe_duration: 0.2
+  T_obs_sec: 5.0
+  fs_hz: 12.0
+  sigma: 0.05
+prior:
+  mc_samples: 128
+  mc_support_seed: 1
+experiment:
+  step_number: 3
+  methods:
+  - random
+  - fixed_open_loop
+  - myopic_delta_h
+  - dad
+spce:
+  L: 4
+data_generation:
+  backend: cuda
+  cuda_batch_size: 512
+  theta_sample_size_train: 100
+  theta_sample_size_test: 50
+  train_seed: 0
+  test_seed: 1
+training:
+  force_retrain: false
+  objective: reinforce
+  curriculum_candidates: 32
+  curriculum_min_weight: 1.0e-08
+  reinforce_baseline_ema: 0.9
+  grad_clip: 1.0
+  epochs: 40
+  batch_size: 8
+  learning_rate: 0.001
