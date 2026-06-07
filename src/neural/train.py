@@ -15,7 +15,12 @@ import torch
 
 from src.neural.policy import DADPolicy
 from src.config import SBOEDConfig
-from src.data import lookup_prefix_y, validate_trajectory_y_sim
+from src.data import (
+    clear_trajectory_sim_context,
+    lookup_prefix_y,
+    set_trajectory_sim_context,
+    validate_trajectory_y_sim,
+)
 from src.contrastive.spce import posterior_after_gaussian_observations, posterior_entropy
 from src.table_scoring import (
     TableThetaSupport,
@@ -79,14 +84,16 @@ def train_dad_policy(
     run_tag: str = "dad_spce",
 ) -> Path:
     """
-    Foster DAD with table bank (no ODE at train time).
+    Foster DAD with table bank (no ODE at train time). RL-style REINFORCE only.
 
-    - **π (student):** (ξ, noisy **y**) only — never **y_sim**.
-    - **sPCE (teacher):** fixed noisy **y** + banked **y_sim** likelihood centres.
-    - Training objective: **reinforce** or **delta_h**.
+    - **Policy (student):** on-policy rollout; history is (action, noisy **y**) only.
+    - **Reward (oracle):** scalar from the same rollout — uses realized noisy **y** plus
+      banked **y_sim** centres on the particle support (for sPCE or ΔH). Not imitation.
+    - **objective:** ``reinforce`` (dad_spce) or ``delta_h`` (dad_delta_h).
     """
     del data_dir
     validate_trajectory_y_sim(train_systems, split="train")
+    set_trajectory_sim_context(cfg, int(cfg.data.get("train_seed", 0)))
 
     output_dir.mkdir(parents=True, exist_ok=True)
     n_actions = meta["n_actions"]
@@ -120,7 +127,7 @@ def train_dad_policy(
 
     print(
         f"  DAD train: objective={objective} epochs={epochs} batch={batch_size} "
-        f"support={len(support)} | π: noisy y only | sPCE: y_sim centres"
+        f"support={len(support)} | on-policy π: noisy y only | reward: y + y_sim centres"
     )
     t0 = time.perf_counter()
 
@@ -198,6 +205,7 @@ def train_dad_policy(
     fig.savefig(output_dir / f"{run_tag}_loss_curve.png", dpi=150, bbox_inches="tight")
     plt.close(fig)
 
+    clear_trajectory_sim_context()
     return policy_path
 
 

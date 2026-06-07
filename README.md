@@ -22,8 +22,8 @@ export PYTHONPATH="$(pwd)"
 # default T=3
 ./run.sh -config fast_config
 
-# set horizon T explicitly
-./run.sh -config fast_config -T 1
+# set horizon T explicitly (T≥5 uses on-demand PyCUDA sim; T≤4 pre-banks all sequences)
+./run.sh -config fast_config -T 5
 
 # reuse an existing experiment directory
 ./run.sh -config fast_config -T 1 -exp-dir experiments/<run_name>

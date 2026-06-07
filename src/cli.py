@@ -35,6 +35,10 @@ def _add_T(parser: argparse.ArgumentParser) -> None:
     )
 
 
+def _dad_methods_from_cfg(methods: list[str]) -> list[str]:
+    return [m for m in methods if m in {"dad_spce", "dad_delta_h"}]
+
+
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="Swing-equation DAD experiment")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -46,12 +50,16 @@ def main(argv: list[str] | None = None) -> None:
 
     train = sub.add_parser("train", help="Train DAD policy (metadata from linked data)")
     train.add_argument("--exp-dir", required=True)
+    train.add_argument("--method", default=None, choices=["dad_spce", "dad_delta_h"])
 
     ev = sub.add_parser("evaluate", help="Evaluate methods (metadata from linked data)")
     ev.add_argument("--exp-dir", required=True)
     ev.add_argument("--method", default=None, choices=ALL_METHODS)
 
-    summ = sub.add_parser("summarize", help="Print results.json")
+    summ = sub.add_parser(
+        "summarize",
+        help="Print comparison table and refresh eval/summary.csv",
+    )
     summ.add_argument("--exp-dir", required=True)
 
     run = sub.add_parser("run", help="Full pipeline: generate-data → train → evaluate")
@@ -79,8 +87,15 @@ def main(argv: list[str] | None = None) -> None:
         assert exp_dir is not None
         run = load_experiment_run(exp_dir, root)
         print(f"  data={run.data_path}  T={run.meta.step_number} (from tables)")
-        policy_path = train_dad_policy(run)
-        print(f"Policy → {policy_path}")
+        methods = [args.method] if args.method else _dad_methods_from_cfg(list(run.cfg.methods))
+        if not methods:
+            raise ValueError(
+                "No DAD method found in config methods. "
+                "Add dad_spce and/or dad_delta_h, or pass --method."
+            )
+        for method in methods:
+            policy_path = train_dad_policy(run, method_name=method)
+            print(f"Policy ({method}) → {policy_path}")
         return
 
     if args.command == "summarize":

@@ -38,6 +38,9 @@ data_generation:
   # θ=(M,K) sample counts: fast dev ≥100/50; publication ≥300–500 train, ≥150–200 test
   backend: cuda
   cuda_batch_size: 512
+  # auto: full sequence bank for T≤3; on-demand PyCUDA for T≥4 (T=4 full bank ≈ 2.7M seq/θ)
+  trajectory_mode: auto
+  full_bank_max_T: 3
   theta_sample_size_train: 100
   theta_sample_size_test: 50
   train_seed: 0
@@ -45,7 +48,7 @@ data_generation:
 
 training:
   force_retrain: false       # set true or rm model/policy.pth to train again
-  # reinforce: on-policy π, advantage = sPCE-EIG(y + y_sim centres)
+  # RL only (no imitation): dad_spce → objective reinforce; dad_delta_h → delta_h
   objective: reinforce
   curriculum_candidates: 32
   curriculum_min_weight: 1.0e-8

@@ -185,6 +185,12 @@ where $b$ is a baseline used to reduce gradient variance.
 \paragraph{Training mode used in practice.}
 The DAD training mode is REINFORCE with sPCE reward.
 
+\paragraph{Student policy vs.\ reward oracle (not imitation).}
+The policy $\pi_\phi$ sees only the committed history of designs and \emph{noisy} observations $h_{t-1}=\{(\xi_i,y_{\mathrm{obs},i})\}_{i=1}^{t-1}$.
+It never receives $y_{\mathrm{clean}}$, latent $\theta$, or particle-support weights.
+After an \emph{on-policy} rollout $(\xi_{1:T},y_{\mathrm{obs},1:T})$ sampled from $\pi_\phi$, the reward uses banked $y_{\mathrm{clean}}(\theta_n,\cdot)$ on the train particle support to evaluate $R_{\mathrm{sPCE}}$ or $R_{\Delta H}$ with the fixed realized $y_{\mathrm{obs},1:T}$.
+This is RL-style policy optimization (REINFORCE), not behaviour cloning or teacher-forced imitation of table trajectories.
+
 \subsection{DAD-$\Delta H$}
 
 DAD-$\Delta H$ trains the policy using direct posterior entropy reduction:

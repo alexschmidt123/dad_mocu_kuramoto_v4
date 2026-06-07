@@ -5,7 +5,9 @@ Shared trajectory tables under ``data/<config>_T<T>/`` plus table lookup at trai
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+import zlib
+from contextvars import ContextVar
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -23,7 +25,7 @@ DATA_ROOT = "data"
 def save_json(data: Any, path: Path, indent: int | None = 2) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8") as f:
-        json.dump(data, f, indent=indent, default=_json_default)
+        json.dump(data, f, indent=indent, ensure_ascii=False, default=_json_default)
 
 
 def _json_default(obj: Any) -> Any:
@@ -98,9 +100,121 @@ def build_system_record(
     M: np.ndarray,
     K: np.ndarray,
     trajectories: list[dict[str, Any]],
+    *,
+    trajectory_mode: str = "full_bank",
 ) -> dict[str, Any]:
     M_list, K_list = mk_to_json(M, K)
-    return {"M": M_list, "K": K_list, "trajectories": trajectories}
+    return {
+        "M": M_list,
+        "K": K_list,
+        "trajectories": trajectories,
+        "trajectory_mode": trajectory_mode,
+    }
+
+
+def trajectory_storage_mode(cfg: SBOEDConfig) -> str:
+    """
+    ``full_bank``: pre-simulate all no-repeat sequences (feasible for small T).
+    ``on_demand``: store θ only; PyCUDA sim at train/eval lookup time (T ≥ 5).
+    ``auto``: full bank when T ≤ ``full_bank_max_T``, else on_demand.
+    """
+    mode = str(cfg.data.get("trajectory_mode", "auto")).lower()
+    threshold = int(cfg.data.get("full_bank_max_T", 4))
+    if mode == "auto":
+        return "on_demand" if cfg.step_number > threshold else "full_bank"
+    if mode not in {"full_bank", "on_demand"}:
+        raise ValueError(
+            f"data_generation.trajectory_mode must be full_bank, on_demand, or auto; got {mode!r}"
+        )
+    return mode
+
+
+def system_uses_on_demand(system: dict[str, Any]) -> bool:
+    if system.get("trajectory_mode") == "on_demand":
+        return True
+    return "trajectories" in system and len(system.get("trajectories") or []) == 0
+
+
+@dataclass
+class TrajectorySimContext:
+    """Thread-local CUDA lookup context (stable noisy ``y`` per θ + prefix)."""
+
+    cfg: SBOEDConfig
+    split_seed: int
+    _cache: dict[tuple[int, ...], dict[str, list[float]]] = field(default_factory=dict)
+    _engine: Any | None = field(default=None, repr=False)
+
+    def engine(self):
+        if self._engine is None:
+            from src.swing_equation_ode.cuda import CudaTrajectoryEngine
+
+            self._engine = CudaTrajectoryEngine(build_simulator(self.cfg), build_catalog(self.cfg))
+        return self._engine
+
+
+_trajectory_sim_ctx: ContextVar[TrajectorySimContext | None] = ContextVar(
+    "trajectory_sim_ctx", default=None,
+)
+
+
+def set_trajectory_sim_context(cfg: SBOEDConfig, split_seed: int) -> TrajectorySimContext:
+    ctx = TrajectorySimContext(cfg=cfg, split_seed=int(split_seed))
+    _trajectory_sim_ctx.set(ctx)
+    return ctx
+
+
+def clear_trajectory_sim_context() -> None:
+    _trajectory_sim_ctx.set(None)
+
+
+def get_trajectory_sim_context() -> TrajectorySimContext | None:
+    return _trajectory_sim_ctx.get()
+
+
+def _stable_observation_seed(system: dict[str, Any], prefix: tuple[int, ...], split_seed: int) -> int:
+    M, K = system_mk(system, len(system["M"]))
+    payload = np.concatenate([M, K, np.asarray(prefix, dtype=np.int64)])
+    return int((int(split_seed) + zlib.adler32(payload.tobytes())) % (2**32 - 1))
+
+
+def simulate_sequence_cuda(
+    system: dict[str, Any],
+    sequence: list[int],
+    cfg: SBOEDConfig,
+    *,
+    split_seed: int,
+    ctx: TrajectorySimContext | None = None,
+) -> dict[str, list[float]]:
+    """One θ, one probe sequence: noiseless ``y_sim`` + reproducible noisy ``y``."""
+    seq = tuple(int(a) for a in sequence)
+    if not seq:
+        return {"sequence": [], "y_sim": [], "y": []}
+
+    if ctx is None:
+        ctx = get_trajectory_sim_context()
+    if ctx is None:
+        ctx = TrajectorySimContext(cfg=cfg, split_seed=int(split_seed))
+
+    cached = ctx._cache.get(seq)
+    if cached is not None:
+        return cached
+
+    M, K = system_mk(system, cfg.N)
+    rows = ctx.engine().simulate_all_sequences(
+        M, K, [seq], 0.0, np.random.default_rng(0),
+        batch_size=_cuda_batch_size(cfg),
+    )
+    row = rows[0]
+    y_sim = np.asarray(row["y_sim"], dtype=np.float64)
+    noise_seed = _stable_observation_seed(system, seq, split_seed)
+    noise = np.random.default_rng(noise_seed).normal(0.0, cfg.sigma_y, size=len(y_sim))
+    out = {
+        "sequence": list(seq),
+        "y_sim": y_sim.tolist(),
+        "y": (y_sim + noise).tolist(),
+    }
+    ctx._cache[seq] = out
+    return out
 
 
 def save_tables(payload: dict[str, Any], path: Path) -> None:
@@ -270,7 +384,12 @@ def generate_split(
     step_number = cfg.step_number
     n_buses = cfg.N
     n_actions = len(catalog)
-    sequences = enumerate_no_repeat_sequences(catalog, step_number)
+    storage_mode = trajectory_storage_mode(cfg)
+    sequences = (
+        enumerate_no_repeat_sequences(catalog, step_number)
+        if storage_mode == "full_bank"
+        else []
+    )
     n_seq = len(sequences)
 
     M_lo, M_hi, K_lo, K_hi = _swing_bounds(cfg)
@@ -282,17 +401,30 @@ def generate_split(
     for i in range(theta_sample_size):
         M_vec = M_s[i]
         K_vec = K_s[i]
-        print(
-            f"  [{split}] θ sample {i + 1}/{theta_sample_size}  "
-            f"M_bus[1:{n_buses}]∈[{M_vec.min():.4f},{M_vec.max():.4f}]  "
-            f"K_bus[1:{n_buses}]∈[{K_vec.min():.4f},{K_vec.max():.4f}]  "
-            f"CUDA sim {n_seq} trajectories (T={step_number})"
+        if storage_mode == "full_bank":
+            print(
+                f"  [{split}] θ sample {i + 1}/{theta_sample_size}  "
+                f"M_bus[1:{n_buses}]∈[{M_vec.min():.4f},{M_vec.max():.4f}]  "
+                f"K_bus[1:{n_buses}]∈[{K_vec.min():.4f},{K_vec.max():.4f}]  "
+                f"CUDA bank {n_seq} trajectories (T={step_number})"
+            )
+            trajectories = simulate_all_trajectories_cuda(
+                sim, M_vec, K_vec, catalog, sequences, cfg.sigma_y, rng, cfg,
+                progress_label=f"[{split}] θ {i + 1}/{theta_sample_size}",
+            )
+        else:
+            print(
+                f"  [{split}] θ sample {i + 1}/{theta_sample_size}  "
+                f"M_bus[1:{n_buses}]∈[{M_vec.min():.4f},{M_vec.max():.4f}]  "
+                f"K_bus[1:{n_buses}]∈[{K_vec.min():.4f},{K_vec.max():.4f}]  "
+                f"on-demand PyCUDA (T={step_number}, no full sequence bank)"
+            )
+            trajectories = []
+        systems.append(
+            build_system_record(
+                M_vec, K_vec, trajectories, trajectory_mode=storage_mode,
+            )
         )
-        trajectories = simulate_all_trajectories_cuda(
-            sim, M_vec, K_vec, catalog, sequences, cfg.sigma_y, rng, cfg,
-            progress_label=f"[{split}] θ {i + 1}/{theta_sample_size}",
-        )
-        systems.append(build_system_record(M_vec, K_vec, trajectories))
 
     return {
         "meta": {
@@ -304,6 +436,7 @@ def generate_split(
             "step_number": step_number,
             "n_actions": n_actions,
             "n_sequences_per_system": n_seq,
+            "trajectory_mode": storage_mode,
             "history_dependent": True,
             "backend": "cuda",
             "probe_amplitudes": list(cfg.probe_amplitudes),
@@ -325,9 +458,11 @@ def ensure_data(project_root: Path, cfg: SBOEDConfig) -> Path:
         return d
 
     d.mkdir(parents=True, exist_ok=True)
+    mode = trajectory_storage_mode(cfg)
     print(
         f"Generating data → {d}\n"
-        f"  config={cfg.name}  T={cfg.step_number}  amplitudes={cfg.probe_amplitudes}"
+        f"  config={cfg.name}  T={cfg.step_number}  amplitudes={cfg.probe_amplitudes}\n"
+        f"  trajectory_mode={mode}"
     )
 
     train_payload = generate_split(cfg, "train", int(cfg.data.get("train_seed", 0)))
@@ -350,6 +485,7 @@ def ensure_data(project_root: Path, cfg: SBOEDConfig) -> Path:
         "test_seed": int(test_payload["meta"]["seed"]),
         "train_theta_sample_size": len(get_systems(train_payload)),
         "test_theta_sample_size": len(get_systems(test_payload)),
+        "trajectory_mode": str(tm.get("trajectory_mode", "full_bank")),
     }
     with (d / "manifest.yaml").open("w", encoding="utf-8") as f:
         yaml.dump(manifest, f)
@@ -434,6 +570,8 @@ def validate_trajectory_y_sim(
 ) -> None:
     if not systems:
         raise ValueError(f"{split}: empty system list")
+    if system_uses_on_demand(systems[0]):
+        return
     missing = 0
     for sys in systems:
         for traj in sys.get("trajectories", []):
@@ -446,32 +584,45 @@ def validate_trajectory_y_sim(
         )
 
 
+def _lookup_trajectory_row(system: dict[str, Any], sequence: list[int]) -> dict[str, list[float]]:
+    key = tuple(int(a) for a in sequence)
+    if not system_uses_on_demand(system):
+        for traj in system.get("trajectories", []):
+            seq = tuple(int(a) for a in traj["sequence"])
+            if seq == key:
+                return traj
+        for traj in system.get("trajectories", []):
+            seq = tuple(int(a) for a in traj["sequence"])
+            if len(seq) >= len(key) and seq[: len(key)] == key:
+                return {
+                    "sequence": list(key),
+                    "y_sim": _trajectory_y_sim(traj)[: len(key)],
+                    "y": list(traj["y"][: len(key)]),
+                }
+        raise KeyError(f"No trajectory with prefix {list(key)} in trajectory table")
+    ctx = get_trajectory_sim_context()
+    if ctx is None:
+        raise RuntimeError(
+            "on-demand trajectory lookup requires TrajectorySimContext "
+            "(call set_trajectory_sim_context before train/eval)."
+        )
+    return simulate_sequence_cuda(system, list(key), ctx.cfg, split_seed=ctx.split_seed, ctx=ctx)
+
+
 def lookup_sequence_y_sim(system: dict[str, Any], sequence: list[int]) -> list[float]:
-    key = tuple(sequence)
-    for traj in system.get("trajectories", []):
-        if tuple(traj["sequence"]) == key:
-            return _trajectory_y_sim(traj)
-    raise KeyError(f"Sequence {sequence} not found in trajectory table")
+    return _trajectory_y_sim(_lookup_trajectory_row(system, sequence))
 
 
 def lookup_prefix_y_sim(system: dict[str, Any], prefix: list[int]) -> list[float]:
     if not prefix:
         return []
-    key = tuple(prefix)
-    for traj in system.get("trajectories", []):
-        seq = tuple(traj["sequence"])
-        if len(seq) >= len(key) and seq[: len(key)] == key:
-            return _trajectory_y_sim(traj)[: len(key)]
-    raise KeyError(f"No trajectory with prefix {prefix}")
+    row = _lookup_trajectory_row(system, prefix)
+    return _trajectory_y_sim(row)[: len(prefix)]
 
 
 def lookup_sequence_y(system: dict[str, Any], sequence: list[int]) -> list[float]:
-    """Full-length sequence; observations from offline CUDA table."""
-    key = tuple(sequence)
-    for traj in system.get("trajectories", []):
-        if tuple(traj["sequence"]) == key:
-            return list(traj["y"])
-    raise KeyError(f"Sequence {sequence} not found in trajectory table")
+    """Full-length sequence; offline bank or on-demand PyCUDA."""
+    return list(_lookup_trajectory_row(system, sequence)["y"])
 
 
 def lookup_prefix_y(system: dict[str, Any], prefix: list[int]) -> list[float]:
@@ -483,12 +634,8 @@ def lookup_prefix_y(system: dict[str, Any], prefix: list[int]) -> list[float]:
     """
     if not prefix:
         return []
-    key = tuple(prefix)
-    for traj in system.get("trajectories", []):
-        seq = tuple(traj["sequence"])
-        if len(seq) >= len(key) and seq[: len(key)] == key:
-            return list(traj["y"][: len(key)])
-    raise KeyError(f"No trajectory with prefix {prefix}")
+    row = _lookup_trajectory_row(system, prefix)
+    return list(row["y"][: len(prefix)])
 
 
 def simulate_rollout(

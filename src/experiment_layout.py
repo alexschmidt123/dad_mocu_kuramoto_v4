@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -13,7 +14,19 @@ RUN_CONFIG_FILENAME = "run_config.yaml"
 LEGACY_DATA_DIR_POINTER = "data_dir.txt"
 MODEL_SUBDIR = "model"
 EVAL_SUBDIR = "eval"
-EVAL_SUMMARY_FILENAME = "summary.json"
+EVAL_SUMMARY_FILENAME = "summary.csv"
+
+
+def make_experiment_dir_name(
+    config_name: str,
+    step_number: int,
+    *,
+    stamp: str | None = None,
+) -> str:
+    """e.g. ``fast_config_T2_06062026_215627``."""
+    if stamp is None:
+        stamp = datetime.now().strftime("%m%d%Y_%H%M%S")
+    return f"{config_name}_T{int(step_number)}_{stamp}"
 
 
 def model_dir(exp_dir: Path) -> Path:
@@ -112,17 +125,3 @@ def resolve_experiment_config_path(exp_dir: Path) -> Path:
     raise FileNotFoundError(f"Ambiguous YAML in {exp_dir}: {[p.name for p in yamls]}")
 
 
-def load_eval_summary(exp_dir: Path) -> dict[str, Any]:
-    """Read ``eval/summary.json``, with legacy ``results.json`` fallback."""
-    import json
-
-    exp_dir = exp_dir.resolve()
-    primary = eval_summary_path(exp_dir)
-    if primary.is_file():
-        with primary.open(encoding="utf-8") as f:
-            return json.load(f)
-    legacy = exp_dir / "results.json"
-    if legacy.is_file():
-        with legacy.open(encoding="utf-8") as f:
-            return json.load(f)
-    raise FileNotFoundError(f"No eval/summary.json in {exp_dir}")

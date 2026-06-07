@@ -7,10 +7,10 @@ sPCE / myopic use ``y_sim`` as likelihood centres (no ODE at train/eval).
 
 from __future__ import annotations
 
+import csv
 import json
 import time
 from abc import ABC, abstractmethod
-from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -19,19 +19,23 @@ import numpy as np
 from src.config import ALL_METHODS, SBOEDConfig, repo_root
 from src.run_context import ExperimentRun, load_experiment_run
 from src.data import (
+    clear_trajectory_sim_context,
     ensure_data,
     load_split_systems,
     lookup_prefix_y,
     lookup_sequence_y,
     resolve_data_dir,
     save_json,
+    set_trajectory_sim_context,
+    system_uses_on_demand,
+    trajectory_storage_mode,
 )
 from src.swing_equation_ode.simulator import system_mk
 from src.experiment_layout import (
     eval_dir,
     eval_method_path,
     eval_summary_path,
-    load_eval_summary,
+    make_experiment_dir_name,
     model_dir,
     write_run_config,
 )
@@ -195,11 +199,13 @@ def evaluate_rollout(
     K_rows = np.stack([system_mk(s, cfg.N)[1] for s in table_support.systems])
     M_hat, K_hat = posterior_mean_mk_vectors(p_final, M_rows, K_rows)
 
-    step_spce_list, step_spce_mean, total_spce = spce_eig_from_rollout(
+    step_spce_list, _, total_spce = spce_eig_from_rollout(
         cfg, seq, y_arr, system, table_support, rng,
     )
+    entropy_trace = [float(posterior_entropy(p)) for p in p_trace]
+    step_entropy = entropy_trace[1:]
     step_delta_h = [
-        float(posterior_entropy(p_trace[t]) - posterior_entropy(p_trace[t + 1]))
+        entropy_trace[t] - entropy_trace[t + 1]
         for t in range(len(y_arr))
     ]
 
@@ -210,6 +216,7 @@ def evaluate_rollout(
     mse_K = float(np.mean((K_hat - K_arr) ** 2))
     mse_theta = float(np.sum((M_hat - M_arr) ** 2) + np.sum((K_hat - K_arr) ** 2))
 
+    eig = eig_metrics(step_spce_list, step_delta_h, total_spce, H0 - H1)
     return {
         "sequence": sequence,
         "y": y_arr.tolist(),
@@ -219,48 +226,321 @@ def evaluate_rollout(
         "K_hat": K_hat.tolist(),
         "H_prior": H0,
         "H_posterior": H1,
-        "delta_H": H0 - H1,
-        "step_spce_eig": step_spce_list,
-        "step_delta_h": step_delta_h,
-        "stepwise_spce_eig": step_spce_mean,
-        "total_spce_eig": total_spce,
+        "entropy_trace": entropy_trace,
+        "step_entropy": step_entropy,
         "mse_M": mse_M,
         "mse_K": mse_K,
         "mse_theta": mse_theta,
+        **eig,
     }
+
+
+def eig_metrics(
+    spce_by_step: list[float] | np.ndarray,
+    delta_h_by_step: list[float] | np.ndarray,
+    total_spce: float,
+    delta_h: float,
+) -> dict[str, Any]:
+    """Canonical EIG result block: two lists + two scalars."""
+    return {
+        "spce_by_step": [float(x) for x in spce_by_step],
+        "delta_h_by_step": [float(x) for x in delta_h_by_step],
+        "total_spce": float(total_spce),
+        "delta_h": float(delta_h),
+    }
+
+
+def read_eig_metrics(record: dict[str, Any]) -> dict[str, Any]:
+    """Read canonical EIG fields; fall back to legacy eval JSON keys."""
+    if all(k in record for k in ("spce_by_step", "delta_h_by_step", "total_spce", "delta_h")):
+        return eig_metrics(
+            record["spce_by_step"],
+            record["delta_h_by_step"],
+            record["total_spce"],
+            record["delta_h"],
+        )
+
+    spce_raw = record.get("mean_spce_eig_by_step") or record.get("step_spce_eig")
+    if spce_raw is None:
+        tot = record.get("mean_total_spce_eig") or record.get("total_spce_eig")
+        spce_by_step = [float(tot)] if tot is not None else []
+    else:
+        spce_by_step = [float(x) for x in spce_raw]
+
+    dh_raw = record.get("mean_delta_h_by_step") or record.get("step_delta_h")
+    if dh_raw is None:
+        tot_dh = record.get("mean_delta_H") or record.get("delta_H")
+        delta_h_by_step = [float(tot_dh)] if tot_dh is not None else []
+    else:
+        delta_h_by_step = [float(x) for x in dh_raw]
+
+    total_spce = record.get("mean_total_spce_eig") or record.get("total_spce_eig")
+    if total_spce is None and spce_by_step:
+        total_spce = spce_by_step[0]
+
+    delta_h = record.get("mean_delta_H") or record.get("delta_H")
+    return eig_metrics(
+        spce_by_step,
+        delta_h_by_step,
+        float(total_spce or 0.0),
+        float(delta_h or 0.0),
+    )
+
+
+def format_eig_list(vals: list[float], *, prec: int = 4) -> str:
+    return "[" + ", ".join(f"{v:.{prec}f}" for v in vals) + "]"
+
+
+def format_eig_line(eig: dict[str, Any], *, prec: int = 4) -> str:
+    return (
+        f"spce_by_step={format_eig_list(eig['spce_by_step'], prec=prec)}  "
+        f"delta_h_by_step={format_eig_list(eig['delta_h_by_step'], prec=prec)}  "
+        f"total_spce={eig['total_spce']:.{prec}f}  "
+        f"delta_h={eig['delta_h']:.{prec}f}"
+    )
+
+
+def slim_method_summary(summary: dict[str, Any]) -> dict[str, Any]:
+    """Metrics-only block (full detail stays in ``eval/<method>.json``)."""
+    eig = read_eig_metrics(summary)
+    out: dict[str, Any] = dict(eig)
+    if summary.get("theta_sample_size") is not None:
+        out["theta_sample_size"] = int(summary["theta_sample_size"])
+    if summary.get("mse_theta") is not None:
+        out["mse_theta"] = float(summary["mse_theta"])
+    if summary.get("std_mse_theta") is not None:
+        out["std_mse_theta"] = float(summary["std_mse_theta"])
+    return out
+
+
+def _method_train_seconds_raw(method: str, timing: dict[str, Any] | None) -> float | None:
+    train = (timing or {}).get("training_seconds") or {}
+    if method in train:
+        return float(train[method])
+    return None
+
+
+def _method_test_seconds_raw(
+    method: str,
+    timing: dict[str, Any] | None,
+    summary: dict[str, Any],
+) -> float | None:
+    test = (timing or {}).get("test_seconds") or {}
+    block = test.get(method)
+    if isinstance(block, dict):
+        val = block.get("test_total_seconds_per_system")
+        if val is None:
+            val = block.get("test_total_seconds")
+        if val is not None:
+            return float(val)
+    for key in ("test_total_seconds_per_system", "test_total_seconds"):
+        if summary.get(key) is not None:
+            return float(summary[key])
+    return None
+
+
+def _method_train_seconds(method: str, timing: dict[str, Any] | None) -> str:
+    val = _method_train_seconds_raw(method, timing)
+    return f"{val:.1f}" if val is not None else "-"
+
+
+def _method_test_seconds(method: str, timing: dict[str, Any] | None, summary: dict[str, Any]) -> str:
+    val = _method_test_seconds_raw(method, timing, summary)
+    return f"{val:.4f}" if val is not None else "-"
+
+
+COMPARISON_TABLE_COLUMNS = [
+    "Method",
+    "sPCE_1..T",
+    "Tot.sPCE",
+    "ΔH_1..T",
+    "ΔH",
+    "MSE_θ",
+    "train_s",
+    "test_s",
+]
+
+
+def _method_display_order(
+    summaries: dict[str, Any],
+    methods: list[str] | None = None,
+) -> list[str]:
+    if methods:
+        ordered = [m for m in methods if m in summaries]
+        extra = sorted(m for m in summaries if m not in ordered)
+        return ordered + extra
+    return list(summaries.keys())
+
+
+def build_print_table_rows(
+    summaries: dict[str, Any],
+    timing: dict[str, Any] | None = None,
+    methods: list[str] | None = None,
+) -> list[dict[str, Any]]:
+    """One row per method; values match the terminal comparison table."""
+    rows: list[dict[str, Any]] = []
+    for method in _method_display_order(summaries, methods):
+        summary = summaries[method]
+        eig = read_eig_metrics(summary)
+        rows.append({
+            "Method": method,
+            "sPCE_1..T": format_eig_list(eig["spce_by_step"]),
+            "Tot.sPCE": f"{eig['total_spce']:.4f}",
+            "ΔH_1..T": format_eig_list(eig["delta_h_by_step"]),
+            "ΔH": f"{eig['delta_h']:.4f}",
+            "MSE_θ": f"{float(summary.get('mse_theta') or summary.get('mean_mse_theta') or 0.0):.6f}",
+            "train_s": _method_train_seconds(method, timing),
+            "test_s": _method_test_seconds(method, timing, summary),
+        })
+    return rows
+
+
+def save_comparison_csv(rows: list[dict[str, Any]], path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=COMPARISON_TABLE_COLUMNS)
+        writer.writeheader()
+        writer.writerows(rows)
+    legacy_json = path.parent / "summary.json"
+    if legacy_json.is_file():
+        legacy_json.unlink()
+
+
+def load_eval_aggregates(exp_dir: Path) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Per-method metrics and timing from ``eval/<method>.json``."""
+    summaries: dict[str, Any] = {}
+    test_timing: dict[str, dict[str, float]] = {}
+    root = eval_dir(exp_dir)
+    if root.is_dir():
+        for path in sorted(root.glob("*.json")):
+            if path.name in ("summary.json",):
+                continue
+            with path.open(encoding="utf-8") as f:
+                payload = json.load(f)
+            method = path.stem
+            summaries[method] = slim_method_summary(payload.get("summary", {}))
+            if isinstance(payload.get("timing"), dict):
+                test_timing[method] = payload["timing"]
+    timing_block = {
+        "training_seconds": load_training_timing(exp_dir),
+        "test_seconds": test_timing,
+    }
+    return summaries, timing_block
 
 
 def aggregate_metrics(per_system: list[dict[str, Any]]) -> dict[str, Any]:
     if not per_system:
         return {}
-    keys = [
-        "stepwise_spce_eig", "total_spce_eig",
-        "H_posterior", "delta_H", "mse_M", "mse_K", "mse_theta",
-    ]
     out: dict[str, Any] = {"theta_sample_size": len(per_system)}
-    for k in keys:
-        vals = [float(r[k]) for r in per_system if k in r]
-        out[f"mean_{k}"] = float(np.mean(vals)) if vals else None
-        if vals:
-            out[f"std_{k}"] = float(np.std(vals))
 
-    for field, out_key in (("step_spce_eig", "mean_spce_eig_by_step"), ("step_delta_h", "mean_delta_h_by_step")):
-        rows = [r[field] for r in per_system if field in r and r[field]]
-        if not rows:
-            continue
-        n_steps = len(rows[0])
-        if all(len(x) == n_steps for x in rows):
-            by_step = np.array(rows, dtype=np.float64)
-            out[out_key] = [float(x) for x in by_step.mean(axis=0)]
-            out[f"std_{out_key}"] = [float(x) for x in by_step.std(axis=0)]
+    spce_rows = [read_eig_metrics(r)["spce_by_step"] for r in per_system]
+    dh_rows = [read_eig_metrics(r)["delta_h_by_step"] for r in per_system]
+    if spce_rows and all(len(x) == len(spce_rows[0]) for x in spce_rows):
+        out.update(
+            eig_metrics(
+                [float(x) for x in np.mean(np.array(spce_rows, dtype=np.float64), axis=0)],
+                [float(x) for x in np.mean(np.array(dh_rows, dtype=np.float64), axis=0)],
+                float(np.mean([read_eig_metrics(r)["total_spce"] for r in per_system])),
+                float(np.mean([read_eig_metrics(r)["delta_h"] for r in per_system])),
+            )
+        )
+
+    for k in ("mse_theta", "mse_M", "mse_K"):
+        vals = [float(r[k]) for r in per_system if k in r]
+        if vals:
+            out[k] = float(np.mean(vals))
+            out[f"std_{k}"] = float(np.std(vals))
     return out
+
+
+def design_selection_detail(catalog, sequence: list[int]) -> dict[str, Any]:
+    """Decode action indices to human-readable per-step design labels."""
+    seq = [int(a) for a in sequence]
+    steps: list[dict[str, Any]] = []
+    for t, a in enumerate(seq):
+        d = catalog[a]
+        steps.append({
+            "step": t + 1,
+            "action_index": a,
+            "design_id": a + 1,
+            "amplitude": float(d.amplitude),
+            "bus": int(d.bus),
+            "duration": float(d.duration),
+        })
+    design_ids = [s["design_id"] for s in steps]
+    return {
+        "action_indices": seq,
+        "design_ids": design_ids,
+        "design_label": ", ".join(f"design{did}" for did in design_ids),
+        "steps": steps,
+    }
+
+
+def aggregate_design_selections(per_system: list[dict[str, Any]]) -> dict[str, Any]:
+    """Summarize probe sequences chosen per test latent θ."""
+    if not per_system:
+        return {}
+
+    rows = []
+    for i, r in enumerate(per_system):
+        sel = r.get("design_selection") or {}
+        rows.append({
+            "test_index": int(r.get("test_index", i)),
+            "action_indices": list(sel.get("action_indices", r.get("sequence", []))),
+            "design_ids": list(sel.get("design_ids", [])),
+            "design_label": str(sel.get("design_label", "")),
+            "steps": list(sel.get("steps", [])),
+        })
+
+    keys = [tuple(x["action_indices"]) for x in rows]
+    unique_keys = list(dict.fromkeys(keys))
+    counts: dict[tuple[int, ...], int] = {}
+    for k in keys:
+        counts[k] = counts.get(k, 0) + 1
+
+    top_key = max(counts, key=counts.get)
+    top_row = next(x for x in rows if tuple(x["action_indices"]) == top_key)
+    all_same = len(unique_keys) == 1
+
+    return {
+        "n_test_systems": len(rows),
+        "n_unique_sequences": len(unique_keys),
+        "all_test_systems_same_sequence": all_same,
+        "shared_sequence": top_row if all_same else None,
+        "most_common_sequence": {
+            "count": counts[top_key],
+            "fraction": float(counts[top_key] / len(rows)),
+            **top_row,
+        },
+        "per_test_selections": rows,
+    }
+
+
+def _print_design_selection_summary(method_name: str, design_summary: dict[str, Any]) -> None:
+    n = int(design_summary.get("n_test_systems", 0))
+    n_unique = int(design_summary.get("n_unique_sequences", 0))
+    if n == 0:
+        return
+    if design_summary.get("all_test_systems_same_sequence"):
+        shared = design_summary["shared_sequence"]
+        print(
+            f"  {method_name} designs: {shared['design_label']} "
+            f"(same for all {n} test θ)",
+            flush=True,
+        )
+        return
+    common = design_summary.get("most_common_sequence", {})
+    print(
+        f"  {method_name} designs: {n_unique} unique sequence(s) / {n} test θ; "
+        f"most common ({common.get('count', 0)}/{n}): {common.get('design_label', '')}",
+        flush=True,
+    )
 
 
 # --- Experiment dirs / orchestration ---------------------------------------
 
-def make_experiment_dir(project_root: Path, config_name: str) -> Path:
-    stamp = datetime.now().strftime("%m%d%Y_%H%M%S")
-    exp_dir = project_root / "experiments" / f"{config_name}_{stamp}"
+def make_experiment_dir(project_root: Path, config_name: str, step_number: int) -> Path:
+    exp_dir = project_root / "experiments" / make_experiment_dir_name(config_name, step_number)
     exp_dir.mkdir(parents=True, exist_ok=True)
     return exp_dir
 
@@ -273,7 +553,7 @@ def setup_experiment_dir(
     data_path: Path | None = None,
 ) -> Path:
     if exp_dir is None:
-        exp_dir = make_experiment_dir(project_root, cfg.name)
+        exp_dir = make_experiment_dir(project_root, cfg.name, cfg.step_number)
     else:
         exp_dir = exp_dir.resolve()
         exp_dir.mkdir(parents=True, exist_ok=True)
@@ -341,8 +621,9 @@ def run_method(
     else:
         fixed_seq = None
         if method_name == "fixed_open_loop" and train_systems:
-            first = train_systems[0]["trajectories"][0]
-            fixed_seq = list(first["sequence"])
+            trajs = train_systems[0].get("trajectories") or []
+            if trajs:
+                fixed_seq = list(trajs[0]["sequence"])
         method = get_method(
             method_name,
             train_systems,
@@ -354,14 +635,18 @@ def run_method(
     rollout_seconds = float(time.perf_counter() - t_rollout_0)
 
     t_score_0 = time.perf_counter()
-    per_system = [
-        evaluate_rollout(
+    per_system = []
+    for i_sys, (sys, r) in enumerate(zip(test_systems, rollouts)):
+        row = evaluate_rollout(
             cfg, sys, r["sequence"], r["y"], catalog, table_support, rng,
         )
-        for sys, r in zip(test_systems, rollouts)
-    ]
+        row["test_index"] = i_sys
+        row["design_selection"] = design_selection_detail(catalog, r["sequence"])
+        per_system.append(row)
     score_seconds = float(time.perf_counter() - t_score_0)
     summary = aggregate_metrics(per_system)
+    design_summary = aggregate_design_selections(per_system)
+    summary["design_selection"] = design_summary
     n_test = max(len(test_systems), 1)
     summary["test_rollout_seconds_total"] = rollout_seconds
     summary["test_rollout_seconds_per_system"] = float(rollout_seconds / n_test)
@@ -369,21 +654,16 @@ def run_method(
     summary["test_scoring_seconds_per_system"] = float(score_seconds / n_test)
     summary["test_total_seconds"] = float(rollout_seconds + score_seconds)
     summary["test_total_seconds_per_system"] = float((rollout_seconds + score_seconds) / n_test)
-    step_spce = summary.get("mean_spce_eig_by_step")
-    step_dh = summary.get("mean_delta_h_by_step")
-    step_str = ""
-    if step_spce:
-        step_str = "  step-sPCE=" + ",".join(f"{v:.4f}" for v in step_spce)
-    if step_dh:
-        step_str += "  step-ΔH=" + ",".join(f"{v:.4f}" for v in step_dh)
+    eig = read_eig_metrics(summary)
     print(
-        f"  {method_name}: Tot.sPCE={summary.get('mean_total_spce_eig', 0):.4f}  "
-        f"ΔH={summary.get('mean_delta_H', 0):.4f}  "
-        f"MSE_θ={summary.get('mean_mse_theta', 0):.6f}{step_str}"
+        f"  {method_name}: {format_eig_line(eig)}  "
+        f"MSE_θ={summary.get('mse_theta', 0):.6f}"
     )
+    _print_design_selection_summary(method_name, design_summary)
     return {
         "method": method_name,
         "summary": summary,
+        "design_selection": design_summary,
         "per_system": per_system,
         "timing": {
             "test_rollout_seconds_total": rollout_seconds,
@@ -419,6 +699,18 @@ def train_dad_policy(run: ExperimentRun, method_name: str = "dad_spce") -> Path:
     )
 
 
+def load_training_timing(exp_dir: Path) -> dict[str, float]:
+    """Read ``model/*_training_metrics.json`` elapsed times (used by ``run.sh`` eval phase)."""
+    out: dict[str, float] = {}
+    mdir = model_dir(exp_dir)
+    for method in ("dad_spce", "dad_delta_h"):
+        path = mdir / f"{method}_training_metrics.json"
+        if path.is_file():
+            with path.open(encoding="utf-8") as f:
+                out[method] = float((json.load(f) or {}).get("elapsed_seconds", 0.0))
+    return out
+
+
 def run_evaluation(
     run: ExperimentRun,
     methods: list[str] | None = None,
@@ -430,11 +722,18 @@ def run_evaluation(
 
     cfg = run.cfg
     exp_dir = run.exp_dir
+    if training_timing is None:
+        training_timing = load_training_timing(exp_dir)
     train_systems = run.train_systems
     test_systems = run.test_systems
 
     validate_trajectory_y_sim(train_systems, split="train")
     validate_trajectory_y_sim(test_systems, split="test")
+
+    on_demand = system_uses_on_demand(train_systems[0]) if train_systems else False
+    if on_demand:
+        set_trajectory_sim_context(cfg, int(cfg.data.get("test_seed", 1)))
+        print(f"  trajectory_mode=on_demand (PyCUDA sim at lookup; T={cfg.step_number})")
 
     catalog = build_catalog(cfg)
     mc_seed = int(cfg.prior.get("mc_support_seed", run.meta.test_seed))
@@ -450,13 +749,8 @@ def run_evaluation(
 
     run_methods = methods or cfg.methods
 
-    existing: dict[str, Any] = {}
-    summary_file = eval_summary_path(exp_dir)
-    if summary_file.is_file():
-        with summary_file.open(encoding="utf-8") as f:
-            existing = json.load(f).get("methods", {})
-
-    summaries: dict[str, Any] = dict(existing)
+    summaries, _ = load_eval_aggregates(exp_dir)
+    comparison_csv = eval_summary_path(exp_dir)
     test_timing: dict[str, dict[str, float]] = {}
     for m in run_methods:
         if m not in ALL_METHODS:
@@ -466,7 +760,7 @@ def run_evaluation(
             print(f"[{m}] skip (already evaluated → {out_path.name})")
             with out_path.open(encoding="utf-8") as f:
                 payload_m = json.load(f)
-                summaries[m] = payload_m["summary"]
+                summaries[m] = slim_method_summary(payload_m["summary"])
                 if isinstance(payload_m.get("timing"), dict):
                     test_timing[m] = payload_m["timing"]
                 elif isinstance(payload_m["summary"], dict):
@@ -491,46 +785,49 @@ def run_evaluation(
             table_support=table_support,
         )
         save_json(method_result, eval_method_path(exp_dir, m))
-        summaries[m] = method_result["summary"]
+        summaries[m] = slim_method_summary(method_result["summary"])
         test_timing[m] = method_result.get("timing", {})
 
-    payload = {
-        "experiment_dir": str(exp_dir.resolve()),
-        "data_dir": str(run.data_path.resolve()),
-        "data_slug": run.meta.data_slug,
-        "step_number": run.meta.step_number,
-        "theta_dim": run.meta.theta_dim,
-        "eval_mc_samples": len(table_support),
-        "methods": summaries,
-        "timing": {
-            "training_seconds": training_timing or {},
-            "test_seconds": test_timing,
-        },
+    timing_block = {
+        "training_seconds": training_timing or {},
+        "test_seconds": test_timing,
     }
-    save_json(payload, summary_file)
-    print_results_table(summaries)
-    return payload
+    rows = build_print_table_rows(summaries, timing_block, methods=run_methods)
+    save_comparison_csv(rows, comparison_csv)
+    print_print_table(rows)
+    print(f"\nComparison table → {comparison_csv}")
+    clear_trajectory_sim_context()
+    return {"comparison_csv": str(comparison_csv.resolve()), "rows": rows}
 
 
-def print_results_table(summaries: dict[str, Any]) -> None:
-    n_steps = 0
-    for s in summaries.values():
-        by = s.get("mean_spce_eig_by_step") or []
-        n_steps = max(n_steps, len(by))
-    step_hdr = "".join(f" {'sPCE'+str(t+1):>8}" for t in range(n_steps))
-    print(f"\n{'Method':<18}{step_hdr} {'Tot.sPCE':>10} {'ΔH':>10} {'MSE_θ':>12}")
-    print("-" * (18 + 8 * n_steps + 34))
-    for method, s in summaries.items():
-        by = s.get("mean_spce_eig_by_step") or []
-        step_cols = "".join(
-            f" {(by[t] if t < len(by) else 0):8.4f}" for t in range(n_steps)
-        )
+def print_print_table(rows: list[dict[str, Any]]) -> None:
+    spce_w = max((len(r["sPCE_1..T"]) for r in rows), default=12)
+    dh_w = max((len(r["ΔH_1..T"]) for r in rows), default=12)
+    spce_w = max(spce_w, len("sPCE_1..T"))
+    dh_w = max(dh_w, len("ΔH_1..T"))
+    print(
+        f"\n{'Method':<18} {'sPCE_1..T':<{spce_w}} {'Tot.sPCE':>9} "
+        f"{'ΔH_1..T':<{dh_w}} {'ΔH':>9} {'MSE_θ':>10} {'train_s':>8} {'test_s':>8}"
+    )
+    print("-" * (18 + spce_w + dh_w + 58))
+    for row in rows:
         print(
-            f"{method:<18}{step_cols} "
-            f"{(s.get('mean_total_spce_eig') or 0):10.4f} "
-            f"{(s.get('mean_delta_H') or 0):10.4f} "
-            f"{(s.get('mean_mse_theta') or 0):12.6f}"
+            f"{row['Method']:<18} {row['sPCE_1..T']:<{spce_w}} "
+            f"{row['Tot.sPCE']:>9} "
+            f"{row['ΔH_1..T']:<{dh_w}} "
+            f"{row['ΔH']:>9} {row['MSE_θ']:>10} "
+            f"{row['train_s']:>8} {row['test_s']:>8}"
         )
+
+
+def print_results_table(
+    summaries: dict[str, Any],
+    *,
+    timing: dict[str, Any] | None = None,
+    step_number: int | None = None,
+) -> None:
+    del step_number
+    print_print_table(build_print_table_rows(summaries, timing))
 
 
 def print_experiment_banner(
@@ -542,12 +839,22 @@ def print_experiment_banner(
     methods: list[str],
 ) -> None:
     n_actions = len(build_catalog(cfg))
-    n_seq = count_no_repeat_sequences(n_actions, cfg.step_number)
+    storage_mode = trajectory_storage_mode(cfg)
+    n_seq = (
+        count_no_repeat_sequences(n_actions, cfg.step_number)
+        if storage_mode == "full_bank"
+        else 0
+    )
     print(f"Experiment: {exp_dir.name}")
     print(f"  dir={exp_dir}")
     print(f"  data={data_path}")
     print(f"  config={cfg.config_path.name}  T={cfg.step_number}  amplitudes={cfg.probe_amplitudes}")
-    print(f"  actions={n_actions}  sequences_per_system={n_seq}")
+    seq_label = (
+        f"sequences_per_system={n_seq}"
+        if storage_mode == "full_bank"
+        else "trajectories=on_demand PyCUDA"
+    )
+    print(f"  actions={n_actions}  {seq_label}")
     print(f"  theta_dim={2 * cfg.N}  (per-bus M,K on {cfg.N} buses)")
     print(
         f"  train_theta_sample_size={len(train_systems)}  "
@@ -573,25 +880,34 @@ def run_experiment(
     print_experiment_banner(
         run.cfg, run.exp_dir, run.data_path, run.train_systems, run.test_systems, run_methods,
     )
-    training_timing: dict[str, float] = {}
     if "dad_spce" in run_methods:
         train_dad_policy(run, "dad_spce")
     if "dad_delta_h" in run_methods:
         train_dad_policy(run, "dad_delta_h")
-    for m in ("dad_spce", "dad_delta_h"):
-        if m not in run_methods:
-            continue
-        metrics_path = model_dir(exp_dir) / f"{m}_training_metrics.json"
-        if metrics_path.is_file():
-            with metrics_path.open(encoding="utf-8") as f:
-                training_timing[m] = float((json.load(f) or {}).get("elapsed_seconds", 0.0))
-    run_evaluation(run, methods=run_methods, training_timing=training_timing)
+    run_evaluation(run, methods=run_methods, training_timing=load_training_timing(exp_dir))
     print(f"EXP_DIR={exp_dir}")
     print(f"DATA_DIR={data_path}")
     return exp_dir
 
 
-def eval_experiment(exp_dir: Path) -> dict[str, Any]:
-    payload = load_eval_summary(exp_dir)
-    print_results_table(payload.get("methods", {}))
-    return payload
+def refresh_eval_summary(exp_dir: Path) -> list[dict[str, Any]]:
+    """Rebuild the printed comparison table and save to ``eval/summary.csv``."""
+    summaries, timing_block = load_eval_aggregates(exp_dir)
+    method_order: list[str] | None = None
+    try:
+        run = load_experiment_run(exp_dir, repo_root())
+        method_order = list(run.cfg.methods)
+    except Exception:
+        pass
+    rows = build_print_table_rows(summaries, timing_block, methods=method_order)
+    csv_path = eval_summary_path(exp_dir)
+    save_comparison_csv(rows, csv_path)
+    return rows
+
+
+def eval_experiment(exp_dir: Path) -> list[dict[str, Any]]:
+    rows = refresh_eval_summary(exp_dir)
+    print_print_table(rows)
+    csv_path = eval_summary_path(exp_dir)
+    print(f"\nComparison table → {csv_path}")
+    return rows
