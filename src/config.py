@@ -8,7 +8,14 @@ from typing import Any
 
 import yaml
 
-ALL_METHODS = ["random", "fixed_open_loop", "myopic_delta_h", "dad_spce", "dad_delta_h"]
+ALL_METHODS = ["dad", "myopic", "fixed", "random"]
+
+# Human-readable labels for built-in MATPOWER-style feeders.
+IEEE_SYSTEM_LABELS: dict[str, str] = {
+    "ieee5": "IEEE-5",
+    "ieee9": "IEEE-9",
+    "ieee14": "IEEE-14",
+}
 
 # Horizon when CLI does not pass ``-T`` (see ``run.sh`` / ``src.cli``).
 DEFAULT_STEP_NUMBER = 3
@@ -100,6 +107,42 @@ class SBOEDConfig:
     def training(self) -> dict[str, Any]:
         return dict(self.raw.get("training") or {})
 
+    @property
+    def topology(self) -> str:
+        return str(self.swing.get("topology", "ieee14"))
+
+    @property
+    def system_label(self) -> str:
+        """Display name for the grid, e.g. ``IEEE-14`` or ``ring (6-bus)``."""
+        label = IEEE_SYSTEM_LABELS.get(self.topology)
+        if label is not None:
+            return label
+        return f"{self.topology} ({self.N}-bus)"
+
+    @property
+    def run_slug(self) -> str:
+        """Short run label for data/experiment dirs (no ``_config`` suffix)."""
+        name = self.name
+        if name.endswith("_config"):
+            return name[: -len("_config")]
+        return name
+
+    @property
+    def config_preset(self) -> str:
+        """Single canonical preset label for current configs."""
+        return "default"
+
+    def run_labels(self) -> dict[str, Any]:
+        """Metadata stamped on data manifests, run_config, and eval summaries."""
+        return {
+            "system_label": self.system_label,
+            "topology": self.topology,
+            "run_name": self.run_slug,
+            "preset": self.config_preset,
+            "n_buses": int(self.N),
+            "step_number": int(self.step_number),
+        }
+
 
 def load_config(path: str | Path) -> SBOEDConfig:
     path = Path(path).resolve()
@@ -122,8 +165,12 @@ def with_step_number(cfg: SBOEDConfig, step_number: int) -> SBOEDConfig:
 
 
 def sync_cfg_from_data_meta(cfg: SBOEDConfig, meta) -> SBOEDConfig:
-    """Align runtime cfg with fields stored in ``train.json`` / ``manifest.yaml``."""
-    cfg = with_step_number(cfg, meta.step_number)
+    """Backward-compatible alias; preserves experiment horizon T."""
+    return apply_data_meta_to_cfg(cfg, meta)
+
+
+def apply_data_meta_to_cfg(cfg: SBOEDConfig, meta) -> SBOEDConfig:
+    """Sync physics/catalog fields from data tables; keep experiment ``step_number`` unchanged."""
     cfg.raw["N"] = int(meta.n_buses)
     sw = dict(cfg.raw.get("swing_equation") or {})
     sw["sigma"] = float(meta.sigma_y)
@@ -188,15 +235,16 @@ def resolve_exp_dir(project_root: Path, exp_dir_arg: str | None) -> Path | None:
 
 
 def resolve_config_path(name_or_path: str, project_root: Path | None = None) -> Path:
-    """Resolve ``fast_config`` → ``config/fast_config.yaml``."""
+    """Resolve ``ieee14`` or ``ieee14_config`` → YAML under ``config/``."""
     root = project_root or repo_root()
     p = Path(name_or_path)
     if p.suffix in (".yaml", ".yml") and p.exists():
         return p.resolve()
     if not p.suffix:
-        candidate = root / "config" / f"{name_or_path}.yaml"
-        if candidate.exists():
-            return candidate.resolve()
+        for stem in (name_or_path, f"{name_or_path}_config"):
+            candidate = root / "config" / f"{stem}.yaml"
+            if candidate.exists():
+                return candidate.resolve()
     candidate = root / "config" / name_or_path
     if candidate.exists():
         return candidate.resolve()

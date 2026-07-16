@@ -1,0 +1,17 @@
+system,seed,adaptivity_category,unique_sequence_count,dominant_sequence,dominant_sequence_fraction,sequence_entropy,xi2_action_variation_across_y1_bins,xi3_action_variation_across_y1_y2_bins,mi_y1_xi2,mi_y1y2_xi3,observation_action_mutual_information,classification,n_bins,deterministic_policy_evaluation
+ieee5,101,A_nonadaptive_tied_with_replay,1,"[11, 3, 27]",1.0,-0.0,1,1,0.0,0.0,0.0,effectively nonadaptive,5,True
+ieee5,202,B_observation_dependent_no_replay_benefit,5,"[18, 9, 16]",0.649,1.0279421425552484,2,2,0.2182562309852218,0.24505759477214098,0.4633138257573628,observation-dependent adaptive,5,True
+ieee5,303,B_observation_dependent_no_replay_benefit,4,"[1, 18, 28]",0.878,0.45072133324895486,1,2,0.11688877813404926,0.20147160047778415,0.3183603786118334,observation-dependent adaptive,5,True
+ieee5,404,B_observation_dependent_no_replay_benefit,3,"[19, 25, 5]",0.751,0.6401837520829267,1,2,0.0,0.4673929203268405,0.4673929203268405,observation-dependent adaptive,5,True
+ieee5,505,A_nonadaptive_tied_with_replay,1,"[9, 19, 8]",1.0,-0.0,1,1,0.0,0.0,0.0,effectively nonadaptive,5,True
+ieee5,606,A_nonadaptive_tied_with_replay,1,"[28, 4, 6]",1.0,-0.0,1,1,0.0,0.0,0.0,effectively nonadaptive,5,True
+ieee5,707,A_nonadaptive_tied_with_replay,1,"[3, 11, 21]",1.0,-0.0,1,1,0.0,0.0,0.0,effectively nonadaptive,5,True
+ieee5,808,A_nonadaptive_tied_with_replay,1,"[13, 21, 17]",1.0,-0.0,1,1,0.0,0.0,0.0,effectively nonadaptive,5,True
+ieee9,101,B_observation_dependent_no_replay_benefit,4,"[12, 36, 21]",0.476,0.9929086860628743,2,2,0.5917145017710842,0.28938212321622536,0.8810966249873096,observation-dependent adaptive,5,True
+ieee9,202,B_observation_dependent_no_replay_benefit,2,"[7, 47, 12]",0.624,0.6620719312050138,1,2,0.0,0.376405623177437,0.376405623177437,observation-dependent adaptive,5,True
+ieee9,303,C_observation_dependent_with_benefit,3,"[21, 5, 38]",0.602,0.9166567916751285,1,3,0.0,0.37034748332229067,0.37034748332229067,observation-dependent adaptive,5,True
+ieee9,404,B_observation_dependent_no_replay_benefit,2,"[48, 3, 2]",0.96,0.167944147734173,1,1,0.0,0.07063565340378902,0.07063565340378902,observation-dependent adaptive,5,True
+ieee9,505,B_observation_dependent_no_replay_benefit,3,"[47, 12, 36]",0.772,0.6274944684625865,1,2,0.0,0.34149972042483345,0.34149972042483345,observation-dependent adaptive,5,True
+ieee9,606,C_observation_dependent_with_benefit,5,"[23, 0, 31]",0.838,0.61610044834748,1,2,0.0,0.2661356563353628,0.2661356563353628,observation-dependent adaptive,5,True
+ieee9,707,B_observation_dependent_no_replay_benefit,2,"[39, 6, 36]",0.994,0.036677938750134136,1,1,0.0,0.016292634510958054,0.016292634510958054,observation-dependent adaptive,5,True
+ieee9,808,B_observation_dependent_no_replay_benefit,6,"[48, 38, 45]",0.506,1.3846717169552523,2,5,0.5973722039931781,0.9881403948349546,1.585512598828133,observation-dependent adaptive,5,True

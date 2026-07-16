@@ -13,7 +13,19 @@ via Pyro traces; here we use explicit Gaussian ROCOF likelihoods.
 
 from __future__ import annotations
 
+import math
+
 import numpy as np
+
+
+def clamp_info_gain(value: float) -> float:
+    """Information gain is non-negative; clip numerical / noise-induced negatives."""
+    return float(max(0.0, value))
+
+
+def spce_info_ceiling(L: int) -> float:
+    """Theoretical upper bound log(L+1) for one-step sPCE with L contrastives."""
+    return float(math.log(max(int(L), 0) + 1))
 
 
 def log_gaussian_observation_density(
@@ -109,7 +121,7 @@ def single_step_bayes_report(
         "log_L": log_L.copy(),
         "H_prior": H0,
         "H_posterior": H1,
-        "delta_H": H0 - H1,
+        "delta_H": clamp_info_gain(H0 - H1),
     }
 
 
@@ -221,7 +233,7 @@ def spce_total_from_log_likelihoods(
   ``log_p_contrastive`` = length-L vector of log p(h_T | θ_ℓ, π) for ℓ=1…L.
     """
     log_denom = _log_mean_exp(np.concatenate([[log_p_positive], np.asarray(log_p_contrastive).ravel()]))
-    return float(log_p_positive - log_denom)
+    return clamp_info_gain(float(log_p_positive - log_denom))
 
 
 def spce_total_from_f_tensor(
@@ -236,12 +248,22 @@ def spce_total_from_f_tensor(
     Args:
         y_seq: (T,) realized observations from the θ_0 rollout (fixed across contrastives)
         f_tensor: (L+1, T) noiseless F values; row ``positive_idx`` is θ_0
+
+    Vectorized over contrastives (no Python loop over ℓ for the likelihood sum).
     """
-    log_terms = [
-        log_likelihood_sequence(y_seq, f_tensor[ell], sigma_y)
-        for ell in range(f_tensor.shape[0])
-    ]
-    return spce_total_from_log_likelihoods(log_terms[positive_idx], np.delete(np.array(log_terms), positive_idx))
+    y = np.asarray(y_seq, dtype=np.float64).reshape(-1)
+    f = np.asarray(f_tensor, dtype=np.float64)
+    if f.ndim != 2 or f.shape[1] != y.shape[0]:
+        raise ValueError(f"f_tensor shape {f.shape} incompatible with y_seq length {y.shape[0]}")
+    s2 = float(sigma_y) ** 2
+    # log N(y_t; f_{ℓ,t}, σ²) summed over t → (L+1,)
+    log_terms = (
+        -0.5 * y.shape[0] * np.log(2.0 * np.pi * s2)
+        - 0.5 * np.sum((y[None, :] - f) ** 2, axis=1) / s2
+    )
+    pos = int(positive_idx)
+    contrastive = np.delete(log_terms, pos)
+    return spce_total_from_log_likelihoods(float(log_terms[pos]), contrastive)
 
 
 def spce_step_from_f(
@@ -264,7 +286,7 @@ def spce_step_from_f(
         log_L = log_gaussian_observation_density(y, f_contrastive[ell], sigma_y)
         log_terms.append(float(_log_sum_exp(log_L)))
     log_denom = _log_mean_exp(np.array(log_terms))
-    return log_terms[0] - log_denom
+    return clamp_info_gain(log_terms[0] - log_denom)
 
 
 def spce_step_scalar_likelihoods(
@@ -292,11 +314,11 @@ def predict_f_sequence(
     *,
     state0=None,
 ) -> np.ndarray:
-    """Noiseless F(θ, ξ_t) along a design sequence (state carried between steps)."""
-    state = state0
+    """Noiseless reset-based F(θ, ξ_t) along a design sequence."""
+    del state0
     f_seq: list[float] = []
     for a in sequence:
-        y, state = sim.simulate_step(M, K, catalog[int(a)], state, add_noise=None)
+        y, _ = sim.simulate_step(M, K, catalog[int(a)], None, add_noise=None)
         f_seq.append(float(y))
     return np.asarray(f_seq, dtype=np.float64)
 

@@ -1,0 +1,112 @@
+{
+  "terminal_rule_hash": "c2e2af33cb68a5ea",
+  "alpha": 0.05,
+  "margin": 0.55,
+  "used_test_systems": false,
+  "uses_offline_banks_only": true,
+  "T2": {
+    "exact_or_approximate": "exact_nested_MC_validation_outer",
+    "tree_depth": 2,
+    "observation_branch_count": 24,
+    "belief_state_count": 24,
+    "candidate_actions_evaluated": 870,
+    "adaptive_reference_value": 0.8419921875000002,
+    "best_first_action": 25,
+    "exact_fixed_value": 0.8083333333333332,
+    "exact_fixed_subset": [
+      23,
+      24
+    ],
+    "estimated_adaptive_value": -0.03365885416666692,
+    "confidence_interval": [
+      -0.0591813151041668,
+      -0.006705729166666785
+    ],
+    "K_outer": 24,
+    "n_hyp_inner": 64,
+    "runtime": 1.5842454589437693,
+    "outer_measure": "validation_systems_x_keyed_replicas",
+    "uses_offline_banks_only": true,
+    "used_test_systems": false
+  },
+  "T3": {
+    "exact_or_approximate": "approximate_crn_myopic_adaptive_scenario",
+    "tree_depth": 3,
+    "observation_branch_count": 2,
+    "belief_state_count": 72,
+    "candidate_actions_evaluated": 2160,
+    "adaptive_reference_value": 0.8916666666666666,
+    "exact_fixed_value_crn": 0.7833333333333333,
+    "estimated_adaptive_value": -0.10833333333333332,
+    "confidence_interval": [
+      -0.19166666666666665,
+      -0.029166666666666657
+    ],
+    "fraction_steps_action_changed_vs_prior_myopic": 0.9166666666666666,
+    "n_bins": 5,
+    "beam_width": 8,
+    "n_hyp_leaf": 128,
+    "runtime": 0.30763425887562335,
+    "uses_offline_banks_only": true,
+    "used_test_systems": false,
+    "not_globally_optimal": true,
+    "fixed_subset_used": [
+      18,
+      19,
+      25
+    ],
+    "exact_fixed_value": 0.7833333333333333,
+    "exact_fixed_subset": [
+      18,
+      19,
+      25
+    ],
+    "exact_fixed_value_exhaustive": 0.7833333333333333,
+    "estimated_adaptive_value_vs_exhaustive_fixed": -0.10833333333333328
+  },
+  "T4": {
+    "exact_or_approximate": "approximate_crn_myopic_adaptive_scenario",
+    "tree_depth": 4,
+    "observation_branch_count": 2,
+    "belief_state_count": 96,
+    "candidate_actions_evaluated": 2880,
+    "adaptive_reference_value": 0.8791666666666668,
+    "exact_fixed_value_crn": 0.7791666666666668,
+    "estimated_adaptive_value": -0.10000000000000002,
+    "confidence_interval": [
+      -0.16666666666666666,
+      -0.03333333333333333
+    ],
+    "fraction_steps_action_changed_vs_prior_myopic": 0.9444444444444444,
+    "n_bins": 5,
+    "beam_width": 8,
+    "n_hyp_leaf": 128,
+    "runtime": 0.42426142818294466,
+    "uses_offline_banks_only": true,
+    "used_test_systems": false,
+    "not_globally_optimal": true,
+    "fixed_subset_used": [
+      8,
+      19,
+      20,
+      28
+    ],
+    "exact_fixed_value": 0.7791666666666668,
+    "exact_fixed_subset": [
+      8,
+      19,
+      20,
+      28
+    ],
+    "exact_fixed_value_exhaustive": 0.7791666666666668,
+    "estimated_adaptive_value_vs_exhaustive_fixed": -0.09999999999999998
+  },
+  "case_T2": "A_no_measurable_adaptive_value",
+  "case_T3": "A_no_measurable_adaptive_value",
+  "case_T4": "A_no_measurable_adaptive_value",
+  "overall_case": "A_no_measurable_adaptive_value",
+  "decision": "IEEE5 provides little measurable value of observation-dependent adaptation under the current objective and design space.",
+  "proceed_to_dad_improvement": false,
+  "move_to_ieee9_recommended": true,
+  "frozen_ieee5_reports_untouched": true
+}

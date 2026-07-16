@@ -1,0 +1,31 @@
+{
+  "reproduction": {
+    "fixed_target_action_accuracy_by_step": [
+      1.0,
+      1.0,
+      1.0
+    ],
+    "fixed_sequence_reproduction_rate": 1.0,
+    "number_of_unique_sequences": 1,
+    "dominant_sequence": [
+      0,
+      4,
+      6
+    ],
+    "dominant_sequence_fraction": 1.0,
+    "n_rollouts": 96,
+    "fixed_sequence": [
+      0,
+      4,
+      6
+    ]
+  },
+  "vs_fixed_replay": {
+    "mean_difference": 0.0,
+    "max_absolute_difference": 0.0,
+    "fraction_exactly_equal": 1.0,
+    "sequence_match_rate": 1.0,
+    "n": 48,
+    "passed": true
+  }
+}

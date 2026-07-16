@@ -1,0 +1,123 @@
+{
+  "number_of_unique_sequences": 1,
+  "dominant_sequence": [
+    47,
+    3,
+    19
+  ],
+  "dominant_sequence_fraction": 1.0,
+  "sequence_entropy": -0.0,
+  "unique_actions_at_step_2": 1,
+  "unique_actions_at_step_3": 1,
+  "observation_to_later_action_dependence": false,
+  "first_to_second": [
+    {
+      "first_action": 47,
+      "first_observation_bin": 0,
+      "most_common_second_action": 3,
+      "second_action_distribution": {
+        "3": 1.0
+      },
+      "n": 200
+    },
+    {
+      "first_action": 47,
+      "first_observation_bin": 1,
+      "most_common_second_action": 3,
+      "second_action_distribution": {
+        "3": 1.0
+      },
+      "n": 200
+    },
+    {
+      "first_action": 47,
+      "first_observation_bin": 2,
+      "most_common_second_action": 3,
+      "second_action_distribution": {
+        "3": 1.0
+      },
+      "n": 200
+    },
+    {
+      "first_action": 47,
+      "first_observation_bin": 3,
+      "most_common_second_action": 3,
+      "second_action_distribution": {
+        "3": 1.0
+      },
+      "n": 200
+    },
+    {
+      "first_action": 47,
+      "first_observation_bin": 4,
+      "most_common_second_action": 3,
+      "second_action_distribution": {
+        "3": 1.0
+      },
+      "n": 200
+    }
+  ],
+  "second_to_third": [
+    {
+      "first_two_actions": [
+        47,
+        3
+      ],
+      "second_observation_bin": 0,
+      "most_common_third_action": 19,
+      "third_action_distribution": {
+        "19": 1.0
+      },
+      "n": 200
+    },
+    {
+      "first_two_actions": [
+        47,
+        3
+      ],
+      "second_observation_bin": 1,
+      "most_common_third_action": 19,
+      "third_action_distribution": {
+        "19": 1.0
+      },
+      "n": 200
+    },
+    {
+      "first_two_actions": [
+        47,
+        3
+      ],
+      "second_observation_bin": 2,
+      "most_common_third_action": 19,
+      "third_action_distribution": {
+        "19": 1.0
+      },
+      "n": 200
+    },
+    {
+      "first_two_actions": [
+        47,
+        3
+      ],
+      "second_observation_bin": 3,
+      "most_common_third_action": 19,
+      "third_action_distribution": {
+        "19": 1.0
+      },
+      "n": 200
+    },
+    {
+      "first_two_actions": [
+        47,
+        3
+      ],
+      "second_observation_bin": 4,
+      "most_common_third_action": 19,
+      "third_action_distribution": {
+        "19": 1.0
+      },
+      "n": 200
+    }
+  ],
+  "interpretation": "effectively_nonadaptive"
+}

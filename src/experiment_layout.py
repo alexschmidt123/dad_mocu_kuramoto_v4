@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import shutil
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -18,19 +19,28 @@ EVAL_SUMMARY_FILENAME = "summary.csv"
 
 
 def make_experiment_dir_name(
-    config_name: str,
+    run_name: str,
     step_number: int,
     *,
     stamp: str | None = None,
 ) -> str:
-    """e.g. ``fast_config_T2_06062026_215627``."""
+    """e.g. ``06282026_005316_ieee5_T1`` (timestamp first for chronological sorting)."""
     if stamp is None:
         stamp = datetime.now().strftime("%m%d%Y_%H%M%S")
-    return f"{config_name}_T{int(step_number)}_{stamp}"
+    return f"{stamp}_{run_name}_T{int(step_number)}"
 
 
 def model_dir(exp_dir: Path) -> Path:
     return exp_dir / MODEL_SUBDIR
+
+
+def reset_model_dir(exp_dir: Path) -> Path:
+    """Remove any stale policies so a new experiment run always trains fresh."""
+    mdir = model_dir(exp_dir)
+    if mdir.exists():
+        shutil.rmtree(mdir)
+    mdir.mkdir(parents=True, exist_ok=True)
+    return mdir
 
 
 def eval_dir(exp_dir: Path) -> Path:
@@ -90,6 +100,7 @@ def write_run_config(exp_dir: Path, cfg: SBOEDConfig, data_path: Path) -> Path:
         "step_number": int(cfg.step_number),
         "source_config": str(cfg.config_path.resolve()),
         "data_dir": str(data_path.resolve()),
+        **cfg.run_labels(),
         **body,
     }
     with path.open("w", encoding="utf-8") as f:

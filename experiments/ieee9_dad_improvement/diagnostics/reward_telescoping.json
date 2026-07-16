@@ -1,0 +1,4 @@
+{
+  "telescope_ok": true,
+  "note": "r_t = u(h_{t-1})-u(h_t) verified during potential variants"
+}

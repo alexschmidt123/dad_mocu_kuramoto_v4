@@ -1,0 +1,45 @@
+{
+  "stop_reason": "T=2: safety rate < 1.0 (primary DAD seed 101 safety=0.936; random=0.986). Particle-collapse under-control (ESS\u22481, u_ctrl=0.45 < u_req).",
+  "completed_T": [
+    1,
+    2
+  ],
+  "frozen_myopic_n_hypothetical": 1024,
+  "t2_note": {
+    "myopic_fixed_tied": true,
+    "myopic_minus_fixed_ci": {
+      "mean_paired_diff": 0.0018500000000000023,
+      "median_paired_diff": 0.0,
+      "std_error": 0.0025378175698851993,
+      "ci95_low": -0.003149999999999997,
+      "ci95_high": 0.006900000000000001,
+      "fraction_a_lower": 0.157,
+      "fraction_b_lower": 0.158,
+      "fraction_tied": 0.685,
+      "n": 1000,
+      "n_bootstrap": 10000
+    },
+    "dad_seed_safeties": {
+      "101": 0.936,
+      "202": 1.0,
+      "303": 1.0
+    },
+    "dad_seeds_mean_u": {
+      "101": 0.7753000000000002,
+      "202": 0.7523999999999998,
+      "303": 0.73415
+    }
+  },
+  "t1_myopic_fixed": {
+    "mean_paired_diff": -0.0045,
+    "median_paired_diff": 0.0,
+    "std_error": 0.0014254058305555588,
+    "ci95_low": -0.007300000000000001,
+    "ci95_high": -0.0017000000000000006,
+    "fraction_a_lower": 0.123,
+    "fraction_b_lower": 0.079,
+    "fraction_tied": 0.798,
+    "n": 1000,
+    "n_bootstrap": 10000
+  }
+}

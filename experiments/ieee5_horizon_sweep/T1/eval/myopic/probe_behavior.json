@@ -1,0 +1,19 @@
+{
+  "action_frequency": {
+    "11": 153,
+    "1": 225,
+    "6": 595,
+    "16": 27
+  },
+  "amplitude_frequency": {
+    "0.1": 153,
+    "0.05": 225,
+    "0.075": 595,
+    "0.15": 27
+  },
+  "bus_frequency": {
+    "1": 1000
+  },
+  "action_pair_frequency": {},
+  "repeat_action_count": 0
+}

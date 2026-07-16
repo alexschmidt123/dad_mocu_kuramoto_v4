@@ -1,0 +1,32 @@
+{
+  "probe_bank_hash": {
+    "train": "b989acde0c3dff81",
+    "test": "0b1d9b02d90b6f02"
+  },
+  "U_bank_hash": {
+    "train": "79af356895d4415a",
+    "test": "2367f0542c1aa706"
+  },
+  "theta_particle_hash": {
+    "train": "4497d32c822ad4ae",
+    "test": "23b22df6bf551a4e",
+    "train_n": 128,
+    "test_n": 32
+  },
+  "action_space_hash": "97e3d2c6573d3008",
+  "config_hash": "64203af24cd94a9c",
+  "n_actions": 84,
+  "backend_probe": "cuda",
+  "particle_ordering_match": {
+    "train": {
+      "ok": true,
+      "n": 128,
+      "max_abs_diff": 0.0
+    },
+    "test": {
+      "ok": true,
+      "n": 32,
+      "max_abs_diff": 0.0
+    }
+  }
+}

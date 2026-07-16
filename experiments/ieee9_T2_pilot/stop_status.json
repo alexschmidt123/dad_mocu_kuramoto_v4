@@ -1,0 +1,353 @@
+{
+  "exp_dir": "experiments/ieee9_T2_pilot",
+  "T": 2,
+  "N_xi": 54,
+  "hashes": {
+    "probe_bank_hash": {
+      "train": "9606950d48493034",
+      "test": "2ee0773e1b7d6864"
+    },
+    "U_bank_hash": {
+      "train": "e92d41caf87eac58",
+      "test": "0ab75bab90f86d19"
+    },
+    "theta_particle_hash": {
+      "train": "4497d32c822ad4ae",
+      "test": "23b22df6bf551a4e",
+      "train_n": 128,
+      "test_n": 32
+    },
+    "action_space_hash": "1158467507c384e4",
+    "config_hash": "937da74c41562dbc",
+    "n_actions": 54,
+    "backend_probe": "cuda",
+    "particle_ordering_match": {
+      "train": {
+        "ok": true,
+        "n": 128,
+        "max_abs_diff": 0.0
+      },
+      "test": {
+        "ok": true,
+        "n": 32,
+        "max_abs_diff": 0.0
+      }
+    }
+  },
+  "selected_alpha": 0.05,
+  "selected_margin": 0.9,
+  "terminal_rule_hash": "5b4c2191621b1bbc",
+  "pilot_passed": true,
+  "stop_reasons": [],
+  "can_proceed_to_T3": true,
+  "summaries": {
+    "dad": {
+      "mean_u_ctrl": 0.9688800000000003,
+      "true_safety_rate": 1.0,
+      "mean_runtime_per_rollout": 0.10373325719637796
+    },
+    "myopic": {
+      "mean_u_ctrl": 0.9667200000000004,
+      "true_safety_rate": 1.0,
+      "mean_runtime_per_rollout": 0.4295053581991233
+    },
+    "fixed": {
+      "mean_u_ctrl": 0.9657600000000003,
+      "true_safety_rate": 1.0,
+      "mean_runtime_per_rollout": 0.10150869260681793
+    },
+    "random": {
+      "mean_u_ctrl": 0.9952000000000003,
+      "true_safety_rate": 1.0,
+      "mean_runtime_per_rollout": 0.10115518288267776
+    }
+  },
+  "dad_seed_summaries": {
+    "101": {
+      "n": 1000,
+      "mean_u_ctrl": 0.9657600000000004,
+      "std_u_ctrl": 0.02980641541681927,
+      "median_u_ctrl": 0.96,
+      "q10_u_ctrl": 0.96,
+      "q90_u_ctrl": 0.96,
+      "unique_u_ctrl_count": 2,
+      "fraction_at_u_max": 0.036,
+      "true_safety_rate": 1.0,
+      "mean_true_u_req": 0.01272,
+      "mean_excess_control": 0.9530400000000003,
+      "median_excess_control": 0.96,
+      "over_control_rate": 1.0,
+      "under_control_rate": 0.0,
+      "mean_runtime_per_rollout": 0.10411585608008318,
+      "method": "dad_seed_101",
+      "terminal_rule": {
+        "terminal_rule_hash": "5b4c2191621b1bbc",
+        "quantile_level": 0.95,
+        "additive_margin": 0.9,
+        "alpha": 0.05,
+        "snap_up": true,
+        "control_grid_hash": "2a35b5c585aa23b1",
+        "u_candidates": [
+          0.0,
+          0.08,
+          0.16,
+          0.24,
+          0.32,
+          0.4,
+          0.48,
+          0.56,
+          0.64,
+          0.72,
+          0.8,
+          0.88,
+          0.96,
+          1.04,
+          1.12,
+          1.2
+        ],
+        "source": "/home/grads/g/g.lin/Documents/dad_mocu_kuramoto_v4/experiments/ieee9_T2_pilot/selected_policy_robust_rule.json",
+        "rule": "snap_up(Q_{1-alpha}(U|w) + margin)"
+      },
+      "probe_behavior": {
+        "action_frequency": {
+          "9": 1000,
+          "3": 1000
+        },
+        "amplitude_frequency": {
+          "0.075": 1000,
+          "0.05": 1000
+        },
+        "bus_frequency": {
+          "0": 1000,
+          "3": 1000
+        },
+        "action_pair_frequency": {
+          "3,9": 1000
+        },
+        "repeat_action_count": 0
+      },
+      "decision_behavior": {
+        "fraction_changed_from_prior": 1.0,
+        "fraction_reduced_from_prior": 0.964,
+        "fraction_increased_from_prior": 0.036,
+        "mean_prior_u_ctrl": 1.0399999999999996
+      },
+      "posterior_behavior": {
+        "mean_ess": 1.241415578673607,
+        "mean_max_weight": 0.9031594870563454,
+        "mean_posterior_mean_U": 0.003937694720800038,
+        "mean_posterior_mean_U_error": -0.008782305279199964
+      }
+    },
+    "202": {
+      "n": 1000,
+      "mean_u_ctrl": 0.9699200000000004,
+      "std_u_ctrl": 0.04386335144514154,
+      "median_u_ctrl": 0.96,
+      "q10_u_ctrl": 0.96,
+      "q90_u_ctrl": 0.96,
+      "unique_u_ctrl_count": 3,
+      "fraction_at_u_max": 0.032,
+      "true_safety_rate": 1.0,
+      "mean_true_u_req": 0.01272,
+      "mean_excess_control": 0.9572000000000003,
+      "median_excess_control": 0.96,
+      "over_control_rate": 1.0,
+      "under_control_rate": 0.0,
+      "mean_runtime_per_rollout": 0.1041446163309738,
+      "method": "dad_seed_202",
+      "terminal_rule": {
+        "terminal_rule_hash": "5b4c2191621b1bbc",
+        "quantile_level": 0.95,
+        "additive_margin": 0.9,
+        "alpha": 0.05,
+        "snap_up": true,
+        "control_grid_hash": "2a35b5c585aa23b1",
+        "u_candidates": [
+          0.0,
+          0.08,
+          0.16,
+          0.24,
+          0.32,
+          0.4,
+          0.48,
+          0.56,
+          0.64,
+          0.72,
+          0.8,
+          0.88,
+          0.96,
+          1.04,
+          1.12,
+          1.2
+        ],
+        "source": "/home/grads/g/g.lin/Documents/dad_mocu_kuramoto_v4/experiments/ieee9_T2_pilot/selected_policy_robust_rule.json",
+        "rule": "snap_up(Q_{1-alpha}(U|w) + margin)"
+      },
+      "probe_behavior": {
+        "action_frequency": {
+          "39": 1000,
+          "30": 1000
+        },
+        "amplitude_frequency": {
+          "0.2": 1000,
+          "0.15": 1000
+        },
+        "bus_frequency": {
+          "3": 2000
+        },
+        "action_pair_frequency": {
+          "30,39": 1000
+        },
+        "repeat_action_count": 0
+      },
+      "decision_behavior": {
+        "fraction_changed_from_prior": 0.972,
+        "fraction_reduced_from_prior": 0.94,
+        "fraction_increased_from_prior": 0.032,
+        "mean_prior_u_ctrl": 1.0399999999999996
+      },
+      "posterior_behavior": {
+        "mean_ess": 2.922395459937283,
+        "mean_max_weight": 0.5625829832449047,
+        "mean_posterior_mean_U": 0.013939983183043164,
+        "mean_posterior_mean_U_error": 0.0012199831830431629
+      }
+    },
+    "303": {
+      "n": 1000,
+      "mean_u_ctrl": 0.9688800000000003,
+      "std_u_ctrl": 0.044158188368636685,
+      "median_u_ctrl": 0.96,
+      "q10_u_ctrl": 0.96,
+      "q90_u_ctrl": 0.96,
+      "unique_u_ctrl_count": 4,
+      "fraction_at_u_max": 0.032,
+      "true_safety_rate": 1.0,
+      "mean_true_u_req": 0.01272,
+      "mean_excess_control": 0.9561600000000003,
+      "median_excess_control": 0.96,
+      "over_control_rate": 1.0,
+      "under_control_rate": 0.0,
+      "mean_runtime_per_rollout": 0.10373325719637796,
+      "method": "dad_seed_303",
+      "terminal_rule": {
+        "terminal_rule_hash": "5b4c2191621b1bbc",
+        "quantile_level": 0.95,
+        "additive_margin": 0.9,
+        "alpha": 0.05,
+        "snap_up": true,
+        "control_grid_hash": "2a35b5c585aa23b1",
+        "u_candidates": [
+          0.0,
+          0.08,
+          0.16,
+          0.24,
+          0.32,
+          0.4,
+          0.48,
+          0.56,
+          0.64,
+          0.72,
+          0.8,
+          0.88,
+          0.96,
+          1.04,
+          1.12,
+          1.2
+        ],
+        "source": "/home/grads/g/g.lin/Documents/dad_mocu_kuramoto_v4/experiments/ieee9_T2_pilot/selected_policy_robust_rule.json",
+        "rule": "snap_up(Q_{1-alpha}(U|w) + margin)"
+      },
+      "probe_behavior": {
+        "action_frequency": {
+          "44": 1000,
+          "3": 1000
+        },
+        "amplitude_frequency": {
+          "0.2": 1000,
+          "0.05": 1000
+        },
+        "bus_frequency": {
+          "8": 1000,
+          "3": 1000
+        },
+        "action_pair_frequency": {
+          "3,44": 1000
+        },
+        "repeat_action_count": 0
+      },
+      "decision_behavior": {
+        "fraction_changed_from_prior": 0.999,
+        "fraction_reduced_from_prior": 0.96,
+        "fraction_increased_from_prior": 0.039,
+        "mean_prior_u_ctrl": 1.0399999999999996
+      },
+      "posterior_behavior": {
+        "mean_ess": 1.8585083700318072,
+        "mean_max_weight": 0.7302204696071167,
+        "mean_posterior_mean_U": 0.02592768146642231,
+        "mean_posterior_mean_U_error": 0.013207681466422311
+      }
+    }
+  },
+  "adaptivity": {
+    "number_of_unique_sequences": 1,
+    "dominant_sequence": [
+      44,
+      3
+    ],
+    "dominant_sequence_fraction": 1.0,
+    "sequence_entropy": -0.0,
+    "observation_to_second_action_dependence": false,
+    "second_action_distribution_by_observation_bin": [
+      {
+        "first_action": 44,
+        "first_observation_bin": 0,
+        "most_common_second_action": 3,
+        "second_action_distribution": {
+          "3": 1.0
+        },
+        "n": 200
+      },
+      {
+        "first_action": 44,
+        "first_observation_bin": 1,
+        "most_common_second_action": 3,
+        "second_action_distribution": {
+          "3": 1.0
+        },
+        "n": 200
+      },
+      {
+        "first_action": 44,
+        "first_observation_bin": 2,
+        "most_common_second_action": 3,
+        "second_action_distribution": {
+          "3": 1.0
+        },
+        "n": 200
+      },
+      {
+        "first_action": 44,
+        "first_observation_bin": 3,
+        "most_common_second_action": 3,
+        "second_action_distribution": {
+          "3": 1.0
+        },
+        "n": 200
+      },
+      {
+        "first_action": 44,
+        "first_observation_bin": 4,
+        "most_common_second_action": 3,
+        "second_action_distribution": {
+          "3": 1.0
+        },
+        "n": 200
+      }
+    ],
+    "interpretation": "effectively_nonadaptive"
+  },
+  "elapsed_sec": 1185.6009237051476
+}

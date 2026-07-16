@@ -1,0 +1,5 @@
+System,Run,T,N_b,Method,mean_u_ctrl,median_u_ctrl,std_u_ctrl,safety_rate,mean_excess,train_s,test_s
+IEEE-5,run,2,5,dad,0.9625,1.2000,0.5302,0.000,0.2625,0.9,0.4734
+IEEE-5,run,2,5,myopic,0.6625,0.6000,0.5600,0.000,-0.0375,-,0.4373
+IEEE-5,run,2,5,fixed,0.6750,0.6000,0.5286,0.000,-0.0250,-,0.8797
+IEEE-5,run,2,5,random,0.7875,0.7000,0.6061,0.000,0.0875,-,0.1874

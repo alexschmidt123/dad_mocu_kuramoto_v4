@@ -1,0 +1,153 @@
+{
+  "number_of_unique_sequences": 1,
+  "dominant_sequence": [
+    23,
+    29,
+    10,
+    19
+  ],
+  "dominant_sequence_fraction": 1.0,
+  "sequence_entropy": -0.0,
+  "unique_actions_at_step_2": 1,
+  "unique_actions_at_step_3": 1,
+  "unique_actions_at_step_4": 1,
+  "interpretation": "effectively_nonadaptive",
+  "conditioned_next_action": [
+    {
+      "step": 2,
+      "previous_action_history": "23",
+      "observation_bin": 0,
+      "most_common_next_action": 29,
+      "next_action_entropy": -0.0,
+      "next_action_distribution": "{\"29\": 1.0}",
+      "n": 200
+    },
+    {
+      "step": 2,
+      "previous_action_history": "23",
+      "observation_bin": 1,
+      "most_common_next_action": 29,
+      "next_action_entropy": -0.0,
+      "next_action_distribution": "{\"29\": 1.0}",
+      "n": 200
+    },
+    {
+      "step": 2,
+      "previous_action_history": "23",
+      "observation_bin": 2,
+      "most_common_next_action": 29,
+      "next_action_entropy": -0.0,
+      "next_action_distribution": "{\"29\": 1.0}",
+      "n": 200
+    },
+    {
+      "step": 2,
+      "previous_action_history": "23",
+      "observation_bin": 3,
+      "most_common_next_action": 29,
+      "next_action_entropy": -0.0,
+      "next_action_distribution": "{\"29\": 1.0}",
+      "n": 200
+    },
+    {
+      "step": 2,
+      "previous_action_history": "23",
+      "observation_bin": 4,
+      "most_common_next_action": 29,
+      "next_action_entropy": -0.0,
+      "next_action_distribution": "{\"29\": 1.0}",
+      "n": 200
+    },
+    {
+      "step": 3,
+      "previous_action_history": "23 29",
+      "observation_bin": 0,
+      "most_common_next_action": 10,
+      "next_action_entropy": -0.0,
+      "next_action_distribution": "{\"10\": 1.0}",
+      "n": 200
+    },
+    {
+      "step": 3,
+      "previous_action_history": "23 29",
+      "observation_bin": 1,
+      "most_common_next_action": 10,
+      "next_action_entropy": -0.0,
+      "next_action_distribution": "{\"10\": 1.0}",
+      "n": 200
+    },
+    {
+      "step": 3,
+      "previous_action_history": "23 29",
+      "observation_bin": 2,
+      "most_common_next_action": 10,
+      "next_action_entropy": -0.0,
+      "next_action_distribution": "{\"10\": 1.0}",
+      "n": 200
+    },
+    {
+      "step": 3,
+      "previous_action_history": "23 29",
+      "observation_bin": 3,
+      "most_common_next_action": 10,
+      "next_action_entropy": -0.0,
+      "next_action_distribution": "{\"10\": 1.0}",
+      "n": 200
+    },
+    {
+      "step": 3,
+      "previous_action_history": "23 29",
+      "observation_bin": 4,
+      "most_common_next_action": 10,
+      "next_action_entropy": -0.0,
+      "next_action_distribution": "{\"10\": 1.0}",
+      "n": 200
+    },
+    {
+      "step": 4,
+      "previous_action_history": "23 29 10",
+      "observation_bin": 0,
+      "most_common_next_action": 19,
+      "next_action_entropy": -0.0,
+      "next_action_distribution": "{\"19\": 1.0}",
+      "n": 200
+    },
+    {
+      "step": 4,
+      "previous_action_history": "23 29 10",
+      "observation_bin": 1,
+      "most_common_next_action": 19,
+      "next_action_entropy": -0.0,
+      "next_action_distribution": "{\"19\": 1.0}",
+      "n": 200
+    },
+    {
+      "step": 4,
+      "previous_action_history": "23 29 10",
+      "observation_bin": 2,
+      "most_common_next_action": 19,
+      "next_action_entropy": -0.0,
+      "next_action_distribution": "{\"19\": 1.0}",
+      "n": 200
+    },
+    {
+      "step": 4,
+      "previous_action_history": "23 29 10",
+      "observation_bin": 3,
+      "most_common_next_action": 19,
+      "next_action_entropy": -0.0,
+      "next_action_distribution": "{\"19\": 1.0}",
+      "n": 200
+    },
+    {
+      "step": 4,
+      "previous_action_history": "23 29 10",
+      "observation_bin": 4,
+      "most_common_next_action": 19,
+      "next_action_entropy": -0.0,
+      "next_action_distribution": "{\"19\": 1.0}",
+      "n": 200
+    }
+  ],
+  "terminal_rule_hash": "c2e2af33cb68a5ea"
+}

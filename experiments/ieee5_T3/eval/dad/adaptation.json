@@ -1,0 +1,58 @@
+{
+  "first_to_second": [
+    {
+      "first_action": 1,
+      "first_observation_bin": 0,
+      "most_common_second_action": 28,
+      "second_action_distribution": {
+        "28": 1.0
+      },
+      "n": 200
+    },
+    {
+      "first_action": 1,
+      "first_observation_bin": 1,
+      "most_common_second_action": 28,
+      "second_action_distribution": {
+        "28": 1.0
+      },
+      "n": 200
+    },
+    {
+      "first_action": 1,
+      "first_observation_bin": 2,
+      "most_common_second_action": 28,
+      "second_action_distribution": {
+        "28": 1.0
+      },
+      "n": 200
+    },
+    {
+      "first_action": 1,
+      "first_observation_bin": 3,
+      "most_common_second_action": 28,
+      "second_action_distribution": {
+        "28": 1.0
+      },
+      "n": 200
+    },
+    {
+      "first_action": 1,
+      "first_observation_bin": 4,
+      "most_common_second_action": 28,
+      "second_action_distribution": {
+        "28": 1.0
+      },
+      "n": 200
+    }
+  ],
+  "dominant_sequence": [
+    1,
+    28,
+    23
+  ],
+  "dominant_sequence_fraction": 1.0,
+  "n_unique_sequences": 1,
+  "effectively_nonadaptive": true,
+  "terminal_rule_hash": "c2e2af33cb68a5ea"
+}

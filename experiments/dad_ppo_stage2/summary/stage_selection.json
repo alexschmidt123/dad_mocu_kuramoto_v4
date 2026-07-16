@@ -1,0 +1,106 @@
+{
+  "belief": "B2",
+  "history": "H1",
+  "entropy": "E1",
+  "batch_size": "P2",
+  "normalization": "A0",
+  "gae_lambda": 0.98,
+  "curriculum": "none",
+  "confirmation_used": false,
+  "belief_rank_by_system": {
+    "B0": [
+      1.0,
+      1.0
+    ],
+    "B1": [
+      2.0,
+      0.0
+    ],
+    "B2": [
+      0.0,
+      2.0
+    ]
+  },
+  "history_rank_by_system": {
+    "H0": [
+      0.0,
+      2.0
+    ],
+    "H1": [
+      1.0,
+      0.0
+    ],
+    "H2": [
+      2.0,
+      1.0
+    ]
+  },
+  "entropy_rank_by_system": {
+    "E0": [
+      3.0,
+      0.0
+    ],
+    "E1": [
+      0.0,
+      1.0
+    ],
+    "E2": [
+      1.0,
+      2.0
+    ],
+    "E3": [
+      2.0,
+      3.0
+    ]
+  },
+  "batch_size_rank_by_system": {
+    "P0": [
+      2.0,
+      1.0
+    ],
+    "P1": [
+      1.0,
+      2.0
+    ],
+    "P2": [
+      0.0,
+      0.0
+    ]
+  },
+  "normalization_rank_by_system": {
+    "A0": [
+      3.0,
+      2.0
+    ],
+    "A2": [
+      2.0,
+      3.0
+    ],
+    "A3": [
+      5.0,
+      1.0
+    ],
+    "L0.90": [
+      1.0,
+      4.0
+    ],
+    "L0.98": [
+      0.0,
+      0.0
+    ],
+    "L1.00": [
+      4.0,
+      5.0
+    ]
+  },
+  "curriculum_rank_by_system": {
+    "curriculum": [
+      1.0,
+      1.0
+    ],
+    "none": [
+      0.0,
+      0.0
+    ]
+  }
+}

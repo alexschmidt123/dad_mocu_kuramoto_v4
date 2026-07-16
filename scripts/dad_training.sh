@@ -1,5 +1,9 @@
 #!/bin/bash
-# Phase 2: train DAD policy (config read from experiment dir).
+# Phase 4: train objective-based DAD policy (config read from experiment dir).
+# Invoked only after control-safety calibration and the objective-observability gate pass.
+#
+# Usage:
+#   ./scripts/dad_training.sh -exp-dir <experiment_folder>
 
 set -euo pipefail
 

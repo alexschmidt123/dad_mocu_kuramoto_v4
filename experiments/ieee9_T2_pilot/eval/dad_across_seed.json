@@ -1,0 +1,36 @@
+{
+  "n_seeds": 3,
+  "mean_u_ctrl_across_seeds": 0.9681866666666671,
+  "std_u_ctrl_across_seeds": 0.0017676600980455028,
+  "min_true_safety_rate": 1.0,
+  "all_seeds_safe": true,
+  "seeds": [
+    {
+      "seed": "101",
+      "mean_u_ctrl": 0.9657600000000004,
+      "std_u_ctrl": 0.02980641541681927,
+      "true_safety_rate": 1.0,
+      "mean_excess_control": 0.9530400000000003,
+      "mean_runtime_per_rollout": 0.10411585608008318,
+      "terminal_rule_hash": "5b4c2191621b1bbc"
+    },
+    {
+      "seed": "202",
+      "mean_u_ctrl": 0.9699200000000004,
+      "std_u_ctrl": 0.04386335144514154,
+      "true_safety_rate": 1.0,
+      "mean_excess_control": 0.9572000000000003,
+      "mean_runtime_per_rollout": 0.1041446163309738,
+      "terminal_rule_hash": "5b4c2191621b1bbc"
+    },
+    {
+      "seed": "303",
+      "mean_u_ctrl": 0.9688800000000003,
+      "std_u_ctrl": 0.044158188368636685,
+      "true_safety_rate": 1.0,
+      "mean_excess_control": 0.9561600000000003,
+      "mean_runtime_per_rollout": 0.10373325719637796,
+      "terminal_rule_hash": "5b4c2191621b1bbc"
+    }
+  ]
+}

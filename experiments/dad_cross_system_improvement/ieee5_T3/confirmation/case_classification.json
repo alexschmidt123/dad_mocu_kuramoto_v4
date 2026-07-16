@@ -1,0 +1,7 @@
+{
+  "case": 1,
+  "dad_mean": 0.848,
+  "fixed_mean": 0.848,
+  "dominant_replay_mean": 0.848,
+  "observation_dependent": false
+}

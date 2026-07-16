@@ -1,0 +1,8 @@
+{
+  "source": "frozen_test_bank",
+  "n": 32,
+  "used_for_model_selection": false,
+  "used_for_fixed_selection": false,
+  "used_for_bc_or_rl": false,
+  "used_for_terminal_rule_calibration": false
+}

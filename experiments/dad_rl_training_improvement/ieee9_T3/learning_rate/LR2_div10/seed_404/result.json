@@ -1,0 +1,79 @@
+{
+  "system": "ieee9",
+  "seed": 404,
+  "config": {
+    "epochs": 500,
+    "batch_size": 8,
+    "steps_per_epoch": 104,
+    "learning_rate": 0.0001,
+    "grad_clip": 1.0,
+    "eval_interval": 5,
+    "entropy_schedule": "constant_small",
+    "entropy_coef": 0.01,
+    "baseline": "ema",
+    "baseline_ema": 0.9,
+    "normalize_advantage": false,
+    "credit": "terminal",
+    "validation_noise_replicas": 1
+  },
+  "best_epoch": 20,
+  "final_epoch": 499,
+  "best_validation_u_ctrl": 0.9633333333333333,
+  "final_validation_u_ctrl": 0.9866666666666667,
+  "best_validation": {
+    "validation_mean_u_ctrl": 0.9633333333333333,
+    "validation_safety": 1.0,
+    "dominant_sequence": [
+      18,
+      15,
+      13
+    ],
+    "dominant_sequence_fraction": 1.0,
+    "unique_sequence_count": 1,
+    "sequence_entropy": -0.0,
+    "entropy_t1": 3.987995147705078,
+    "entropy_t2": 3.968917578458786,
+    "entropy_t3": 3.9499222338199615
+  },
+  "final_validation": {
+    "validation_mean_u_ctrl": 0.9866666666666667,
+    "validation_safety": 1.0,
+    "dominant_sequence": [
+      48,
+      3,
+      21
+    ],
+    "dominant_sequence_fraction": 1.0,
+    "unique_sequence_count": 1,
+    "sequence_entropy": -0.0,
+    "entropy_t1": 3.9877126216888428,
+    "entropy_t2": 3.703844507535299,
+    "entropy_t3": 3.6847965816656747
+  },
+  "best_checkpoint": "/home/grads/g/g.lin/Documents/dad_mocu_kuramoto_v4/experiments/dad_rl_training_improvement/ieee9_T3/learning_rate/LR2_div10/seed_404/best_checkpoint.pt",
+  "elapsed_seconds": 74.56643826700747,
+  "random_initialization": true,
+  "fixed_training_targets_used": false,
+  "confirmation_used_for_selection": false,
+  "gradient_reached_policy": true,
+  "max_potential_telescope_error": 0.0,
+  "diagnostics": {
+    "initial_policy_entropy": 3.9689698219299316,
+    "quarter_policy_entropy": 3.965700149536133,
+    "final_policy_entropy": 3.649871826171875,
+    "initial_entropy_t1": 3.988004207611084,
+    "initial_entropy_t2": 3.9689717292785645,
+    "initial_entropy_t3": 3.949934244155884,
+    "final_entropy_t1": 3.9877123832702637,
+    "final_entropy_t2": 3.4641313552856445,
+    "final_entropy_t3": 3.497772216796875,
+    "mean_gradient_norm": 0.05984779833313391,
+    "max_gradient_norm": 0.5106407403945923,
+    "total_clipping_events": 0,
+    "mean_advantage_mean": -0.00016763974194967753,
+    "mean_advantage_std": 0.05302001328887352,
+    "mean_terminal_cost_unique_count": 1.819538461538462,
+    "mean_terminal_cost_modal_fraction": 0.882,
+    "mean_terminal_cost_tied_fraction": 0.9119807692307692
+  }
+}

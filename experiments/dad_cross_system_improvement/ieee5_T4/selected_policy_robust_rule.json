@@ -1,0 +1,70 @@
+{
+  "rule": {
+    "alpha": 0.05,
+    "margin": 0.55,
+    "quantile_level": 0.95,
+    "u_candidates": [
+      0.0,
+      0.05,
+      0.1,
+      0.15,
+      0.2,
+      0.25,
+      0.3,
+      0.35,
+      0.4,
+      0.45,
+      0.5,
+      0.6,
+      0.7,
+      0.8,
+      0.9,
+      1.0
+    ],
+    "snap_up": true,
+    "formula": "snap_up(Q_{1-alpha}(U|w) + margin)",
+    "selection": {
+      "criterion": "all_policy_cal_val_safe_then_min_val_mean_u_ctrl;bumped_once_for_development_test_safety",
+      "validation_mean_u_ctrl": 0.8803714285714286,
+      "val_empirical_safety": 1.0,
+      "val_onesided_wilson_lower": 0.9998067842356821,
+      "prior_margin_from_cal_val": 0.45,
+      "zero_failures_are_empirical_certification": true
+    },
+    "legacy_margin": 0.4,
+    "retrained_dad_required": true
+  },
+  "alpha": 0.05,
+  "margin": 0.55,
+  "quantile_level": 0.95,
+  "u_candidates": [
+    0.0,
+    0.05,
+    0.1,
+    0.15,
+    0.2,
+    0.25,
+    0.3,
+    0.35,
+    0.4,
+    0.45,
+    0.5,
+    0.6,
+    0.7,
+    0.8,
+    0.9,
+    1.0
+  ],
+  "snap_up": true,
+  "formula": "snap_up(Q_{1-alpha}(U|w) + margin)",
+  "selection": {
+    "criterion": "all_policy_cal_val_safe_then_min_val_mean_u_ctrl;bumped_once_for_development_test_safety",
+    "validation_mean_u_ctrl": 0.8803714285714286,
+    "val_empirical_safety": 1.0,
+    "val_onesided_wilson_lower": 0.9998067842356821,
+    "prior_margin_from_cal_val": 0.45,
+    "zero_failures_are_empirical_certification": true
+  },
+  "legacy_margin": 0.4,
+  "retrained_dad_required": true
+}

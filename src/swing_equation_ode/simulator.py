@@ -103,6 +103,45 @@ def generate_ieee14_coupling_matrix(coupling_strength: float = 1.0) -> np.ndarra
     return B
 
 
+def generate_ieee5_coupling_matrix(coupling_strength: float = 1.0) -> np.ndarray:
+    """MATPOWER ``case5`` (modified PJM 5-bus) line graph."""
+    N = 5
+    B = np.zeros((N, N))
+    connections = [
+        (0, 1),  # 1-2
+        (0, 3),  # 1-4
+        (0, 4),  # 1-5
+        (1, 2),  # 2-3
+        (2, 3),  # 3-4
+        (3, 4),  # 4-5
+    ]
+    for i, j in connections:
+        B[i, j] = coupling_strength
+        B[j, i] = coupling_strength
+    return B
+
+
+def generate_ieee9_coupling_matrix(coupling_strength: float = 1.0) -> np.ndarray:
+    """MATPOWER ``case9`` (Chow 9-bus) line graph."""
+    N = 9
+    B = np.zeros((N, N))
+    connections = [
+        (0, 3),  # 1-4
+        (3, 4),  # 4-5
+        (4, 5),  # 5-6
+        (2, 5),  # 3-6
+        (5, 6),  # 6-7
+        (6, 7),  # 7-8
+        (7, 1),  # 8-2
+        (7, 8),  # 8-9
+        (8, 3),  # 9-4
+    ]
+    for i, j in connections:
+        B[i, j] = coupling_strength
+        B[j, i] = coupling_strength
+    return B
+
+
 def generate_default_coupling_matrix(N: int, topology: str = 'fully_connected', 
                                      coupling_strength: float = 1.0) -> np.ndarray:
     """
@@ -110,12 +149,21 @@ def generate_default_coupling_matrix(N: int, topology: str = 'fully_connected',
     
     Args:
         N: Number of buses/oscillators
-        topology: Network topology ('fully_connected', 'ring', 'star', 'random', 'ieee14')
+        topology: Network topology ('fully_connected', 'ring', 'star', 'random',
+            'ieee5', 'ieee9', 'ieee14')
         coupling_strength: Base coupling strength (float)
     
     Returns:
         B: Coupling matrix [N, N] (numpy array, symmetric)
     """
+    if topology == 'ieee5':
+        if N != 5:
+            raise ValueError(f"IEEE-5 topology requires N=5, got N={N}")
+        return generate_ieee5_coupling_matrix(coupling_strength)
+    if topology == 'ieee9':
+        if N != 9:
+            raise ValueError(f"IEEE-9 topology requires N=9, got N={N}")
+        return generate_ieee9_coupling_matrix(coupling_strength)
     if topology == 'ieee14':
         if N != 14:
             raise ValueError(f"IEEE-14 topology requires N=14, got N={N}")
@@ -538,8 +586,9 @@ Swing-equation simulator for sBOED (documents/sBOED_design.tex Eq. 96–101).
 Reduced NREL-style deviation dynamics on IEEE-14 with scalar uncertain (M, K):
     M dΔω_i/dt = P_m_i - Σ_j B_ij sin(θ_i-θ_j) - (K/(2π)+D) Δω_i + u_probe_i(t; ξ)
 
-System state carries between probes within a sequence (order matters).
-Single-step ``simulate()`` still starts from equilibrium for Map / one-shot use.
+Each probe is a reset experiment from the configured baseline state. Sequential
+order matters for posterior history and policy decisions, not for the physical
+forward response of a fixed (θ, ξ) pair.
 """
 
 
@@ -648,7 +697,7 @@ class SwingSimulator:
         """
         One probing step from ``state`` (equilibrium if None).
 
-        Returns max-ROCOF observation and post-step ODE state (order matters across steps).
+        Returns max-ROCOF observation and post-step ODE state.
         """
         y0 = (
             np.concatenate([self.theta0.copy(), self.omega0.copy()])
@@ -695,14 +744,13 @@ class SwingSimulator:
         add_noise: float | None = None,
         rng: np.random.Generator | None = None,
     ) -> list[float]:
-        """Ordered multi-probe rollout with state carried between steps."""
+        """Ordered multi-probe rollout with reset-to-baseline physics at each step."""
         if rng is None:
             rng = np.random.default_rng()
-        state: np.ndarray | None = None
         observations: list[float] = []
         for design in designs:
-            y, state = self.simulate_step(
-                M, K, design, state, add_noise=add_noise, rng=rng
+            y, _ = self.simulate_step(
+                M, K, design, None, add_noise=add_noise, rng=rng
             )
             observations.append(y)
         return observations

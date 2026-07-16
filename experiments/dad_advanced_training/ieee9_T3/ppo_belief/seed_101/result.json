@@ -1,0 +1,34 @@
+{
+  "system": "ieee9",
+  "variant": "R2",
+  "seed": 101,
+  "best_update": 1,
+  "best_validation": {
+    "mean_u_ctrl": 0.9700000000000001,
+    "std_u_ctrl": 0.04795831523312719,
+    "median_u_ctrl": 0.96,
+    "q10_u_ctrl": 0.96,
+    "q90_u_ctrl": 0.96,
+    "safety": 1.0,
+    "dominant_sequence": [
+      24,
+      11,
+      48
+    ],
+    "dominant_sequence_fraction": 1.0,
+    "unique_sequences": 1,
+    "sequence_entropy": -0.0,
+    "entropy_t1": 3.9836814403533936,
+    "entropy_t2": 3.957015335559845,
+    "entropy_t3": 3.9377242624759674
+  },
+  "counters": {
+    "trajectories": 840,
+    "sampled_histories": 2520,
+    "actor_updates": 344,
+    "critic_updates": 344
+  },
+  "elapsed_seconds": 184.8872659180779,
+  "random_initialization": true,
+  "confirmation_used_for_selection": false
+}

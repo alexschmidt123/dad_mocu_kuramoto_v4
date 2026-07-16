@@ -1,0 +1,4 @@
+method,mean_u_ctrl,std_u_ctrl,safety,dominant_sequence,dominant_sequence_fraction,sequence_entropy,n_unique_sequences
+fixed_open_loop,0.98,0.057735026918962595,1.0,"[0, 3, 47]",1.0,0.0,1
+dad_fixed_init,0.98,0.057735026918962595,1.0,"[0, 3, 47]",1.0,-0.0,1
+original_dad,0.9700000000000001,0.04795831523312719,1.0,"[47, 3, 19]",1.0,-0.0,1

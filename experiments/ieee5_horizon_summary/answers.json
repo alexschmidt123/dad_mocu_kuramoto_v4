@@ -1,0 +1,22 @@
+{
+  "1_T4_lower_than_T3": {
+    "dad": true,
+    "myopic": true,
+    "fixed": false,
+    "random": true
+  },
+  "2_dad_tied_fixed_T4": false,
+  "3_dad_adaptive_T4": false,
+  "4_myopic_worse_than_fixed_T4": false,
+  "5_random_weakest_T4": true,
+  "6_design_benefit_vs_T": {
+    "2": -0.067,
+    "3": -0.027099999999999996,
+    "4": -0.04810000000000001
+  },
+  "7_T4_cost_justified": {
+    "dad_mean_u_reduction_T3_to_T4": 0.022599999999999953,
+    "dad_runtime_T4": 0.07389946051058359,
+    "note": "Justified if control reduction is material relative to extra probe/runtime cost."
+  }
+}

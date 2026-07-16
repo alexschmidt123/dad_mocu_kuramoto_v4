@@ -1,0 +1,16 @@
+{
+  "subset": [
+    6,
+    9
+  ],
+  "objective": 0.715625,
+  "n_candidates_evaluated": 435,
+  "search_mode": "exhaustive",
+  "seed": 0,
+  "metadata": {
+    "n_actions": 30,
+    "horizon": 2,
+    "n_combinations": 435,
+    "exhaustive_threshold": 5000
+  }
+}

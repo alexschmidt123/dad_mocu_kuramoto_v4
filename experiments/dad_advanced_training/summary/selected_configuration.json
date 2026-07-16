@@ -1,0 +1,32 @@
+{
+  "selected_variant": "R2",
+  "selection_rule": "lowest summed validation rank across IEEE5 and IEEE9",
+  "confirmation_used": false,
+  "screening_seeds": [
+    101,
+    202,
+    303
+  ],
+  "rank_by_system": {
+    "R2": [
+      0.0,
+      0.0
+    ],
+    "R1": [
+      1.0,
+      1.0
+    ],
+    "R4": [
+      2.0,
+      4.0
+    ],
+    "R5": [
+      3.0,
+      3.0
+    ],
+    "R3": [
+      4.0,
+      2.0
+    ]
+  }
+}

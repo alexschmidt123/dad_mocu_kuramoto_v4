@@ -1,0 +1,2 @@
+unique_terminal_cost_count,fraction_at_modal_terminal_cost,terminal_cost_std,fraction_of_equal_cost_pairs,pre_snap_quantile_mean,pre_snap_quantile_std,control_grid_level_distribution,n_trajectories
+5,0.3125,0.125,0.21614583333333334,0.8197916666666667,0.1460378030872676,"{0.6: 6, 0.7: 6, 0.8: 15, 0.9: 12, 1.0: 9}",48

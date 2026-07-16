@@ -1,0 +1,85 @@
+step_number: 6
+source_config: /home/grads/g/g.lin/Documents/dad_mocu_kuramoto_v4/config/ieee5_config.yaml
+data_dir: /home/grads/g/g.lin/Documents/dad_mocu_kuramoto_v4/data/ieee5
+system_label: IEEE-5
+topology: ieee5
+run_name: ieee5
+preset: default
+n_buses: 5
+N: 5
+swing_equation:
+  topology: ieee5
+  coupling_strength: 1.0
+  damping: 0.1
+  base_power: 1.0
+  M_lower: 0.01
+  M_upper: 0.06
+  K_lower: 0.05
+  K_upper: 0.5
+  use_node_specific_damping: true
+  D_nodes:
+  - 0.08
+  - 0.14
+  - 0.1
+  - 0.09
+  - 0.11
+  P_m_nodes:
+  - 0.55
+  - -0.75
+  - 0.35
+  - 1.2
+  - 0.6
+  theta0_nodes:
+  - 0.0
+  - -0.08
+  - -0.05
+  - -0.02
+  - -0.1
+  omega0_nodes:
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  probe_amplitudes:
+  - 0.025
+  - 0.05
+  - 0.075
+  - 0.1
+  - 0.15
+  - 0.2
+  - 0.3
+  probe_duration: 0.2
+  T_obs_sec: 10.0
+  fs_hz: 12.0
+  sigma: 0.08
+prior:
+  mc_samples: 256
+  mc_support_seed: 1
+experiment:
+  step_number: 6
+  methods:
+  - random
+  - fixed_open_loop
+  - myopic_delta_h
+  - dad_spce
+  - dad_delta_h
+spce:
+  L: 512
+data_generation:
+  backend: cuda
+  cuda_batch_size: 512
+  theta_sample_size_train: 500
+  theta_sample_size_test: 200
+  train_seed: 0
+  test_seed: 1
+training:
+  objective: reinforce
+  curriculum_candidates: 64
+  curriculum_min_weight: 1.0e-08
+  reinforce_baseline_ema: 0.9
+  entropy_coef: 0.01
+  grad_clip: 1.0
+  epochs: 100
+  batch_size: 16
+  learning_rate: 0.001

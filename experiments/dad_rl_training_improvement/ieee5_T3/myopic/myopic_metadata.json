@@ -1,0 +1,26 @@
+{
+  "n_hypothetical": 1024,
+  "objective": "one_step_expected_u_ctrl",
+  "multi_step_planning": false,
+  "summary": {
+    "n": 1000,
+    "mean_u_ctrl": 0.8578000000000001,
+    "std_u_ctrl": 0.13615858401143868,
+    "median_u_ctrl": 0.9,
+    "q10_u_ctrl": 0.7,
+    "q90_u_ctrl": 1.0,
+    "unique_u_ctrl_count": 5,
+    "fraction_at_u_max": 0.369,
+    "true_safety_rate": 1.0,
+    "mean_true_u_req": 0.31904999999999994,
+    "mean_excess_control": 0.53875,
+    "median_excess_control": 0.5499999999999999,
+    "over_control_rate": 1.0,
+    "under_control_rate": 0.0,
+    "mean_runtime_per_rollout": 1.838731339490274,
+    "method": "myopic",
+    "tie_rate": 0.958,
+    "near_tie_rate": 1.0,
+    "average_co_tied_actions": 10.214333333333334
+  }
+}

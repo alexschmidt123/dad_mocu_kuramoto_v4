@@ -1,5 +1,9 @@
 #!/bin/bash
-# Phase 1: build or reuse shared train/test data (data/<config>_T<T>/).
+# Phase 1: build or reuse shared probe banks (data/<run_slug>/), then build the
+# PyCUDA control U-bank for the same data directory. Creates/links an experiment folder.
+#
+# Usage:
+#   ./scripts/data_generation.sh -config ieee5_config [-T <horizon>] [-exp-dir <folder>]
 
 set -euo pipefail
 
@@ -31,4 +35,8 @@ ARGS=(generate-data --config "$CONFIG")
 [[ -n "$T" ]] && ARGS+=(-T "$T")
 [[ -n "$EXP_DIR" ]] && ARGS+=(--exp-dir "$EXP_DIR")
 
-exec python3 -m src.cli "${ARGS[@]}"
+python3 -m src.cli "${ARGS[@]}"
+
+echo ""
+echo "=== Phase 1b: control U-bank (PyCUDA) ==="
+python3 -m src.cli generate-control-bank --config "$CONFIG"

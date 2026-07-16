@@ -1,483 +1,875 @@
-\documentclass[10pt]{article}
+\documentclass[11pt]{article}
 
 \usepackage[margin=1in]{geometry}
-\usepackage{amsmath,amssymb,bm,mathtools}
+\usepackage{amsmath,amssymb,bm}
 \usepackage{microtype}
-\usepackage[hyphens]{url}
-\usepackage{hyperref}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{caption}
 \usepackage{booktabs}
-\usepackage{enumitem}
-\usepackage{float}
+\usepackage[hidelinks]{hyperref}
 
-\urlstyle{same}
-\hypersetup{colorlinks=true,linkcolor=blue,citecolor=blue,urlcolor=blue}
-
-% ---------- Notation ----------
-\DeclareMathOperator*{\argmax}{arg\,max}
-\DeclareMathOperator*{\argmin}{arg\,min}
-\newcommand{\E}{\mathbb{E}}
-\newcommand{\N}{\mathcal{N}}
-\newcommand{\X}{\mathcal{X}}
-\newcommand{\Aset}{\mathcal{A}}
-\newcommand{\I}{\mathcal{I}}
-\newcommand{\LsPCE}{\mathcal{L}_{\mathrm{sPCE}}}
-\newcommand{\ROCOF}{\mathrm{ROCOF}}
-\newcommand{\dd}{\mathrm{d}}
-\newcommand{\MSE}{\mathrm{MSE}}
-\newcommand{\TEIG}{\mathrm{TEIG}}
-\newcommand{\yclean}{y_{\mathrm{clean}}}
-\newcommand{\yobs}{y_{\mathrm{obs}}}
+\title{Objective-Based Sequential Bayesian Experiment Design}
+\author{}
+\date{}
 
 \begin{document}
-\pagestyle{plain}
 
-\begin{center}
-{\Large \textbf{Methods}}\\[0.4em]
-{\normalsize Sequential deep adaptive design for swing-equation probing}
-\end{center}
+\maketitle
 
-\section{Methods}
-\label{sec:methods}
+\section{Methodology}
 
-We study sequential Bayesian optimal experimental design (BOED) for identifying inertia and frequency-response parameters in a linearized swing-equation model.
-The latent vector is
-\begin{equation}
-\label{eq:theta_intro}
-    \theta=(\mathbf M,\mathbf K),
-    \qquad
-    \mathbf M=(M_1,\ldots,M_{N_b}),
-    \quad
-    \mathbf K=(K_1,\ldots,K_{N_b}),
-\end{equation}
-with $N_b=14$ buses on the IEEE-14 benchmark, so $\dim\theta=2N_b=28$.
-Each experiment applies a short, ordered sequence of probing actions; after each probe, a scalar frequency-stability feature is observed.
-Designs are chosen adaptively by a history-dependent policy trained with sequential prior contrastive estimation (sPCE) in the deep adaptive design (DAD) framework~\cite{foster2021dad}.
-The primary performance criterion is an sPCE lower bound on expected information gain (EIG) about the full latent $\theta$.
-A secondary, simulation-only metric reports mean-squared error between the posterior mean $\hat\theta\in\mathbb R^{28}$ and the known test draw.
+\subsection{Problem Formulation}
 
-Throughout, ${\yclean}_t$ denotes the \emph{clean} forward-model output (noiseless max-ROCOF) and ${\yobs}_t$ the \emph{noisy} measurement used in the likelihood and in policy inputs.
-Offline tables store both fields; the policy never observes ${\yclean}_t$.
+Let
+\[
+\theta=(\mathbf M,\mathbf K)\in\Theta
+\]
+denote the uncertain inertia and fast frequency-response parameters of the IEEE 14-bus dynamic model. The experiment consists of a fixed number \(T\) of sequential probe tests. At probe step \(t\), an adaptive policy \(\pi\) selects
+\[
+\xi_t=\pi_t(h_{t-1}),
+\]
+where
+\[
+h_{t-1}
+=
+\bigl(
+(\xi_1,y_{\mathrm{obs},1}),
+\ldots,
+(\xi_{t-1},y_{\mathrm{obs},t-1})
+\bigr)
+\]
+is the available experimental history. Because \(T\) is identical for all policies, the probe budget is imposed as a constraint rather than included as a cost term.
 
-\subsection{Physical model}
-\label{sec:simulator}
+The terminal engineering decision is a scalar supplementary active-power injection
+\[
+u_{\mathrm{ctrl}}\in\mathcal U.
+\]
+Its application location, activation time, and temporal profile are fixed by the predefined terminal control scenario; only its magnitude is optimized. The probe signals are small diagnostic tests and are not themselves the risky operational intervention. Their role is analogous to a low-risk screening test performed before selecting a consequential treatment: a less informative probe does not make the probe inadmissible, but it may require a more conservative terminal action. The methodological objective is therefore to identify a sequential probe strategy that leads to the smallest posterior-safe terminal control magnitude. The resulting decision chain is
+\[
+\boxed{
+\pi
+\longrightarrow
+\xi_{1:T}
+\longrightarrow
+y_{\mathrm{obs},1:T}
+\longrightarrow
+p(\theta\mid h_T)
+\longrightarrow
+u_{\mathrm{ctrl}}(h_T).
+}
+\]
+Accordingly, the posterior distribution is an intermediate mathematical representation of system uncertainty, whereas \(u_{\mathrm{ctrl}}\) is the operational quantity that connects Bayesian inference to the final engineering action.
 
-Let $\Delta\omega(t)$ denote angular-frequency deviation from nominal.
-The linearized swing balance is
-\begin{equation}
-\label{eq:general_swing}
-    M\frac{\dd \Delta\omega(t)}{\dd t}
-    =
-    \Delta P_m(t)-\Delta P_e(t)-D\Delta\omega(t),
-\end{equation}
-with mechanical and electrical power deviations $\Delta P_m$, $\Delta P_e$, and damping $D$.
-The inertia coefficient obeys
-\begin{equation}
-\label{eq:M_def}
-    M=\frac{2HS_n}{\omega_s},
-\end{equation}
-for inertia constant $H$, rating $S_n$, and synchronous speed $\omega_s$.
-Following standard probing formulations for inertia estimation, the mechanical term is modelled as droop on frequency,
-\begin{equation}
-\label{eq:pm_droop}
-    \Delta P_m(t)=-K\Delta f(t),
-    \qquad
-    \Delta f(t)=\Delta\omega(t)/(2\pi),
-\end{equation}
-which yields the reduced equation
-\begin{equation}
-\label{eq:nrel_style_swing}
-    M\frac{\dd \Delta\omega(t)}{\dd t}
-    =
-    -\Delta P_e(t)
-    -\left(\frac{K}{2\pi}+D\right)\Delta\omega(t).
-\end{equation}
-For BOED, the probe design $\xi$ specifies an effective input $u_{\mathrm{probe}}(t;\xi)\equiv-\Delta P_e(t;\xi)$, so that
-\begin{equation}
-\label{eq:swing_model}
-    M\frac{\dd \Delta\omega(t)}{\dd t}
-    =
-    -\left(\frac{K}{2\pi}+D\right)\Delta\omega(t)
-    +u_{\mathrm{probe}}(t;\xi).
-\end{equation}
-Transient responses away from equilibrium encode information about $(M,K)$; between sequential probes the ODE state is carried forward rather than reset.
+\subsection{Probe-Response Model}
 
-The prior is
-\begin{equation}
-\label{eq:prior}
-    \theta=(M_{1:N_b},K_{1:N_b})\sim p_0(\theta),
-\end{equation}
-with independent uniform components on bus-specific intervals.
-Training and test draws use the same $p_0(\theta)$ but independent samples and noise.
-At evaluation, uncertainty is represented by a \emph{particle posterior} on $\mathbb R^{28}$, not by a low-dimensional surrogate such as a single shared scalar $(M,K)$ pair.
+The probe construction follows the physical frequency-response model used by Peng et al.~\cite{peng2024}. At the aggregate level,
+\[
+\frac{2HS_n}{\omega_s}
+\frac{d\Delta\omega(t)}{dt}
+=
+-\Delta P_e(t)
+-
+\left(
+\frac{K}{2\pi}+D
+\right)
+\Delta\omega(t),
+\]
+where \(H\) is the inertia constant, \(S_n\) is the system power base, \(\omega_s\) is synchronous angular speed, \(K\) is the aggregate fast frequency-response coefficient, \(D\) is damping, and
+\[
+\Delta\omega(t)=\omega(t)-\omega(0).
+\]
+Defining
+\[
+M=\frac{2HS_n}{\omega_s},
+\]
+the aggregate response equation becomes
+\[
+\boxed{
+M\frac{d\Delta\omega(t)}{dt}
+=
+-\Delta P_e(t)
+-
+\left(
+\frac{K}{2\pi}+D
+\right)
+\Delta\omega(t).
+}
+\label{eq:aggregate_model}
+\]
 
-\subsection{Design space, forward map, and policy}
-\label{sec:sequential_design}
+Equation~\eqref{eq:aggregate_model} provides the physical basis for the probe test. In the present study, the IEEE 14-bus simulator generates the bus-level frequency responses and determines how the design location and the parameter vector \(\theta=(\mathbf M,\mathbf K)\) affect the observation.
 
-\paragraph{Designs and histories.}
-The one-step design space is $\X$.
-A probe at step $t$ is
-\begin{equation}
-\label{eq:design_tuple}
-    \xi_t=(a_t,b_t,d_t),
-\end{equation}
-where $a_t$ is amplitude, $b_t$ the bus index, and $d_t$ duration (fixed at $0.2$\,s in our experiments).
-For horizon $T$,
-\begin{equation}
-\label{eq:design_obs_sequence}
-    \xi_{1:T}=(\xi_1,\ldots,\xi_T),
-    \qquad
-    {\yobs}_{1:T}=({\yobs}_1,\ldots,{\yobs}_T),
-\end{equation}
-and the information state after $t$ steps is
-\begin{equation}
-\label{eq:history_def}
-    h_t=\{(\xi_i,{\yobs}_i)\}_{i=1}^{t},
-    \qquad h_0=\emptyset.
-\end{equation}
-Repeated probes within one trajectory are disallowed: $\xi_t\in\Aset_t(h_{t-1})\subseteq\X$ excludes previously used actions.
+A probe design is
+\[
+\xi_t=(A_t,b_t),
+\]
+where \(A_t\) is the pulse amplitude and \(b_t\) is the injection bus. Let
+\[
+\mathcal A
+=
+\left\{
+A^{(1)},A^{(2)},\ldots,A^{(6)}
+\right\},
+\qquad
+|\mathcal A|=6,
+\]
+denote the six admissible amplitude levels, and let
+\[
+\mathcal B
+=
+\left\{
+b^{(1)},\ldots,b^{(N_b)}
+\right\}
+\]
+denote the admissible injection buses. The complete probe-design space is
+\[
+\boxed{
+\Xi=\mathcal A\times\mathcal B,
+\qquad
+N_\xi=|\Xi|=6N_b.
+}
+\label{eq:design_space}
+\]
+When all 14 buses of the IEEE 14-bus system are admissible probe locations,
+\[
+N_b=14,
+\qquad
+N_\xi=6\times14=84.
+\]
+The sequential horizon \(T\) is a configurable experimental parameter and is not fixed by the definition of the design space. The duration \(d_p\) is fixed. The injected Hann pulse is
+\[
+P_{\mathrm{probe}}(s;\xi_t)
+=
+\begin{cases}
+\displaystyle
+A_t\cos^2
+\left[
+\frac{\pi}{d_p}
+\left(
+s-\frac{d_p}{2}
+\right)
+\right],
+&
+0\le s\le d_p,
+\\[1.1em]
+0,
+&
+s>d_p.
+\end{cases}
+\label{eq:hann_probe}
+\]
+For the aggregate model, a positive probe injection gives
+\[
+\Delta P_e(s)=-P_{\mathrm{probe}}(s;\xi_t),
+\]
+and therefore
+\[
+M\frac{d\Delta\omega^{\,p}(s)}{ds}
+=
+P_{\mathrm{probe}}(s;\xi_t)
+-
+\left(
+\frac{K}{2\pi}+D
+\right)
+\Delta\omega^{\,p}(s).
+\label{eq:probe_model}
+\]
 
-\paragraph{Forward observation map.}
-The forward function $F$ maps $(\theta,\xi_t,h_{t-1})$ to a clean scalar feature,
-\begin{equation}
-\label{eq:F_def}
-    {\yclean}_t = F(\theta,\xi_t,h_{t-1})
-    = g\!\left(S(\theta,\xi_t,h_{t-1})\right),
-\end{equation}
-where $S$ is the swing-equation simulator producing $\{\Delta f(\tau),\ROCOF(\tau)\}_{\tau\in[0,T_{\mathrm{obs}}]}$ and
-\begin{equation}
-\label{eq:g_extractor}
-    g(\cdot)=\max_{\tau\in[0,T_{\mathrm{obs}}]}|\ROCOF(\tau)|.
-\end{equation}
-Observations are
-\begin{equation}
-\label{eq:yobs_noise}
-    {\yobs}_t = {\yclean}_t + \epsilon_t,
-    \qquad
-    \epsilon_t\sim\N(0,\sigma_y^2).
-\end{equation}
-Because online simulation is prohibitive at training and evaluation scale, $F$ is precomputed on a trajectory bank: for system $i$ and design $\xi^{(j)}$,
-\begin{equation}
-\label{eq:F_table}
-    \widehat F_{\mathrm{table}}(\theta^{(i)},\xi^{(j)}) = {\yclean}^{(i,j)}.
-\end{equation}
-Noisy values ${\yobs}^{(i,j)}$ are stored alongside ${\yclean}^{(i,j)}$ for each table row.
+The probe and terminal control are evaluated in separate simulations. During every probe simulation,
+\[
+u_{\mathrm{ctrl}}=0.
+\]
+Each probe also starts from the same equilibrium state \(x_0\). Thus, the terminal physical state of probe \(t\) is not propagated to probe \(t+1\); the previous experiments influence the next design only through the history \(h_t\).
 
-\paragraph{Adaptive design policy.}
-A parameterized policy $\pi_\phi$ selects designs sequentially,
-\begin{equation}
+\subsection{Max-ROCOF Observation Model}
+
+Let
+\[
+f_i^{\,p}(s;\theta,\xi_t)
+\]
+denote the simulated frequency at monitored bus \(i\). For simulation samples \(s_k\), the ROCOF estimate is
+\[
+\widehat{\mathrm{ROCOF}}_{i,k}^{\,p}
+(\theta,\xi_t)
+=
+\frac{
+f_i^{\,p}(s_{k+1};\theta,\xi_t)
+-
+f_i^{\,p}(s_k;\theta,\xi_t)
+}{
+s_{k+1}-s_k
+}.
+\]
+The clean scalar response is
+\[
+\boxed{
+y_{\mathrm{clean}}(\theta,\xi_t)
+=
+\max_{i\in\mathcal I_{\mathrm{obs}}}
+\max_k
+\left|
+\widehat{\mathrm{ROCOF}}_{i,k}^{\,p}
+(\theta,\xi_t)
+\right|,
+}
+\label{eq:y_clean}
+\]
+where \(\mathcal I_{\mathrm{obs}}\) is the set of monitored buses. If only the injection bus is observed, then
+\[
+\mathcal I_{\mathrm{obs}}=\{b_t\}.
+\]
+
+The measured response is modeled as
+\[
+\boxed{
+y_{\mathrm{obs},t}
+=
+y_{\mathrm{clean}}(\theta^\star,\xi_t)
++
+\epsilon_t,
+\qquad
+\epsilon_t\sim\mathcal N(0,\sigma_y^2),
+}
+\label{eq:y_obs}
+\]
+where \(\theta^\star\) denotes the unknown true parameter vector.
+
+The full transient contains more information than its maximum ROCOF. The scalar observation is nevertheless adopted to maintain a low-dimensional and fixed-format history for Deep Adaptive Design (DAD), thereby reducing the computational burden of sequential policy training. Its adequacy is evaluated through terminal safety and control performance rather than through parameter recovery alone.
+
+\subsection{Bayesian Belief Update}
+
+The likelihood for probe \(t\) is
+\[
+p(y_{\mathrm{obs},t}\mid\theta,\xi_t)
+=
+\mathcal N
+\left(
+y_{\mathrm{obs},t};
+y_{\mathrm{clean}}(\theta,\xi_t),
+\sigma_y^2
+\right).
+\]
+Because the probes are reset to the same equilibrium and the observation errors are conditionally independent, the posterior after \(T\) probes is
+\[
+\boxed{
+p(\theta\mid h_T)
+=
+\frac{
+p_0(\theta)
+\displaystyle\prod_{t=1}^{T}
+p(y_{\mathrm{obs},t}\mid\theta,\xi_t)
+}{
+\displaystyle
+\int_{\Theta}
+p_0(\vartheta)
+\prod_{t=1}^{T}
+p(y_{\mathrm{obs},t}\mid\vartheta,\xi_t)
+\,d\vartheta
+}.
+}
+\label{eq:posterior}
+\]
+
+With particles
+\[
+\left\{
+\theta^{(n)},w_n^{(0)}
+\right\}_{n=1}^{N},
+\]
+the posterior is approximated by
+\[
+p(\theta\mid h_t)
+\approx
+\sum_{n=1}^{N}
+w_n^{(t)}
+\delta_{\theta^{(n)}}(\theta),
+\]
+where
+\[
+\boxed{
+w_n^{(t)}
+=
+\frac{
+w_n^{(t-1)}
+p(y_{\mathrm{obs},t}\mid\theta^{(n)},\xi_t)
+}{
+\displaystyle
+\sum_{m=1}^{N}
+w_m^{(t-1)}
+p(y_{\mathrm{obs},t}\mid\theta^{(m)},\xi_t)
+}.
+}
+\label{eq:weight_update}
+\]
+
+\subsection{Model-Specific Control Requirement}
+
+The terminal control calculation is performed after all \(T\) probes and is independent of the probe simulations. During this stage,
+\[
+P_{\mathrm{probe}}(s)=0.
+\]
+
+For a hypothetical parameter vector \(\theta\) and candidate control magnitude \(u\), let
+\[
+r_{\mathrm{ctrl}}(\theta,u)
+\]
+denote the maximum absolute ROCOF obtained from the terminal control simulation, and let
+\[
+f_{\mathrm{nadir}}(\theta,u)
+\]
+denote the minimum frequency over the terminal control horizon. The minimum safe control for a known parameter vector is
+\[
+\boxed{
+u_{\mathrm{req}}(\theta)
+=
+\min
+\left\{
+u\in\mathcal U:
+r_{\mathrm{ctrl}}(\theta,u)\le r_{\max},
+\quad
+f_{\mathrm{nadir}}(\theta,u)\ge f_{\min}
+\right\}.
+}
+\label{eq:u_req}
+\]
+
+The value \(u_{\mathrm{req}}(\theta^\star)\) is unknown because the true parameter vector is unknown. Nevertheless, the mapping
+\[
+\theta\mapsto u_{\mathrm{req}}(\theta)
+\]
+is computable with the control simulator. Therefore, for every posterior particle,
+\[
+U_n
+=
+u_{\mathrm{req}}\left(\theta^{(n)}\right)
+\]
+can be evaluated offline. The resulting control-requirement bank
+\[
+\{U_1,\ldots,U_N\}
+\]
+is independent of the probe history; the probe history affects the final decision only through the posterior weights.
+
+\subsection{Posterior-Based Terminal Control}
+
+The posterior over \(\theta\) induces a posterior distribution over the required control:
+\[
+\boxed{
+p(U\mid h_T)
+\approx
+\sum_{n=1}^{N}
+w_n^{(T)}
+\delta_{U_n}(U).
+}
+\label{eq:control_posterior}
+\]
+
+Let \(\alpha\in[0,1)\) denote the admissible posterior probability that the selected control is insufficient. For a candidate magnitude \(u\),
+\[
+\Pr
+\left(
+u_{\mathrm{req}}(\theta)\le u
+\mid h_T
+\right)
+\approx
+\sum_{n=1}^{N}
+w_n^{(T)}
+\mathbf 1\{U_n\le u\}.
+\]
+The terminal engineering action is then selected as
+\[
+\boxed{
+u_{\mathrm{ctrl}}(h_T)
+=
+\min
+\left\{
+u\in\mathcal U:
+\sum_{n=1}^{N}
+w_n^{(T)}
+\mathbf 1\{U_n\le u\}
+\ge 1-\alpha
+\right\}.
+}
+\label{eq:u_ctrl}
+\]
+
+Thus, \(u_{\mathrm{ctrl}}(h_T)\) is the posterior \((1-\alpha)\)-quantile of the model-specific minimum safe control. This equation provides the direct mathematical transition from the terminal posterior to a single implementable engineering decision.
+
+
+
+\subsection{Diagnostic-Probe Feasibility and Terminal Safety}
+
+The probe stage and the terminal control stage have fundamentally different roles. Each probe is a small diagnostic perturbation used only to generate an informative observation. It is not evaluated as a candidate emergency control action, and no probe is rejected because it might imply a large terminal control requirement. During a probe simulation,
+\[
+u_{\mathrm{ctrl}}=0,
+\]
+whereas during a terminal control simulation,
+\[
+P_{\mathrm{probe}}(s)=0.
+\]
+
+The control candidate set is assumed to contain a sufficiently large value that protects every parameter value represented in the operational uncertainty set. Formally, for
+\[
+u_{\max}=\max\mathcal U,
+\]
+assume
+\[
+\boxed{
+ r_{\mathrm{ctrl}}(\theta,u_{\max})\le r_{\max},
+ \qquad
+ f_{\mathrm{nadir}}(\theta,u_{\max})\ge f_{\min},
+ \quad
+ \forall\theta\in\Theta_{\mathrm{op}}.
+}
+\label{eq:control_feasibility}
+\]
+Under Eq.~\eqref{eq:control_feasibility}, every valid probe history admits a terminal control decision. A weak probe strategy is therefore not unsafe or infeasible; it simply tends to leave more uncertainty and may consequently produce a larger posterior-safe \(u_{\mathrm{ctrl}}\). If Eq.~\eqref{eq:control_feasibility} fails for the configured control range, the control range is incomplete and must be expanded before comparing probe-selection methods.
+
+\subsection{Control-Oriented Sequential Design Objective}
+
+The probe-selection mechanism affects the terminal engineering action through
+\[
+\pi
+\longrightarrow
+\xi_{1:T}
+\longrightarrow
+h_T
+\longrightarrow
+p(\theta\mid h_T)
+\longrightarrow
+u_{\mathrm{ctrl}}(h_T).
+\]
+Because the posterior-safe control rule already incorporates the frequency-security requirements and Eq.~\eqref{eq:control_feasibility} guarantees the existence of a sufficiently conservative action, the primary design objective does not include a separate probe-level or method-level safety constraint. The common objective is
+\[
+\boxed{
+J(\pi)
+=
+\mathbb E_{\theta^\star,H_T\mid\pi}
+\left[
+u_{\mathrm{ctrl}}(H_T)
+\right],
+\qquad
+\pi^\star=\arg\min_{\pi}J(\pi),
+}
+\label{eq:policy_objective}
+\]
+subject only to the fixed probe budget
+\[
+\boxed{
+|\xi_{1:T}|=T.
+}
+\label{eq:fixed_budget}
+\]
+The expectation is taken over the unknown true system, observation noise, and any randomization in the probe-selection method. Thus, the value of a probe strategy is determined by the size of the posterior-safe terminal action that it supports, not by entropy reduction alone.
+
+True-system safety remains an important evaluation diagnostic:
+\[
+P_{\mathrm{safe}}(\pi)
+=
+\Pr_{\theta^\star,H_T\mid\pi}
+\left[
+ r_{\mathrm{ctrl}}\!\left(\theta^\star,u_{\mathrm{ctrl}}(H_T)\right)\le r_{\max},
+ \quad
+ f_{\mathrm{nadir}}\!\left(\theta^\star,u_{\mathrm{ctrl}}(H_T)\right)\ge f_{\min}
+\right].
+\]
+This quantity verifies posterior calibration, control-bank coverage, and simulator consistency. It does not determine whether a probe design is available. When strict posterior support coverage is desired, \(\alpha=0\) reduces Eq.~\eqref{eq:u_ctrl} to the maximum required control over the posterior support.
+
+\subsection{Sequential Probe-Selection Methods}
+
+The final comparison contains four methods:
+\[
+\mathcal M
+=
+\{
+\textsc{DAD},
+\textsc{Myopic},
+\textsc{Fixed},
+\textsc{Random}
+\}.
+\]
+All four use the same action space, reset-based probe simulator, noisy observation model, posterior update, control-requirement bank, posterior-safe control selector, and terminal evaluation. They differ only in how the probe designs are chosen. Table~\ref{tab:methods} summarizes their defining logic.
+
+\begin{table}[ht]
+\centering
+\caption{Probe-selection methods in the control-oriented study.}
+\label{tab:methods}
+\begin{tabular}{llll}
+\toprule
+Method & Adaptive & Horizon used in selection & Role \\
+\midrule
+DAD & Yes & Full \(T\)-step horizon & Proposed amortized policy \\
+Myopic & Yes & One next probe & Greedy objective baseline \\
+Fixed & No & Full \(T\)-probe set & Optimized nonadaptive baseline \\
+Random & No objective & None & Uninformed reference \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+DAD, Myopic, and Fixed explicitly use the terminal control objective. Random is retained as an uninformed reference and is evaluated by the same terminal engineering metric.
+
+\subsubsection{Objective-Based Deep Adaptive Design}
+
+The DAD method uses one adaptive policy trained over the complete \(T\)-probe experiment. At step \(t\), the next probe is selected from the complete accumulated history
+\[
+h_{t-1}
+=
+\left\{
+(\xi_1,y_{\mathrm{obs},1}),
+\ldots,
+(\xi_{t-1},y_{\mathrm{obs},t-1})
+\right\},
+\]
+according to
+\[
+\boxed{
+\xi_t
+\sim
+\pi_{\phi}
+\left(
+\cdot\mid h_{t-1}
+\right).
+}
 \label{eq:dad_policy}
-    \xi_t = \pi_\phi(h_{t-1}),
-    \qquad t=1,\ldots,T.
-\end{equation}
-On the IEEE-14 setup we use three amplitudes, fourteen buses, and fixed duration, giving $|\mathcal{X}|=42$ one-step actions and $P(42,T)$ feasible no-repeat sequences (e.g.\ $68{,}880$ for $T=3$).
+\]
+Thus, the policy does not use only the latest probe--observation pair. All previous probes and observations are available when the next probe is selected. When repetition is prohibited, probes already contained in \(h_{t-1}\) are masked from the available action set.
 
-\subsection{Likelihood and sequential information objective}
-\label{sec:likelihood}
+The internal history encoder is not prescribed by the objective formulation. The implementation should preserve the existing DAD policy architecture in the current codebase, provided that it processes the complete history \(h_{t-1}\). The main methodological change is the terminal training objective, not the introduction of a new GRU, LSTM, or attention architecture.
 
-Conditional on $\theta$ and the committed design sequence,
-\begin{equation}
-\label{eq:history_likelihood_product}
-    p(h_T\mid \theta,\xi_{1:T})
-    =
-    \prod_{t=1}^{T}
-    \N\big({\yobs}_t;F(\theta,\xi_t,h_{t-1}),\sigma_y^2\big).
-\end{equation}
-Under an adaptive policy, $\xi_t=\pi_\phi(h_{t-1})$ and
-\begin{equation}
-\label{eq:rollout_likelihood}
-    p(h_T\mid \theta,\pi_\phi)
-    =
-    \prod_{t=1}^{T}
-    p({\yobs}_t\mid \theta,\xi_t,h_{t-1}).
-\end{equation}
-The marginal history density is $p(h_T\mid\pi_\phi)=\int p(h_T\mid\theta,\pi_\phi)p_0(\theta)\,\dd\theta$.
+The objective-based DAD policy is trained to minimize the terminal engineering action:
+\[
+\boxed{
+J_{\mathrm{DAD}}(\phi)
+=
+\mathbb E_{\theta^\star,\epsilon_{1:T},H_T\mid\pi_{\phi}}
+\left[
+u_{\mathrm{ctrl}}(H_T)
+\right].
+}
+\label{eq:dad_objective}
+\]
+This method is non-myopic because the policy is trained using the final consequence of the complete adaptive probe sequence. An early probe is therefore valued not only by its immediate effect, but also by how its observation changes the later probe selections and the final \(u_{\mathrm{ctrl}}\).
 
-Before step $t$, belief is $p(\theta\mid h_{t-1})\propto p_0(\theta)\prod_{j<t}p({\yobs}_j\mid\theta,\xi_j,h_{j-1})$.
-The one-step information score for candidate $\xi$ is
-\begin{equation}
-\label{eq:conditional_eig}
-    \I_t(\xi\mid h_{t-1}) = I(\theta;{\yobs}_t\mid h_{t-1},\xi).
-\end{equation}
-The $T$-step objective for policy learning is
-\begin{equation}
-\label{eq:total_policy_info}
-    \I_T(\pi_\phi) = I(\theta;h_T\mid\pi_\phi),
-\end{equation}
-equivalent to expected posterior entropy reduction,
-\begin{equation}
-\label{eq:entropy_reduction_view}
-    \I_T(\pi_\phi)
-    =
-    H[p_0(\theta)]
-    -
-    \E_{p(h_T\mid\pi_\phi)}\!\left[H[p(\theta\mid h_T)]\right].
-\end{equation}
+Because the probe actions are discrete and the posterior control quantile is nondifferentiable, the existing policy-gradient or REINFORCE-style training framework may be retained. For rollout \(b\), the terminal cost \(u_{\mathrm{ctrl}}^{(b)}\) is assigned to the complete sampled trajectory
+\[
+\left(
+\xi_1^{(b)},\ldots,\xi_T^{(b)}
+\right).
+\]
+The policy parameters are updated so that trajectories producing smaller terminal \(u_{\mathrm{ctrl}}\) become more likely. A moving-average or learned baseline may be used to reduce gradient variance. The selected checkpoint is the one with the smallest validation mean \(u_{\mathrm{ctrl}}\).
 
-\subsection{Offline trajectory banks}
-\label{sec:data_generation}
+Posterior weights are used to compute the terminal \(u_{\mathrm{ctrl}}(H_T)\), but they do not need to be explicit inputs to the deployed DAD policy. Online probe selection is based on the complete observed history.
 
-We construct two independent banks $\Dtrain$ and $\Dtest$ with identical physics, design spaces, and constraints but different seeds, $\theta$ samples, and noise.
-For each training index $i$,
-\begin{equation}
-\label{eq:train_theta}
-    \theta_{\mathrm{tr}}^{(i)}\sim p_0(\theta),
-    \qquad
-    {\yclean}_{1:T}^{(i)} = F(\theta_{\mathrm{tr}}^{(i)},\xi_{1:T}),
-    \qquad
-    {\yobs}_{1:T}^{(i)} = {\yclean}_{1:T}^{(i)} + \epsilon_{1:T}^{(i)}.
-\end{equation}
-Each system row in the bank lists all feasible no-repeat sequences $\xi_{1:T}$ with paired $({\yclean}_{1:T},{\yobs}_{1:T})$.
-Test instances $\theta_{\mathrm{te}}^{(m)}$ are drawn similarly and reserved for evaluation only.
-Horizon $T$ and sample sizes $N_{\mathrm{tr}}$, $N_{\mathrm{te}}$ are experiment metadata.
+\subsubsection{Myopic Control-Oriented Design}
 
-\subsection{Policy training}
-\label{sec:spce_training}
+The Myopic method is adaptive but evaluates only the immediate consequence of the next probe. At history \(h_{t-1}\), the posterior-predictive distribution for candidate \(\xi\in\Xi_t\) is
+\[
+\boxed{
+p(y\mid h_{t-1},\xi)
+=
+\sum_{n=1}^{N}
+w_n^{(t-1)}
+\mathcal N
+\left(
+y;Y_{n,\xi},\sigma_y^2
+\right),
+}
+\label{eq:predictive_y}
+\]
+where \(Y_{n,\xi}=y_{\mathrm{clean}}(\theta^{(n)},\xi)\). For a hypothetical observation \(y\), the one-step posterior weights are
+\[
+w_n^{+}(\xi,y)
+=
+\frac{
+w_n^{(t-1)}
+\mathcal N\left(y;Y_{n,\xi},\sigma_y^2\right)
+}{
+\sum_{m=1}^{N}
+w_m^{(t-1)}
+\mathcal N\left(y;Y_{m,\xi},\sigma_y^2\right)
+}.
+\]
+The posterior-safe action that would be selected immediately after that hypothetical observation is
+\[
+u_{\mathrm{ctrl}}^{+}(\xi,y)
+=
+\min
+\left\{
+u\in\mathcal U:
+\sum_{n=1}^{N}
+w_n^{+}(\xi,y)
+\mathbf 1\{U_n\le u\}
+\ge1-\alpha
+\right\}.
+\]
+The one-step score is
+\[
+\boxed{
+J_{\mathrm{myopic}}(\xi\mid h_{t-1})
+=
+\mathbb E_{y\mid h_{t-1},\xi}
+\left[
+u_{\mathrm{ctrl}}^{+}(\xi,y)
+\right],
+}
+\label{eq:myopic_score}
+\]
+and the selected probe is
+\[
+\boxed{
+\xi_t^{\mathrm{myopic}}
+=
+\arg\min_{\xi\in\Xi_t}
+J_{\mathrm{myopic}}(\xi\mid h_{t-1}).
+}
+\label{eq:myopic_action}
+\]
+Equivalently, because the current \(u_{\mathrm{ctrl}}(h_{t-1})\) is constant across candidates, the method maximizes the expected immediate decrease
+\[
+\Delta u_{\mathrm{myopic}}(\xi\mid h_{t-1})
+=
+u_{\mathrm{ctrl}}(h_{t-1})
+-J_{\mathrm{myopic}}(\xi\mid h_{t-1}).
+\]
 
-Direct optimization of $\I_T(\pi_\phi)$ is intractable because $p(h_T\mid\pi_\phi)$ integrates over latent $\theta$ and stochastic design--observation paths.
-We therefore maximize the sPCE surrogate~\cite{foster2021dad}.
-For each training episode, draw a target $\theta_0\sim p_0$ and contrasts $\theta_{1:L}\sim p_0$, and form a history $h_T$ (designs from the bank; ${\yobs}_{1:T}$ from the same row).
-The training objective is
-\begin{equation}
-\label{eq:spce_objective}
-    \LsPCE(\phi)
-    =
-    \E\!\left[
-    \log
-    \frac{p(h_T\mid\theta_0,\pi_\phi)}
-         {\frac{1}{L+1}\sum_{\ell=0}^{L}p(h_T\mid\theta_\ell,\pi_\phi)}
-    \right],
-\end{equation}
-The policy parameters $\phi$ are \emph{not} updated by backprop through $\LsPCE$ directly; instead, a scalar reward $\widehat I_{\mathrm{sPCE}}$ from the same contrastive likelihood supplies a learning signal for discrete action choices (Section~\ref{sec:policy_train_discrete}).
+The expectation in Eq.~\eqref{eq:myopic_score} is evaluated by posterior-predictive Monte Carlo. For sample \(r\), draw
+\[
+n_r\sim\operatorname{Categorical}
+\left(w_1^{(t-1)},\ldots,w_N^{(t-1)}\right),
+\qquad
+y_r=Y_{n_r,\xi}+\epsilon_r,
+\qquad
+\epsilon_r\sim\mathcal N(0,\sigma_y^2),
+\]
+and approximate
+\[
+\widehat J_{\mathrm{myopic}}(\xi\mid h_{t-1})
+=
+\frac{1}{R}
+\sum_{r=1}^{R}
+u_{\mathrm{ctrl}}^{+}(\xi,y_r).
+\]
+Common random numbers should be used across candidate probes when feasible. The method remains genuinely myopic because it evaluates only the next posterior and ignores the effect of the remaining \(T-t\) future probes. Since the terminal control is a discrete weighted quantile, ties can occur; they are resolved by a fixed deterministic action-index rule unless a secondary tie-breaker is explicitly reported.
 
-\paragraph{Information access at training.}
-The network $\pi_\phi$ conditions only on past $(\xi,{\yobs})$ encoded as $(a_{1:t-1},{\yobs}_{1:t-1})$; it does not receive $\theta_0$ or ${\yclean}_t$.
-In the sPCE reward, $\theta_0$ is the $28$-vector of the sampled training system and enters only through banked ${\yclean}_t(\theta_0,\cdot)$ in Gaussian factors.
-Thus the reward scores how informative a realized $(\xi_{1:T},{\yobs}_{1:T})$ is about the row's latent, while $\pi_\phi$ learns which discrete probes to select.
+\subsubsection{Optimized Fixed Design}
 
-\paragraph{Monte Carlo sPCE estimator.}
-For fixed $(\xi_{1:T},{\yobs}_{1:T})$,
-\begin{equation}
-\label{eq:log_hist_likelihood}
-    \log p(h_T\mid \theta,\xi_{1:T})
-    =
-    \sum_{t=1}^{T}
-    \log
-    \N\big({\yobs}_t;{\yclean}_t(\theta,\xi_t,h_{t-1}),\sigma_y^2\big),
-\end{equation}
-with centres from the bank (no online ODE).
-The plug-in estimator is
-\begin{equation}
-\label{eq:spce_mc}
-    \widehat I_{\mathrm{sPCE}}(\theta;h_T)
-    =
-    \log p(h_T\mid \theta_0,\xi_{1:T})
-    -
-    \log\!\left(
-    \frac{1}{L+1}\sum_{\ell=0}^{L}
-    p(h_T\mid \theta_\ell,\xi_{1:T})
-    \right),
-\end{equation}
-evaluated by log-sum-exp.
-The per-step estimator is
-\begin{equation}
-\label{eq:spce_step}
-    \widehat I_{t,\mathrm{sPCE}}
-    =
-    \log \N\big({\yobs}_t;{\yclean}_t(\theta_0,\xi_t,h_{t-1}),\sigma_y^2\big)
-    -
-    \log\!\left(
-    \frac{1}{L+1}\sum_{\ell=0}^{L}
-    \N\big({\yobs}_t;{\yclean}_t(\theta_\ell,\xi_t,h_{t-1}),\sigma_y^2\big)
-    \right).
-\end{equation}
-Reported stepwise and total sPCE-EIG average $\widehat I_{t,\mathrm{sPCE}}$ over $t$ and Eq.~\eqref{eq:spce_mc} over $h_T$, respectively.
+The Fixed method is nonadaptive: all \(T\) probes are chosen before any observations are available. Under the reset-based experiment, each probe begins from the same equilibrium and the conditional likelihood factorizes as
+\[
+p(y_{1:T}\mid\theta,\xi_{1:T})
+=
+\prod_{t=1}^{T}p(y_t\mid\theta,\xi_t).
+\]
+Therefore, for a predetermined nonrepeating design, the terminal posterior is invariant to the execution order. The Fixed method consequently searches over unordered \(T\)-element subsets rather than ordered permutations.
 
-\subsubsection{Discrete policy parameterization and training}
-\label{sec:policy_train_discrete}
+Let
+\[
+\mathfrak X_T
+=
+\left\{
+\mathcal X\subseteq\Xi:
+|\mathcal X|=T
+\right\}
+\]
+be the admissible fixed-design set. The optimized fixed design is
+\[
+\boxed{
+\mathcal X_{\mathrm{fixed}}^{\star}
+=
+\arg\min_{\mathcal X\in\mathfrak X_T}
+\mathbb E_{\theta^\star,y_{\mathcal X}\mid\mathcal X}
+\left[
+u_{\mathrm{ctrl}}(H_T;\mathcal X)
+\right].
+}
+\label{eq:fixed_objective}
+\]
+For \(B_{\mathrm{fix}}\) offline Monte Carlo rollouts,
+\[
+\widehat J_{\mathrm{fix}}(\mathcal X)
+=
+\frac{1}{B_{\mathrm{fix}}}
+\sum_{b=1}^{B_{\mathrm{fix}}}
+u_{\mathrm{ctrl}}\left(H_T^{(b)};\mathcal X\right),
+\]
+and the subset with the smallest estimate is selected. No fixed design is removed for producing a large control; a large value simply gives that design a worse objective score.
 
-\paragraph{Discrete action catalogue.}
-Each one-step design $\xi\in\X$ is indexed by an integer $a\in\{0,\ldots,A-1\}$ with $A=|\mathcal{X}|$ (e.g.\ $A=42$ on IEEE-14).
-A fixed catalogue maps $a\mapsto\xi_a=(a^{\mathrm{amp}}_a,b_a,d)$.
-At step $t$, the feasible set $\Aset_t(h_{t-1})$ excludes indices already used in $h_{t-1}$ (no-repeat constraint).
+With six amplitude levels and \(N_b\) admissible buses,
+\[
+N_\xi=6N_b,
+\]
+and the number of valid nonrepeating fixed probe sets is
+\[
+\boxed{
+|\mathfrak X_T|
+=
+\binom{N_\xi}{T}
+=
+\binom{6N_b}{T}.
+}
+\label{eq:fixed_space_size}
+\]
+For the IEEE 14-bus setting in which all buses are admissible,
+\[
+|\mathfrak X_T|
+=
+\binom{84}{T}.
+\]
+Whether exhaustive subset evaluation is computationally practical therefore depends on the configured horizon \(T\). When exhaustive evaluation is not practical, a documented approximation such as beam search or Monte Carlo subset search must be used. A canonical sorted order may be used to execute and store the selected subset, but this order is an implementation convention rather than part of the mathematical design. If future experiments introduce physical state carryover, time-varying noise, or time-dependent action availability, order invariance must be reconsidered.
 
-\paragraph{Stochastic policy.}
-The policy is a categorical distribution over feasible indices,
-\begin{equation}
-\label{eq:policy_categorical}
-    \pi_\phi(a_t\mid h_{t-1})
-    =
-    \frac{\exp(\ell_{\phi,a_t}(h_{t-1}))}
-         {\sum_{a'\in\Aset_t(h_{t-1})}\exp(\ell_{\phi,a'}(h_{t-1}))},
-    \qquad
-    a_t\in\Aset_t(h_{t-1}),
-\end{equation}
-where $\ell_{\phi,a}$ are logits from a history encoder and linear head.
-Infeasible actions receive logit $-\infty$ before softmax.
-Training rollouts sample $a_t\sim\pi_\phi(\cdot\mid h_{t-1})$; evaluation uses $a_t=\arg\max_a\pi_\phi(a\mid h_{t-1})$.
+\subsubsection{Random Reference}
 
-\paragraph{History encoding (inputs to $\ell_\phi$).}
-For $t\ge1$, the network sees only prior \emph{committed} pairs $(a_i,{\yobs}_i)_{i=1}^{t-1}$.
-Each step is embedded as $[\mathbf e_{a_i};\,{\yobs}_i]\in\mathbb R^{A+1}$ with $\mathbf e_{a_i}$ the $A$-dimensional one-hot of $a_i$; step embeddings are passed through a shared MLP, masked-averaged over time, and mapped to logits over all $A$ actions.
-At $t=1$, $h_0=\emptyset$ and the encoder receives an empty history.
-No component of $\theta$ or ${\yclean}$ enters $\ell_\phi$.
+The Random method samples uniformly without replacement from the currently available probes:
+\[
+\boxed{
+\pi_{\mathrm{random}}(\xi^a\mid h_{t-1})
+=
+\frac{m_t(a)}{
+\sum_{a'=1}^{N_\xi}m_t(a')
+}.
+}
+\label{eq:random_policy}
+\]
+Sequential uniform sampling without replacement induces a uniform distribution over unordered \(T\)-element subsets because every subset has the same number of possible execution orders. Random uses the same posterior update and terminal control rule as the other methods. It does not optimize Eq.~\eqref{eq:policy_objective}; it is included only as an uninformed reference showing whether objective-guided probe selection improves the final engineering action beyond chance selection.
 
-\paragraph{Table-consistent rollouts (no ODE at train time).}
-After choosing $a_t$, the probe $\xi_{a_t}$ is fixed and the scalar ${\yobs}_t$ is read from the training trajectory bank by prefix lookup on the partial sequence $(a_1,\ldots,a_t)$.
-The ODE is never run during optimization; the policy is trained entirely on offline $(\xi,{\yobs})$ pairs consistent with the banked forward model.
+\subsection{Offline Computation}
 
-\paragraph{Policy inputs vs.\ reward (RL, not imitation).}
-The policy $\pi_\phi$ is the \emph{student}: at step $t$ it conditions only on committed history $h_{t-1}=\{(a_i,{\yobs}_i)\}_{i=1}^{t-1}$ and never on ${\yclean}$, $\theta$, or contrastive particles.
-Designs are chosen by \emph{on-policy} sampling $a_t\sim\pi_\phi(\cdot\mid h_{t-1})$; ${\yobs}_t$ is then read from the training bank for the partial sequence $(a_1,\ldots,a_t)$.
-There is no behaviour cloning, no teacher-forced alignment to fixed table rows, and no pretraining phase that copies high-sPCE trajectories.
+Two independent offline simulation banks support all methods. The probe-response bank stores
+\[
+Y_{n,a}
+=
+y_{\mathrm{clean}}(\theta^{(n)},\xi^a)
+\]
+for particle \(n\) and candidate probe \(a\). It is generated only from probe simulations and is used to evaluate likelihoods, posterior-predictive distributions, hypothetical Myopic updates, and DAD training rollouts.
 
-\paragraph{Reward for a completed on-policy rollout.}
-After the policy finishes a trajectory, a scalar reward is computed from the \emph{same} realized $(a_{1:T},{\yobs}_{1:T})$ using banked ${\yclean}$ centres on the particle support $\{\theta^{(n)}\}$ (likelihood means only; not policy inputs).
-Two variants are implemented:
-\begin{itemize}[noitemsep,leftmargin=*]
-    \item \textbf{DAD--sPCE} (\texttt{dad\_spce}): $R=\widehat I_{\mathrm{sPCE}}(\theta_0;h_T)$ in Eq.~\eqref{eq:spce_mc} with $\theta_0$ the sampled training-system latent and contrastive terms on the support; Foster contrastive protocol with fixed ${\yobs}_{1:T}$.
-    \item \textbf{DAD--$\Delta H$} (\texttt{dad\_delta\_h}): $R=H(w^{(0)})-H(w^{(T)})$ from sequential Gaussian updates with centres $F(\theta^{(n)},\cdot)$ on the support and data ${\yobs}_{1:T}$.
-\end{itemize}
-In both cases $R$ is a \emph{post-hoc} score for the rollout; it does not select actions during the rollout.
+The control-requirement bank stores
+\[
+U_n=u_{\mathrm{req}}(\theta^{(n)}),
+\]
+computed only from separate terminal control simulations. Every \(U_n\) must be finite under Eq.~\eqref{eq:control_feasibility}. Compatibility between \(Y_{n,a}\) and \(U_n\) is verified using particle values, particle ordering, network configuration, simulator version, control scenario, and units rather than by array shape alone.
 
-\paragraph{Objective: REINFORCE only.}
-Let $L_{\mathrm{pg}}(\phi)=\sum_{t=1}^{T}\log\pi_\phi(a_t\mid h_{t-1})$ along the on-policy rollout above.
-With Monte Carlo reward $R$ and exponential moving-average baseline $b$, define advantage $A=R-b$.
-One training step minimizes
-\begin{equation}
-\label{eq:reinforce_loss}
-    \mathcal L_{\mathrm{REINFORCE}}(\phi)
-    =
-    -L_{\mathrm{pg}}(\phi)\,A.
-\end{equation}
-Gradients flow only through the sampled discrete actions (log-probability terms); $R$ is treated as a scalar weight (no differentiation through the sPCE contrastive sum or particle entropy).
-Batches average $\mathcal L_{\mathrm{REINFORCE}}$ over several independent rollouts; Adam updates $\phi$ with gradient clipping.
+\subsection{Common Evaluation Protocol}
 
-\paragraph{What is \emph{not} trained.}
-The forward map $F$, the particle support, and the trajectory bank are fixed before policy training.
-Contrastive counts $L$, noise $\sigma_y$, and catalogue $\{a\mapsto\xi_a\}$ are exogenous.
-Test-time $\pi_\phi$ outputs the same discrete indices $a_t$, which are mapped to $\xi_{a_t}$ and evaluated on $\Dtest$ by table lookup.
+Each method is evaluated on the same independently sampled test systems, prior particles, observation-noise model, terminal control scenario, probe horizon \(T\), posterior risk level \(\alpha\), and control thresholds. For each rollout, the method produces a history \(H_T\), the common posterior update yields \(w_{1:N}^{(T)}\), and Eq.~\eqref{eq:u_ctrl} produces the terminal action. The selected \(u_{\mathrm{ctrl}}(H_T)\) is evaluated on the true parameter \(\theta^\star\), not on a posterior mean or on a particle selected with knowledge of \(\theta^\star\).
 
-\subsection{Evaluation protocol}
-\label{sec:eval_plain}
+The primary comparison metric is
+\[
+\boxed{
+\widehat J_m
+=
+\frac{1}{B_{\mathrm{test}}}
+\sum_{b=1}^{B_{\mathrm{test}}}
+u_{\mathrm{ctrl},m}^{(b)},
+\qquad
+m\in\mathcal M.
+}
+\]
+Lower mean terminal control is better. The median, standard deviation, empirical distribution, and upper quantiles of \(u_{\mathrm{ctrl}}\) are also reported. When \(u_{\mathrm{req}}(\theta^\star)\) is available for a test case, excess conservatism is
+\[
+u_{\mathrm{ctrl}}(H_T)-u_{\mathrm{req}}(\theta^\star).
+\]
 
-At test time the ODE is not re-run.
-Each method selects $\xi_{1:T}^{(m)}$ on instance $m$; ${\yobs}_t^{(m)}$ is retrieved from $\Dtest$ by prefix-consistent table lookup once $\xi_t^{(m)}$ is fixed.
-True $\theta_{\mathrm{te}}^{(m)}$ is withheld from design selection and used only in scoring.
+The true-system safety rate
+\[
+\widehat P_{\mathrm{safe},m}
+=
+\frac{1}{B_{\mathrm{test}}}
+\sum_{b=1}^{B_{\mathrm{test}}}
+\mathbf 1\{\text{terminal control is safe on }\theta^{\star(b)}\}
+\]
+is reported as a validation diagnostic. A low value indicates posterior miscalibration, insufficient particle support, an incomplete control range, or simulator mismatch; it does not imply that the diagnostic probe itself was unsafe. Posterior entropy and terminal EIG may be reported as secondary explanatory measures, but they do not determine the method ranking.
 
-\paragraph{Particle posterior on $\mathbb R^{28}$.}
-Let $\{\theta^{(n)}\}_{n=1}^{N}$ be a fixed support of $N$ training-bank latents, each $\theta^{(n)}=(\mathbf M^{(n)},\mathbf K^{(n)})\in\mathbb R^{28}$ with independent bus-wise entries drawn from $p_0$.
-We assign uniform prior weights $p_n^{(0)}=1/N$.
-After observing rollout $h_T^{(m)}$, the unnormalized posterior weights are
-\begin{equation}
-\label{eq:particle_posterior}
-    \tilde p_n^{(T)}
-    \propto
-    \prod_{t=1}^{T}
-    \N\big({\yobs}_t^{(m)};F(\theta^{(n)},\xi_t^{(m)},h_{t-1}^{(m)}),\sigma_y^2\big),
-    \qquad
-    p_n^{(T)}=\frac{\tilde p_n^{(T)}}{\sum_{j=1}^{N}\tilde p_j^{(T)}}.
-\end{equation}
-Thus $p^{(T)}$ is a discrete distribution on full $28$-dimensional particles; each particle carries its own per-bus $(M_b,K_b)$ and its own banked forward values $F(\theta^{(n)},\cdot)$.
-Shannon entropy is
-\begin{equation}
-\label{eq:entropy_def}
-    H[p^{(T)}]=-\sum_{n=1}^{N} p_n^{(T)}\log p_n^{(T)},
-\end{equation}
-and reported uncertainty reduction is
-\begin{equation}
-\label{eq:entropy_reduction_theta}
-    \Delta H_{\theta}^{(m)} = H[p^{(0)}]-H[p^{(T)}].
-\end{equation}
-The myopic baseline updates the same particle weights sequentially using banked ${\yclean}$ centres on this support.
+\subsection{End-to-End Computational Procedures}
 
-\paragraph{Primary metrics (information).}
-For method-produced $h_T^{(m)}$, we set $\theta_0=\theta_{\mathrm{te}}^{(m)}$ in Eqs.~\eqref{eq:spce_mc}--\eqref{eq:spce_step} and average over $m=1,\ldots,N_{\mathrm{te}}$.
-Contrastive terms draw additional $\theta_\ell\sim p_0$ (full $28$-vectors); sPCE likelihoods use banked $F(\theta_\ell,\cdot)$ on the training table.
-Information scores $(\widehat I_{t,\mathrm{sPCE}},\widehat I_{\mathrm{sPCE}})$ and $\Delta H_{\theta}$ all refer to reduction of uncertainty about the \emph{joint} latent $\theta$, not about scalar summaries of $\theta$.
+Algorithms~\ref{alg:banks}--\ref{alg:evaluation} summarize the complete implementation. The same posterior and terminal control routines are used by every method.
 
-\paragraph{Stepwise EIG vs.\ posterior entropy reduction.}
-At step $t$, the \emph{exact} expected information gain is
-\begin{equation}
-\label{eq:step_eig_exact}
-    I(\theta;{\yobs}_t\mid h_{t-1},\xi_t)
-    =
-    H[p(\theta\mid h_{t-1})]
-    -
-    \E_{p({\yobs}_t\mid h_{t-1},\xi_t)}\!\left[H[p(\theta\mid h_t)]\right].
-\end{equation}
-After observing a \emph{realized} ${\yobs}_t$, the plug-in entropy drop on the particle posterior is
-\begin{equation}
-\label{eq:step_delta_h}
-    \Delta H_t
-    =
-    H[p^{(t-1)}]-H[p^{(t)}],
-\end{equation}
-where $p^{(t)}$ is the belief in Eq.~\eqref{eq:particle_posterior} after $t$ observations.
-One has $\E[\Delta H_t\mid h_{t-1},\xi_t]=I(\theta;{\yobs}_t\mid h_{t-1},\xi_t)$ under the correct model, so $\Delta H_t$ is a single-sample Monte Carlo counterpart of step-EIG, whereas $\sum_{t=1}^{T}\Delta H_t=\Delta H_{\theta}$ need not equal total EIG when nonlinearities accumulate.
-We report:
-\begin{itemize}[noitemsep,leftmargin=*]
-    \item $\widehat I_{t,\mathrm{sPCE}}$ (Eq.~\eqref{eq:spce_step}): Foster contrastive \emph{lower bound} on step information, evaluated at $\theta_0=\theta_{\mathrm{te}}$;
-    \item $\widehat I_{\mathrm{sPCE}}$ (Eq.~\eqref{eq:spce_mc}): bound on full-history information (``Tot.sPCE'' in logs);
-    \item $\Delta H_t$ and $\Delta H_{\theta}$: discrete entropy reduction on the $N$ training particles (``step-$\Delta H$'' / ``$\Delta H$'' in logs).
-\end{itemize}
-These three are aligned in spirit but not identical: do not equate ``sPCE-EIG'' with ``$\Delta H$'' without stating that the former is a contrastive EIG bound and the latter is plug-in Shannon entropy on a finite particle support.
-Eval JSON stores per-step lists \texttt{step\_spce\_eig} and \texttt{step\_delta\_h}; summaries include \texttt{mean\_spce\_eig\_by\_step} and \texttt{mean\_delta\_h\_by\_step}.
+\par\medskip
+\captionof{algorithm}{Offline construction of shared probe and control banks}
+\label{alg:banks}
+\begin{algorithmic}[1]
+\Require Particles \(\{\theta^{(n)}\}_{n=1}^{N}\); probe set \(\Xi=\{\xi^a\}_{a=1}^{N_\xi}\); ordered control set \(\mathcal U=\{u^1<\cdots<u^{N_u}\}\); safety limits \(r_{\max}\), \(f_{\min}\)
+\Ensure Probe bank \(Y\), finite control-requirement bank \(U\), and validated metadata
+\For{\(n=1,\ldots,N\)}
+    \For{\(a=1,\ldots,N_\xi\)}
+        \State Reset the probe simulator to the common equilibrium \(x_0\)
+        \State Set \(u_{\mathrm{ctrl}}\gets0\) and apply only probe \(\xi^a\)
+        \State Store \(Y_{n,a}\gets y_{\mathrm{clean}}(\theta^{(n)},\xi^a)\)
+    \EndFor
+    \State Reset the terminal control simulator and set \(P_{\mathrm{probe}}\gets0\)
+    \State Test \(u\in\mathcal U\) in increasing order and store the first safe value as \(U_n\)
+    \If{no candidate control is safe}
+        \State Stop with a configuration error and enlarge \(\mathcal U\)
+    \EndIf
+\EndFor
+\State Validate particle identity, ordering, network, scenario, simulator version, and units
+\end{algorithmic}
 
-\paragraph{Secondary metric (recovery in $\mathbb R^{28}$).}
-The posterior mean is the barycenter of particles,
-\begin{equation}
-\label{eq:posterior_mean_vector}
-    \hat\theta^{(m)}
-    =
-    \sum_{n=1}^{N} p_n^{(T)}\,\theta^{(n)}
-    \in\mathbb R^{28},
-\end{equation}
-with bus blocks $\hat{\mathbf M}^{(m)}$ and $\hat{\mathbf K}^{(m)}$.
-Against the known test vector $\theta_{\mathrm{te}}^{(m)}$, we report
-\begin{equation}
-\label{eq:mse_instance}
-    \mathrm{MSE}_{\theta}^{(m)}
-    =
-    \|\hat\theta^{(m)}-\theta_{\mathrm{te}}^{(m)}\|_2^2
-    =
-    \sum_{b=1}^{N_b}\big(\hat M_b^{(m)}-M_b^{(m)}\big)^2
-    +\sum_{b=1}^{N_b}\big(\hat K_b^{(m)}-K_b^{(m)}\big)^2.
-\end{equation}
-Component-wise summaries ($\mathrm{MSE}_M$, $\mathrm{MSE}_K$) average squared errors over buses within each block.
-Higher sPCE-EIG does not imply lower $\mathrm{MSE}_{\theta}$.
+\par\medskip
+\captionof{algorithm}{Preparation of DAD, Myopic, Fixed, and Random methods}
+\label{alg:method_preparation}
+\begin{algorithmic}[1]
+\Require Shared banks \(Y,U\), prior particles and weights, probe horizon \(T\)
+\Ensure Trained DAD policy, optimized Fixed subset, and configured Myopic/Random methods
+\State Initialize the DAD policy parameters \(\phi\) and variance-reduction baseline
+\Repeat
+    \For{\(b=1,\ldots,B\)}
+        \State Sample \(\theta^{\star(b)}\) and initialize empty history and action mask
+        \For{\(t=1,\ldots,T\)}
+            \State Provide the complete history \(h_{t-1}^{(b)}\) to the DAD policy and sample \(\xi_t^{(b)}\sim\pi_\phi(\cdot\mid h_{t-1}^{(b)})\)
+            \State Generate a noisy probe observation and append it to the history
+        \EndFor
+        \State Update posterior weights from the complete history
+        \State Compute terminal cost \(u_{\mathrm{ctrl}}^{(b)}\)
+    \EndFor
+    \State Update \(\phi\) with the existing policy-gradient training routine using terminal cost \(u_{\mathrm{ctrl}}\)
+\Until{the DAD stopping criterion is satisfied}
+\State Select the DAD checkpoint with minimum validation mean \(u_{\mathrm{ctrl}}\)
+\For{each subset \(\mathcal X\in\mathfrak X_T\)}
+    \State Estimate \(\widehat J_{\mathrm{fix}}(\mathcal X)\) using complete \(T\)-probe rollouts
+\EndFor
+\State Select \(\mathcal X_{\mathrm{fixed}}^{\star}=\arg\min_{\mathcal X}\widehat J_{\mathrm{fix}}(\mathcal X)\)
+\State Configure Myopic using Eq.~\eqref{eq:myopic_action}
+\State Configure Random using Eq.~\eqref{eq:random_policy}
+\end{algorithmic}
 
-\paragraph{Baselines.}
-We compare four strategies on identical $\Dtest$ instances:
-\begin{itemize}[noitemsep,leftmargin=*]
-    \item \emph{Random:} uniform feasible $\xi_t\in\Aset_t(h_{t-1})$.
-    \item \emph{Fixed open-loop:} single $\xi_{1:T}$ applied to all test systems (default: first training-bank sequence).
-    \item \emph{Myopic $\Delta H$:} greedy maximization of Eq.~\eqref{eq:myopic_delta_h} on the particle support $\{\theta^{(n)}\}$, with banked centres $F(\theta^{(n)},\xi)$ and plug-in mean $\hat{\yobs}=\sum_n p_n^{(t-1)}F(\theta^{(n)},\xi)$.
-    \item \emph{DAD--sPCE:} $\xi_t=\pi_\phi(h_{t-1})$ with $\pi_\phi$ trained as above.
-\end{itemize}
-All methods share the same scoring routine for sPCE-EIG, $\Delta H$, and MSE.
-The myopic score is
-\begin{equation}
-\label{eq:myopic_delta_h}
-    \Delta H_t(\xi)
-    =
-    H[p^{(t-1)}]
-    -
-    H\!\left[p^{(t-1)} \cdot \N(\hat{\yobs};F(\theta^{(n)},\xi),\sigma_y^2)\right].
-\end{equation}
-Here $p^{(t-1)}$ denotes the particle weights $(p_1^{(t-1)},\ldots,p_N^{(t-1)})$ on $\{\theta^{(n)}\}_{n=1}^N$.
+\par\medskip
+\captionof{algorithm}{Unified rollout and evaluation for all four methods}
+\label{alg:evaluation}
+\begin{algorithmic}[1]
+\Require Method \(m\in\{\textsc{DAD},\textsc{Myopic},\textsc{Fixed},\textsc{Random}\}\); true system \(\theta^\star\); shared banks \(Y,U\); \(T,\alpha,\sigma_y^2\)
+\Ensure Terminal \(u_{\mathrm{ctrl}}\), true-system diagnostic, and rollout record
+\State Initialize \(h_0\gets\varnothing\), posterior weights \(w^{(0)}\), and available set \(\Xi_1\gets\Xi\)
+\For{\(t=1,\ldots,T\)}
+    \If{\(m=\textsc{DAD}\)}
+        \State Select \(\xi_t\) from the trained policy using the complete history \(h_{t-1}\)
+    \ElsIf{\(m=\textsc{Myopic}\)}
+        \State Evaluate Eq.~\eqref{eq:myopic_score} for every \(\xi\in\Xi_t\) and choose the minimum
+    \ElsIf{\(m=\textsc{Fixed}\)}
+        \State Select the next element of the canonically ordered \(\mathcal X_{\mathrm{fixed}}^{\star}\)
+    \Else
+        \State Sample \(\xi_t\) uniformly from \(\Xi_t\)
+    \EndIf
+    \State Reset the probe simulator to \(x_0\), set \(u_{\mathrm{ctrl}}\gets0\), and apply \(\xi_t\)
+    \State Generate \(y_{\mathrm{obs},t}=y_{\mathrm{clean}}(\theta^\star,\xi_t)+\epsilon_t\), \(\epsilon_t\sim\mathcal N(0,\sigma_y^2)\)
+    \State Update posterior weights and append \((\xi_t,y_{\mathrm{obs},t})\) to the history
+    \State Remove \(\xi_t\) from \(\Xi_t\) when repetition is prohibited
+\EndFor
+\State Compute \(u_{\mathrm{ctrl}}(H_T)\) using Eq.~\eqref{eq:u_ctrl}
+\State Reset the terminal control simulator, set \(P_{\mathrm{probe}}\gets0\), and apply only \(u_{\mathrm{ctrl}}(H_T)\)
+\State Record terminal control, posterior coverage, true-system safety, and excess control
+\State \Return rollout results
+\end{algorithmic}
 
-\subsection{Summary}
-\label{sec:logic_summary}
+The algorithms preserve the central engineering distinction: the probes are diagnostic tests, while \(u_{\mathrm{ctrl}}\) is the consequential terminal intervention. Poor probe choices remain admissible but generally lead to a more conservative final action.
 
-The proposed pipeline is: (i)~simulate and tabulate $({\yclean},{\yobs})$ for all feasible probe sequences under $p_0(\theta)$;
-(ii)~train $\pi_\phi$ by sPCE with histories that expose only $(\xi,{\yobs})$;
-(iii)~evaluate frozen policies and baselines by table lookup on $\Dtest$, updating a particle posterior on $\mathbb R^{28}$ with sPCE-EIG and $\Delta H$ as primary information metrics and $\|\hat\theta-\theta_{\mathrm{te}}\|_2^2$ as a secondary recovery diagnostic.
-The forward map $F=g\circ S$ encodes swing dynamics and max-ROCOF extraction; sequential coupling enters through carried ODE state in $h_{t-1}$.
-
-% --- Bibliography stub (replace with your .bib) ---
 \begin{thebibliography}{9}
-\bibitem{foster2021dad}
-A.~Foster, A.~Rahimi, and Y.~Gal, ``Deep adaptive design,'' in \emph{Proc.\ ICML}, 2021.
+
+\bibitem{peng2024}
+J. Peng, J. Tan, P. Koralewicz, E. Mendiola, S. Dong, A. Hoke, and K. Horowitz,
+``Probing Signal-Based Inertia and Frequency Response Estimation for Power Systems With High Levels of Inverter-Based Resources,''
+in \emph{2024 IEEE Power \& Energy Society General Meeting (PESGM)},
+Seattle, WA, USA, 2024, pp. 1--5,
+doi: 10.1109/PESGM51994.2024.10688937.
+
 \end{thebibliography}
 
 \end{document}

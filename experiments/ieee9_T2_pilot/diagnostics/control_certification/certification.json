@@ -1,0 +1,27 @@
+{
+  "passed": true,
+  "rates": {
+    "train": {
+      "u_bank_particle_safety_rate": 1.0,
+      "maximum_control_safety_rate": 1.0,
+      "oracle_control_safety_rate": 1.0,
+      "passed": true
+    },
+    "test": {
+      "u_bank_particle_safety_rate": 1.0,
+      "maximum_control_safety_rate": 1.0,
+      "oracle_control_safety_rate": 1.0,
+      "passed": true
+    }
+  },
+  "infeasible_particle_count": {
+    "train": 0,
+    "test": 0
+  },
+  "requirement": {
+    "P_safe_oracle": 1.0,
+    "P_safe_u_max": 1.0,
+    "P_safe_U_bank": 1.0,
+    "infeasible_particle_count": 0
+  }
+}

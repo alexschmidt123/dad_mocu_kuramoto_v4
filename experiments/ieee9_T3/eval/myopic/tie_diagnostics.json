@@ -1,0 +1,10 @@
+{
+  "exact_tie_rate": 1.0,
+  "near_tie_rate": 1.0,
+  "mean_exact_ties_per_rollout": 95.342,
+  "mean_near_ties_per_rollout": 96.758,
+  "median_co_tied_action_count": 52.0,
+  "mean_score_gap": 0.0010064583333333382,
+  "action_index_tie_break_count": 2019,
+  "mean_runtime_per_decision": 0.16232667537623396
+}

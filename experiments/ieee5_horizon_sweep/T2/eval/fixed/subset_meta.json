@@ -1,0 +1,48 @@
+{
+  "selected_action_ids": [
+    10,
+    11
+  ],
+  "selected_amplitudes": [
+    0.1,
+    0.1
+  ],
+  "selected_buses": [
+    0,
+    1
+  ],
+  "estimated_mean_u_ctrl": 0.73046875,
+  "number_of_subsets_evaluated": 435,
+  "search_runtime": 0.7686337898485363,
+  "search_seed": 7,
+  "search_mode": "exhaustive",
+  "used_test_systems": false,
+  "terminal_rule": {
+    "terminal_rule_hash": "dc0dc35332b394b7",
+    "quantile_level": 0.95,
+    "additive_margin": 0.4,
+    "alpha": 0.05,
+    "snap_up": true,
+    "control_grid_hash": "3697ea3799e74809",
+    "u_candidates": [
+      0.0,
+      0.05,
+      0.1,
+      0.15,
+      0.2,
+      0.25,
+      0.3,
+      0.35,
+      0.4,
+      0.45,
+      0.5,
+      0.6,
+      0.7,
+      0.8,
+      0.9,
+      1.0
+    ],
+    "source": "/home/grads/g/g.lin/Documents/dad_mocu_kuramoto_v4/experiments/ieee5_horizon_sweep/T2/diagnostics/control_safety_calibration/calibrated_terminal_rule.json",
+    "rule": "snap_up(Q_{1-alpha}(U|w) + margin)"
+  }
+}

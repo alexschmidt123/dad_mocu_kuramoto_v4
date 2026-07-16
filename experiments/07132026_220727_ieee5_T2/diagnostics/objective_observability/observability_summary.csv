@@ -1,0 +1,2 @@
+prior_u_ctrl,unique_final_u_ctrl_count,final_u_ctrl_mean,final_u_ctrl_std,final_u_ctrl_min,final_u_ctrl_median,final_u_ctrl_max,fraction_changed_from_prior,fraction_reduced_from_prior,fraction_increased_from_prior,true_safety_rate,mean_excess_control,real_spearman,shuffled_spearman,gate_passed
+1.0,7,0.79095,0.16349494640508008,0.45,0.8,1.0,0.807,0.807,0.0,1.0,0.47765,0.4443705343785322,-0.034674855472798756,True

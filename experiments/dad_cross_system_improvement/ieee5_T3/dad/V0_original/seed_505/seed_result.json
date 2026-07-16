@@ -1,0 +1,23 @@
+{
+  "variant": "V0_original",
+  "seed": 505,
+  "J0_fixed_init": 0.8999999999999999,
+  "J0_safety": 1.0,
+  "selected_checkpoint_id": 1,
+  "selected_is_checkpoint_0": false,
+  "selected_validation_mean_u_ctrl": 0.8916666666666666,
+  "selected_validation_safety": 1.0,
+  "selected_dominant_sequence": [
+    11,
+    14,
+    7
+  ],
+  "selected_dominant_fraction": 1.0,
+  "selected_sequence_entropy": -0.0,
+  "delta_vs_fixed_init": -0.008333333333333304,
+  "classification": "improved",
+  "telescope_ok": true,
+  "telescope_checks": 0,
+  "include_checkpoint_zero": false,
+  "use_value_baseline": false
+}

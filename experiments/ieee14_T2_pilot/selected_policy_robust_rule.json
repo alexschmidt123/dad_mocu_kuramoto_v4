@@ -1,0 +1,80 @@
+{
+  "rule": {
+    "alpha": 0.05,
+    "margin": 1.4,
+    "quantile_level": 0.95,
+    "u_candidates": [
+      0.0,
+      0.08,
+      0.16,
+      0.24,
+      0.32,
+      0.4,
+      0.48,
+      0.56,
+      0.64,
+      0.72,
+      0.8,
+      0.88,
+      0.96,
+      1.04,
+      1.12,
+      1.2,
+      1.28,
+      1.36,
+      1.44,
+      1.52,
+      1.6
+    ],
+    "snap_up": true,
+    "formula": "snap_up(Q_{1-alpha}(U|w) + margin)",
+    "selection": {
+      "criterion": "least_conservative_common_margin_with_safety_1.0_on_random_fixed_myopic_cal_and_val",
+      "base_calibration_margin": 1.4,
+      "fixed_subset_for_calibration_histories": [
+        8,
+        14
+      ],
+      "validation_mean_u_ctrl": 1.5099999999999998,
+      "ieee5_ieee9_margin_reused": false
+    }
+  },
+  "alpha": 0.05,
+  "margin": 1.4,
+  "quantile_level": 0.95,
+  "u_candidates": [
+    0.0,
+    0.08,
+    0.16,
+    0.24,
+    0.32,
+    0.4,
+    0.48,
+    0.56,
+    0.64,
+    0.72,
+    0.8,
+    0.88,
+    0.96,
+    1.04,
+    1.12,
+    1.2,
+    1.28,
+    1.36,
+    1.44,
+    1.52,
+    1.6
+  ],
+  "snap_up": true,
+  "formula": "snap_up(Q_{1-alpha}(U|w) + margin)",
+  "selection": {
+    "criterion": "least_conservative_common_margin_with_safety_1.0_on_random_fixed_myopic_cal_and_val",
+    "base_calibration_margin": 1.4,
+    "fixed_subset_for_calibration_histories": [
+      8,
+      14
+    ],
+    "validation_mean_u_ctrl": 1.5099999999999998,
+    "ieee5_ieee9_margin_reused": false
+  }
+}

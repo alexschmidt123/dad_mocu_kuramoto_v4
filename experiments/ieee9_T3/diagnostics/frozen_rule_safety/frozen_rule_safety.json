@@ -1,0 +1,57 @@
+{
+  "passed": true,
+  "terminal_rule_hash": "5b4c2191621b1bbc",
+  "alpha": 0.05,
+  "margin": 0.9,
+  "T": 3,
+  "calibration_safety_by_policy": {
+    "random": {
+      "safety_rate": 1.0,
+      "mean_u_ctrl": 0.9888000000000002,
+      "n_rollouts": 400
+    },
+    "fixed": {
+      "safety_rate": 1.0,
+      "mean_u_ctrl": 0.9726000000000002,
+      "n_rollouts": 400
+    },
+    "myopic": {
+      "safety_rate": 1.0,
+      "mean_u_ctrl": 0.9824,
+      "n_rollouts": 400
+    },
+    "exploratory_dad_proxy": {
+      "safety_rate": 1.0,
+      "mean_u_ctrl": 0.9894000000000002,
+      "n_rollouts": 400
+    }
+  },
+  "validation_safety_by_policy": {
+    "random": {
+      "safety_rate": 1.0,
+      "mean_u_ctrl": 0.9788000000000002,
+      "n_rollouts": 400
+    },
+    "fixed": {
+      "safety_rate": 1.0,
+      "mean_u_ctrl": 0.9858000000000001,
+      "n_rollouts": 400
+    },
+    "myopic": {
+      "safety_rate": 1.0,
+      "mean_u_ctrl": 0.9750000000000003,
+      "n_rollouts": 400
+    },
+    "exploratory_dad_proxy": {
+      "safety_rate": 1.0,
+      "mean_u_ctrl": 0.9854000000000002,
+      "n_rollouts": 400
+    }
+  },
+  "fixed_subset_for_safety_check": [
+    36,
+    38,
+    41
+  ],
+  "test_systems_used": false
+}

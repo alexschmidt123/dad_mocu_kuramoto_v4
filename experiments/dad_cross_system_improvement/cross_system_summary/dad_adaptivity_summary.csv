@@ -1,0 +1,6 @@
+system_T,selected_seed,selected_checkpoint_id,classification,observation_dependent,dominant_sequence,dominant_fraction,sequence_entropy
+ieee5_T2,101,0,effectively nonadaptive,False,"[23, 24]",1.0,-0.0
+ieee5_T3,303,24,effectively nonadaptive,False,"[18, 19, 25]",0.8333333333333334,0.45056120886630463
+ieee5_T4,404,22,effectively nonadaptive,False,"[8, 19, 28, 18]",1.0,-0.0
+ieee9_T2,101,0,effectively nonadaptive,False,"[13, 18]",1.0,-0.0
+ieee9_T3,101,0,effectively nonadaptive,False,"[0, 4, 6]",1.0,-0.0

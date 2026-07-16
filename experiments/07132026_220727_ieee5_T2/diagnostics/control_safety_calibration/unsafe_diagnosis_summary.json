@@ -1,0 +1,10 @@
+{
+  "n_rollouts": 1000,
+  "n_unsafe": 72,
+  "n_under_control": 290,
+  "mean_under_control_among_unsafe": 0.28055555555555556,
+  "mean_cdf_at_u_req_among_unsafe": 0.9998084690676059,
+  "mean_ess_among_unsafe": 1.4275887549280282,
+  "invariant_checked": true,
+  "invariant_failures": []
+}

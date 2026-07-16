@@ -1,0 +1,174 @@
+[
+  {
+    "key": "ieee5_T2",
+    "system": "ieee5",
+    "T": 2,
+    "config": "ieee5_config",
+    "source_rule_exp": "experiments/ieee5_T3",
+    "source_run_exp": "experiments/ieee5_policy_robust_calibration_T2/rerun_T2",
+    "source_split_exp": "experiments/ieee5_policy_robust_calibration_T2/rerun_T2",
+    "fixed_meta_path": "experiments/ieee5_dad_adaptive_value_diagnosis/adaptive_value_summary.json",
+    "fixed_key": [
+      "T2",
+      "exact_fixed_subset"
+    ],
+    "fixed_value_key": [
+      "T2",
+      "exact_fixed_value"
+    ],
+    "exact_or_approximate": "exact",
+    "search_space_size": 435,
+    "fixed": {
+      "system": "ieee5",
+      "T": 2,
+      "sequence": [
+        23,
+        24
+      ],
+      "exact_or_approximate": "exact",
+      "search_mode": "exact",
+      "search_space_size": 435,
+      "candidates_evaluated": 435,
+      "validation_mean_u_ctrl": 0.8083333333333332,
+      "source_path": "/home/grads/g/g.lin/Documents/dad_mocu_kuramoto_v4/experiments/ieee5_dad_adaptive_value_diagnosis/adaptive_value_summary.json"
+    }
+  },
+  {
+    "key": "ieee5_T3",
+    "system": "ieee5",
+    "T": 3,
+    "config": "ieee5_config",
+    "source_rule_exp": "experiments/ieee5_T3",
+    "source_run_exp": "experiments/ieee5_T3",
+    "source_split_exp": "experiments/ieee5_T3",
+    "fixed_meta_path": "experiments/ieee5_dad_adaptive_value_diagnosis/adaptive_value_summary.json",
+    "fixed_key": [
+      "T3",
+      "exact_fixed_subset"
+    ],
+    "fixed_value_key": [
+      "T3",
+      "exact_fixed_value"
+    ],
+    "exact_or_approximate": "exact",
+    "search_space_size": 4060,
+    "fixed": {
+      "system": "ieee5",
+      "T": 3,
+      "sequence": [
+        18,
+        19,
+        25
+      ],
+      "exact_or_approximate": "exact",
+      "search_mode": "exact",
+      "search_space_size": 4060,
+      "candidates_evaluated": 4060,
+      "validation_mean_u_ctrl": 0.7833333333333333,
+      "source_path": "/home/grads/g/g.lin/Documents/dad_mocu_kuramoto_v4/experiments/ieee5_dad_adaptive_value_diagnosis/adaptive_value_summary.json"
+    }
+  },
+  {
+    "key": "ieee5_T4",
+    "system": "ieee5",
+    "T": 4,
+    "config": "ieee5_config",
+    "source_rule_exp": "experiments/ieee5_T4",
+    "source_run_exp": "experiments/ieee5_T4",
+    "source_split_exp": "experiments/ieee5_T4",
+    "fixed_meta_path": "experiments/ieee5_T4/eval/fixed_exact/selected_fixed_subset.json",
+    "fixed_key": null,
+    "fixed_value_key": null,
+    "exact_or_approximate": "exact",
+    "search_space_size": 27405,
+    "fixed": {
+      "system": "ieee5",
+      "T": 4,
+      "sequence": [
+        8,
+        19,
+        20,
+        28
+      ],
+      "exact_or_approximate": "exact",
+      "search_mode": "exact",
+      "search_space_size": 27405,
+      "candidates_evaluated": 27405,
+      "validation_mean_u_ctrl": 0.7791666666666668,
+      "source_path": "/home/grads/g/g.lin/Documents/dad_mocu_kuramoto_v4/experiments/ieee5_T4/eval/fixed_exact/selected_fixed_subset.json"
+    }
+  },
+  {
+    "key": "ieee9_T2",
+    "system": "ieee9",
+    "T": 2,
+    "config": "ieee9_config",
+    "source_rule_exp": "experiments/ieee9_T2_pilot",
+    "source_run_exp": "experiments/ieee9_T2_pilot",
+    "source_split_exp": "experiments/ieee9_T2_pilot",
+    "fixed_meta_path": "experiments/ieee9_adaptive_value_diagnosis/adaptive_value_summary.json",
+    "fixed_key": [
+      "T2",
+      "fixed_subset"
+    ],
+    "fixed_value_key": [
+      "T2",
+      "J_fixed"
+    ],
+    "exact_or_approximate": "exact",
+    "search_space_size": 1431,
+    "fixed": {
+      "system": "ieee9",
+      "T": 2,
+      "sequence": [
+        13,
+        18
+      ],
+      "exact_or_approximate": "exact",
+      "search_mode": "exact",
+      "search_space_size": 1431,
+      "candidates_evaluated": 1431,
+      "validation_mean_u_ctrl": 0.9633333333333333,
+      "source_path": "/home/grads/g/g.lin/Documents/dad_mocu_kuramoto_v4/experiments/ieee9_adaptive_value_diagnosis/adaptive_value_summary.json"
+    }
+  },
+  {
+    "key": "ieee9_T3",
+    "system": "ieee9",
+    "T": 3,
+    "config": "ieee9_config",
+    "source_rule_exp": "experiments/ieee9_T3",
+    "source_run_exp": "experiments/ieee9_T3",
+    "source_split_exp": "experiments/ieee9_T3",
+    "fixed_meta_path": "experiments/ieee9_adaptive_value_diagnosis/adaptive_value_summary.json",
+    "fixed_key": [
+      "T3",
+      "fixed_subset"
+    ],
+    "fixed_value_key": [
+      "T3",
+      "J_fixed"
+    ],
+    "exact_or_approximate": "exact",
+    "search_space_size": 24804,
+    "candidates_evaluated_key": [
+      "T3",
+      "candidates_evaluated"
+    ],
+    "fixed": {
+      "system": "ieee9",
+      "T": 3,
+      "sequence": [
+        0,
+        4,
+        6
+      ],
+      "exact_or_approximate": "exact",
+      "search_mode": "exact",
+      "search_space_size": 24804,
+      "candidates_evaluated": 24804,
+      "validation_mean_u_ctrl": 0.96,
+      "source_path": "/home/grads/g/g.lin/Documents/dad_mocu_kuramoto_v4/experiments/ieee9_adaptive_value_diagnosis/adaptive_value_summary.json"
+    }
+  }
+]

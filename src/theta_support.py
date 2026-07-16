@@ -45,7 +45,7 @@ class ThetaMCSupport:
         return cls(M=M, K=K, log_p0=log_prior_uniform_discrete(n))
 
     def f_steps(self, sim, catalog, sequence: list[int]) -> np.ndarray:
-        """Sequential noiseless F; shape ``(T, N)`` for ``posterior_after_gaussian_observations``."""
+        """Reset-based noiseless F; shape ``(T, N)`` for posterior updates."""
         seq = [int(a) for a in sequence]
         n, t_len = len(self.M), len(seq)
         out = np.zeros((t_len, n), dtype=np.float64)

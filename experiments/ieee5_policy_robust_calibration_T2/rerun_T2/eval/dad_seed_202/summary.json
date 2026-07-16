@@ -1,0 +1,76 @@
+{
+  "n": 1000,
+  "mean_u_ctrl": 0.8511000000000002,
+  "std_u_ctrl": 0.13667036986852713,
+  "median_u_ctrl": 0.9,
+  "q10_u_ctrl": 0.6,
+  "q90_u_ctrl": 1.0,
+  "unique_u_ctrl_count": 5,
+  "fraction_at_u_max": 0.31,
+  "true_safety_rate": 1.0,
+  "mean_true_u_req": 0.31904999999999994,
+  "mean_excess_control": 0.5320499999999999,
+  "median_excess_control": 0.5,
+  "over_control_rate": 1.0,
+  "under_control_rate": 0.0,
+  "mean_runtime_per_rollout": 0.07115665117069148,
+  "method": "dad_seed_202",
+  "terminal_rule": {
+    "terminal_rule_hash": "c2e2af33cb68a5ea",
+    "quantile_level": 0.95,
+    "additive_margin": 0.55,
+    "alpha": 0.05,
+    "snap_up": true,
+    "control_grid_hash": "3697ea3799e74809",
+    "u_candidates": [
+      0.0,
+      0.05,
+      0.1,
+      0.15,
+      0.2,
+      0.25,
+      0.3,
+      0.35,
+      0.4,
+      0.45,
+      0.5,
+      0.6,
+      0.7,
+      0.8,
+      0.9,
+      1.0
+    ],
+    "source": "/home/grads/g/g.lin/Documents/dad_mocu_kuramoto_v4/experiments/ieee5_policy_robust_calibration_T2/rerun_T2/selected_policy_robust_rule.json",
+    "rule": "snap_up(Q_{1-alpha}(U|w) + margin)"
+  },
+  "probe_behavior": {
+    "action_frequency": {
+      "1": 1000,
+      "13": 1000
+    },
+    "amplitude_frequency": {
+      "0.05": 1000,
+      "0.1": 1000
+    },
+    "bus_frequency": {
+      "1": 1000,
+      "3": 1000
+    },
+    "action_pair_frequency": {
+      "1,13": 1000
+    },
+    "repeat_action_count": 0
+  },
+  "decision_behavior": {
+    "fraction_changed_from_prior": 0.69,
+    "fraction_reduced_from_prior": 0.69,
+    "fraction_increased_from_prior": 0.0,
+    "mean_prior_u_ctrl": 1.0
+  },
+  "posterior_behavior": {
+    "mean_ess": 1.2477215258191798,
+    "mean_max_weight": 0.9026187136724662,
+    "mean_posterior_mean_U": 0.28805522624710994,
+    "mean_posterior_mean_U_error": -0.03099477375289008
+  }
+}

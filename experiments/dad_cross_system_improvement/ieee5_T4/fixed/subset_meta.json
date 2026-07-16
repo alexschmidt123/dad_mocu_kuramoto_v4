@@ -1,0 +1,37 @@
+{
+  "selected_action_ids": [
+    8,
+    19,
+    20,
+    28
+  ],
+  "selected_amplitudes": [
+    0.075,
+    0.15,
+    0.2,
+    0.3
+  ],
+  "selected_buses": [
+    3,
+    4,
+    0,
+    3
+  ],
+  "estimated_mean_u_ctrl": 0.7791666666666668,
+  "validation_mean_u_ctrl": 0.7791666666666668,
+  "validation_safety": 1.0,
+  "number_of_subsets_evaluated": 27405,
+  "search_space_size": 27405,
+  "search_mode": "exact",
+  "exact_or_approximate": "exact",
+  "used_test_systems": false,
+  "used_confirmation_systems": false,
+  "source_path": "/home/grads/g/g.lin/Documents/dad_mocu_kuramoto_v4/experiments/ieee5_T4/eval/fixed_exact/selected_fixed_subset.json",
+  "terminal_rule": {
+    "terminal_rule_hash": "c2e2af33cb68a5ea",
+    "alpha": 0.05,
+    "additive_margin": 0.55
+  },
+  "system": "ieee5",
+  "T": 4
+}

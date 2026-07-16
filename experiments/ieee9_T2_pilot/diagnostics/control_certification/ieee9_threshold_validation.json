@@ -1,0 +1,13 @@
+{
+  "ieee9_independent_validation": true,
+  "copied_from_ieee5": false,
+  "selected_setting": {
+    "control_bus": 6,
+    "contingency_bus": 1,
+    "contingency_magnitude": -0.05,
+    "rocof_limit_hz_s": 22.0,
+    "delta_f_nadir_hz": -0.75,
+    "u_max": 1.2
+  },
+  "rationale": "IEEE9 thresholds independently retuned for certification, nondegenerate U, and non-clipped terminal control under Random-history safety-1.0 calibration."
+}

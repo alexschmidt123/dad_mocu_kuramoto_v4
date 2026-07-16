@@ -1,7 +1,9 @@
 """
-PyCUDA batch swing-equation integration for offline data generation.
+PyCUDA batch swing-equation integration for offline one-step data generation.
 
-One CUDA thread simulates one full T-step trajectory (history-dependent).
+One CUDA thread simulates one reset-based (theta, action) probe. Sequential BOED
+histories are assembled by table lookup; the physical response is not
+history-dependent.
 Required for data generation (``data_generation.backend: cuda``, default).
 """
 
@@ -203,6 +205,11 @@ class CudaTrajectoryEngine:
         progress_label: str = "",
     ) -> list[dict]:
         T = len(sequences[0]) if sequences else 0
+        if T != 1:
+            raise ValueError(
+                "reset-based data generation only supports one-step action rows; "
+                "pass sequences like [(action,)]"
+            )
         n_traj = len(sequences)
         n_steps = int(math.ceil(max(self.T_obs, float(np.max(self._dur)) + 0.5) / self.ode_dt))
         seq_arr = np.ascontiguousarray(np.array(sequences, dtype=np.int32).reshape(-1))

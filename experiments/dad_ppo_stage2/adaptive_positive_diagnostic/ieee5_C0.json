@@ -1,0 +1,56 @@
+{
+  "source": "ieee5 training bank only",
+  "horizon": 2,
+  "particle_ids": [
+    44,
+    43,
+    35,
+    39,
+    41,
+    9,
+    16,
+    40,
+    36
+  ],
+  "available_actions": [
+    2,
+    9,
+    14,
+    15,
+    22,
+    25
+  ],
+  "first_action": 15,
+  "observation_bin_edges": [
+    1.4958852064070338,
+    1.982521296993255
+  ],
+  "second_action_by_bin": [
+    22,
+    9,
+    9
+  ],
+  "best_fixed_sequence": [
+    14,
+    22
+  ],
+  "search_best_fixed_cost": 0.8617187499999999,
+  "search_reference_adaptive_tree_cost": 0.8347656249999998,
+  "best_fixed_cost": 0.8647216796874999,
+  "reference_adaptive_tree_cost": 0.8352050781249999,
+  "adaptive_advantage": 0.029516601562500022,
+  "adaptive_advantage_ci95": [
+    0.026513671875000006,
+    0.0325927734375
+  ],
+  "distinct_branch_actions": 2,
+  "verified_positive_adaptive_advantage": true,
+  "uses_training_data_only": true,
+  "uses_physical_ode": false,
+  "uses_fixed_or_myopic_labels": false,
+  "objective": "terminal_u_ctrl",
+  "search_scenarios": 512,
+  "independent_verification_scenarios": 4096,
+  "seed": 7319,
+  "name": "C0"
+}

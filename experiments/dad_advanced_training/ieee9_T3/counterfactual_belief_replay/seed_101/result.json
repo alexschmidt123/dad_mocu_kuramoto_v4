@@ -1,0 +1,69 @@
+{
+  "system": "ieee9",
+  "variant": "R5",
+  "seed": 101,
+  "best_update": 20,
+  "best_validation": {
+    "mean_u_ctrl": 0.9733333333333333,
+    "std_u_ctrl": 0.049888765156985884,
+    "median_u_ctrl": 0.96,
+    "q10_u_ctrl": 0.96,
+    "q90_u_ctrl": 0.96,
+    "safety": 1.0,
+    "dominant_sequence": [
+      12,
+      48,
+      9
+    ],
+    "dominant_sequence_fraction": 1.0,
+    "unique_sequences": 1,
+    "sequence_entropy": -0.0,
+    "entropy_t1": 3.9809141159057617,
+    "entropy_t2": 3.9458010296026864,
+    "entropy_t3": 3.932455559571584
+  },
+  "critic": {
+    "update": 80,
+    "actor_loss": -0.008551443926990032,
+    "critic_loss": 0.000556211220100522,
+    "mean_training_terminal_cost": 1.0000000000000002,
+    "mean_entropy": 3.75042462348938,
+    "available_action_fraction_evaluated": 1.0,
+    "mean_u_ctrl": 0.98,
+    "std_u_ctrl": 0.057735026918962595,
+    "median_u_ctrl": 0.96,
+    "q10_u_ctrl": 0.96,
+    "q90_u_ctrl": 1.016,
+    "safety": 1.0,
+    "dominant_sequence": [
+      48,
+      12,
+      39
+    ],
+    "dominant_sequence_fraction": 0.8333333333333334,
+    "unique_sequences": 2,
+    "sequence_entropy": 0.45056120886630463,
+    "entropy_t1": 3.684990167617798,
+    "entropy_t2": 3.9146661857763925,
+    "entropy_t3": 3.925076484680176,
+    "critic_mae": 0.026982394978404045,
+    "critic_rmse": 0.037331558763980865,
+    "critic_spearman": 0.06592180376864061,
+    "critic_top1_agreement": 0.0,
+    "critic_top5_recall": 0.0,
+    "critic_calibration_by_predicted_cost_bin": "[{\"bin\": 0, \"count\": 64, \"mean_predicted_cost\": 0.9315237998962402, \"mean_realized_cost\": 0.9618749618530273}, {\"bin\": 1, \"count\": 64, \"mean_predicted_cost\": 0.9383482933044434, \"mean_realized_cost\": 0.9637499451637268}, {\"bin\": 2, \"count\": 63, \"mean_predicted_cost\": 0.9439743161201477, \"mean_realized_cost\": 0.9758729338645935}, {\"bin\": 3, \"count\": 64, \"mean_predicted_cost\": 0.9519923329353333, \"mean_realized_cost\": 0.9781250357627869}, {\"bin\": 4, \"count\": 64, \"mean_predicted_cost\": 0.9589180946350098, \"mean_realized_cost\": 0.9793750047683716}]"
+  },
+  "counters": {
+    "trajectories": 960,
+    "sampled_histories": 2880,
+    "counterfactual_actions": 50572,
+    "posterior_predictive_samples": 202288,
+    "continuation_policy_decisions": 184504,
+    "critic_updates": 80,
+    "actor_updates": 80
+  },
+  "elapsed_seconds": 113.5912718991749,
+  "random_initialization": true,
+  "confirmation_used_for_selection": false,
+  "action_space_fraction_evaluated": 1.0
+}

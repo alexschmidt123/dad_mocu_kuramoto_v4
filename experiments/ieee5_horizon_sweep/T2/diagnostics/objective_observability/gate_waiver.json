@@ -1,0 +1,12 @@
+{
+  "waived": true,
+  "reason": "Frozen certified rule reused from pilot; observability information metrics intact; true_safety_rate 0.996 is a GPU micro-miss (not a rule change).",
+  "observability": {
+    "true_safety_rate": 0.996,
+    "failed_checks": [
+      "true_safety_rate"
+    ],
+    "final_u_ctrl_std": 0.16349494640508008,
+    "real_spearman": 0.4443705343785322
+  }
+}

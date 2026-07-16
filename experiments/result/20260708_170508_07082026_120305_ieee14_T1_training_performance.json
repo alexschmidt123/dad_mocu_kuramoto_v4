@@ -1,0 +1,152 @@
+{
+  "check": "training_performance",
+  "phase": "evaluation",
+  "experiment_dir": "/home/grads/g/g.lin/Documents/dad_mocu_kuramoto_v4/experiments/07082026_120305_ieee14_T1",
+  "comparison_rows": [
+    {
+      "System": "IEEE-14",
+      "Run": "run",
+      "T": "1",
+      "N_b": "14",
+      "Method": "random",
+      "sPCE_1..T": "[1.4038]",
+      "Tot.sPCE": "1.4038",
+      "\u0394H_1..T": "[1.4021]",
+      "\u0394H": "1.4021",
+      "MSE_\u03b8": "0.246130",
+      "train_s": "-",
+      "test_s": "0.0022"
+    },
+    {
+      "System": "IEEE-14",
+      "Run": "run",
+      "T": "1",
+      "N_b": "14",
+      "Method": "fixed_open_loop",
+      "sPCE_1..T": "[2.6847]",
+      "Tot.sPCE": "2.6847",
+      "\u0394H_1..T": "[2.8193]",
+      "\u0394H": "2.8193",
+      "MSE_\u03b8": "0.260593",
+      "train_s": "-",
+      "test_s": "0.0016"
+    },
+    {
+      "System": "IEEE-14",
+      "Run": "run",
+      "T": "1",
+      "N_b": "14",
+      "Method": "myopic_delta_h",
+      "sPCE_1..T": "[2.9235]",
+      "Tot.sPCE": "2.9235",
+      "\u0394H_1..T": "[2.9149]",
+      "\u0394H": "2.9149",
+      "MSE_\u03b8": "0.259811",
+      "train_s": "-",
+      "test_s": "0.0330"
+    },
+    {
+      "System": "IEEE-14",
+      "Run": "run",
+      "T": "1",
+      "N_b": "14",
+      "Method": "dad_spce",
+      "sPCE_1..T": "[2.7983]",
+      "Tot.sPCE": "2.7983",
+      "\u0394H_1..T": "[2.8074]",
+      "\u0394H": "2.8074",
+      "MSE_\u03b8": "0.261727",
+      "train_s": "52.9",
+      "test_s": "0.0030"
+    },
+    {
+      "System": "IEEE-14",
+      "Run": "run",
+      "T": "1",
+      "N_b": "14",
+      "Method": "dad_delta_h",
+      "sPCE_1..T": "[2.7931]",
+      "Tot.sPCE": "2.7931",
+      "\u0394H_1..T": "[2.8618]",
+      "\u0394H": "2.8618",
+      "MSE_\u03b8": "0.262421",
+      "train_s": "51.7",
+      "test_s": "0.0017"
+    }
+  ],
+  "summaries": {
+    "random": {
+      "spce_by_step": [
+        1.403781580286419
+      ],
+      "delta_h_by_step": [
+        1.4020523193860381
+      ],
+      "total_spce": 1.403781580286419,
+      "delta_h": 1.4020523193860381,
+      "theta_sample_size": 200,
+      "mse_theta": 0.24612952266076416,
+      "std_mse_theta": 0.06632084255828412
+    },
+    "fixed_open_loop": {
+      "spce_by_step": [
+        2.6846722977542448
+      ],
+      "delta_h_by_step": [
+        2.8192714111803885
+      ],
+      "total_spce": 2.6846722977542448,
+      "delta_h": 2.8192714111803885,
+      "theta_sample_size": 200,
+      "mse_theta": 0.2605927683387226,
+      "std_mse_theta": 0.07245891675108357
+    },
+    "myopic_delta_h": {
+      "spce_by_step": [
+        2.9235120040681046
+      ],
+      "delta_h_by_step": [
+        2.9148646503518374
+      ],
+      "total_spce": 2.9235120040681046,
+      "delta_h": 2.9148646503518374,
+      "theta_sample_size": 200,
+      "mse_theta": 0.2598109797673388,
+      "std_mse_theta": 0.07216465662422816
+    },
+    "dad_spce": {
+      "spce_by_step": [
+        2.7983361658626795
+      ],
+      "delta_h_by_step": [
+        2.8073931424018896
+      ],
+      "total_spce": 2.7983361658626795,
+      "delta_h": 2.8073931424018896,
+      "theta_sample_size": 200,
+      "mse_theta": 0.261727435530908,
+      "std_mse_theta": 0.07590625697592272
+    },
+    "dad_delta_h": {
+      "spce_by_step": [
+        2.7931138939679077
+      ],
+      "delta_h_by_step": [
+        2.8618234962356177
+      ],
+      "total_spce": 2.7931138939679077,
+      "delta_h": 2.8618234962356177,
+      "theta_sample_size": 200,
+      "mse_theta": 0.2624210370432524,
+      "std_mse_theta": 0.07479608702288018
+    }
+  },
+  "training_performance": {
+    "myopic_delta_h": 2.9148646503518374,
+    "dad_spce_delta_h": 2.8073931424018896,
+    "dad_delta_h_delta_h": 2.8618234962356177,
+    "best_dad_delta_h": 2.8618234962356177,
+    "passed": false,
+    "verdict": "FAIL: DAD did not reach myopic mean \u0394H on the evaluation split."
+  }
+}

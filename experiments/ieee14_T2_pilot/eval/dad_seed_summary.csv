@@ -1,0 +1,11 @@
+variant,seed,J0_fixed_init,selected_checkpoint_id,selected_is_checkpoint_0,selected_validation_mean_u_ctrl,selected_validation_safety,selected_dominant_sequence,selected_dominant_fraction,selected_sequence_entropy,delta_vs_fixed_init,classification,telescope_ok,telescope_checks
+V1_fixed_init_terminal,101,1.4933333333333334,0,True,1.4933333333333334,1.0,"[55, 56]",1.0,-0.0,0.0,tied,True,0
+V1_fixed_init_terminal,202,1.4933333333333334,0,True,1.4933333333333334,1.0,"[55, 56]",1.0,-0.0,0.0,tied,True,0
+V1_fixed_init_terminal,303,1.4933333333333334,0,True,1.4933333333333334,1.0,"[55, 56]",1.0,-0.0,0.0,tied,True,0
+V1_fixed_init_terminal,404,1.4933333333333334,0,True,1.4933333333333334,1.0,"[55, 56]",1.0,-0.0,0.0,tied,True,0
+V1_fixed_init_terminal,505,1.4933333333333334,0,True,1.4933333333333334,1.0,"[55, 56]",1.0,-0.0,0.0,tied,True,0
+V2_fixed_init_potential,101,1.4933333333333334,0,True,1.4933333333333334,1.0,"[55, 56]",1.0,-0.0,0.0,tied,True,3120
+V2_fixed_init_potential,202,1.4933333333333334,0,True,1.4933333333333334,1.0,"[55, 56]",1.0,-0.0,0.0,tied,True,3120
+V2_fixed_init_potential,303,1.4933333333333334,0,True,1.4933333333333334,1.0,"[55, 56]",1.0,-0.0,0.0,tied,True,3120
+V2_fixed_init_potential,404,1.4933333333333334,0,True,1.4933333333333334,1.0,"[55, 56]",1.0,-0.0,0.0,tied,True,3120
+V2_fixed_init_potential,505,1.4933333333333334,0,True,1.4933333333333334,1.0,"[55, 56]",1.0,-0.0,0.0,tied,True,3120

@@ -1,0 +1,13 @@
+screen_key,fixed_validation_mean_u_ctrl,variant,seed,J0_fixed_init,J0_safety,selected_checkpoint_id,selected_is_checkpoint_0,selected_validation_mean_u_ctrl,selected_validation_safety,selected_dominant_sequence,selected_dominant_fraction,selected_sequence_entropy,delta_vs_fixed_init,classification,telescope_ok,telescope_checks,include_checkpoint_zero,use_value_baseline
+ieee5_T2,0.8416666666666668,V0_original,101,0.9250000000000002,1.0,4,False,0.8333333333333334,1.0,"[16, 13]",1.0,-0.0,-0.09166666666666679,improved,True,0,False,False
+ieee5_T2,0.8416666666666668,V0_original,202,0.8916666666666666,1.0,4,False,0.85,1.0,"[11, 28]",1.0,-0.0,-0.04166666666666663,improved,True,0,False,False
+ieee5_T2,0.8416666666666668,V1_fixed_init_terminal,101,0.8416666666666668,1.0,0,True,0.8416666666666668,1.0,"[23, 24]",1.0,-0.0,0.0,tied,True,0,True,False
+ieee5_T2,0.8416666666666668,V1_fixed_init_terminal,202,0.8416666666666668,1.0,0,True,0.8416666666666668,1.0,"[23, 24]",1.0,-0.0,0.0,tied,True,0,True,False
+ieee5_T2,0.8416666666666668,V2_fixed_init_potential,101,0.8416666666666668,1.0,0,True,0.8416666666666668,1.0,"[23, 24]",1.0,-0.0,0.0,tied,True,1040,True,False
+ieee5_T2,0.8416666666666668,V2_fixed_init_potential,202,0.8416666666666668,1.0,0,True,0.8416666666666668,1.0,"[23, 24]",1.0,-0.0,0.0,tied,True,1040,True,False
+ieee5_T2,0.8416666666666668,V3_fixed_init_potential_normadv,101,0.8416666666666668,1.0,0,True,0.8416666666666668,1.0,"[23, 24]",1.0,-0.0,0.0,tied,True,1040,True,False
+ieee5_T2,0.8416666666666668,V3_fixed_init_potential_normadv,202,0.8416666666666668,1.0,0,True,0.8416666666666668,1.0,"[23, 24]",1.0,-0.0,0.0,tied,True,1040,True,False
+ieee5_T2,0.8416666666666668,V4_fixed_init_value_baseline,101,0.8416666666666668,1.0,0,True,0.8416666666666668,1.0,"[23, 24]",1.0,-0.0,0.0,tied,True,0,True,True
+ieee5_T2,0.8416666666666668,V4_fixed_init_value_baseline,202,0.8416666666666668,1.0,0,True,0.8416666666666668,1.0,"[23, 24]",1.0,-0.0,0.0,tied,True,0,True,True
+ieee5_T2,0.8416666666666668,V5_fixed_init_terminal_kl,101,0.8416666666666668,1.0,0,True,0.8416666666666668,1.0,"[23, 24]",1.0,-0.0,0.0,tied,True,0,True,False
+ieee5_T2,0.8416666666666668,V5_fixed_init_terminal_kl,202,0.8416666666666668,1.0,0,True,0.8416666666666668,1.0,"[23, 24]",1.0,-0.0,0.0,tied,True,0,True,False

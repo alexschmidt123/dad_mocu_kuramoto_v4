@@ -1,0 +1,13 @@
+{
+  "observation_to_second_action_dependence": false,
+  "unique_second_actions": [
+    56
+  ],
+  "first_action": 55,
+  "fixed_sequence": [
+    55,
+    56
+  ],
+  "selected_seed": 101,
+  "selected_checkpoint_id": 0
+}

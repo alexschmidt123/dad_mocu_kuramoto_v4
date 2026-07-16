@@ -29,7 +29,7 @@ To run **both** and keep the **dynamic MATLAB run aligned with the Python test**
 
 3. **Compare:** `python -m src check --simulink-report` runs the Python ODE (probe at bus 1) and prints MATLAB vs Python max-ROCOF when `matlab/results/fourteen_bus_dynamic/ScopeBus*.csv` exist.
 
-**Alignment:** Python uses `SwingSimulator` with `T_obs_sec` from `config/fast_config.yaml` (default 5 s). The dynamic .mdl uses **StopTime 5 s** and 50 Hz nominal frequency.
+**Alignment:** Python uses `SwingSimulator` with `T_obs_sec` from `config/ieee14_config.yaml`. The dynamic .mdl should use the matching stop time and 50 Hz nominal frequency.
 
 ## Difference between fourteen_bus and fourteen_bus_dynamic
 

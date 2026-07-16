@@ -1,0 +1,84 @@
+{
+  "system": "ieee5",
+  "seed": 303,
+  "label": "adaptive_positive_population",
+  "config": {
+    "label": "adaptive_positive_population",
+    "architecture": {
+      "belief_encoder": "B2",
+      "history_encoder": "H1",
+      "hidden": 128,
+      "particle_embedding": 96,
+      "attention_heads": 4,
+      "history_layers": 2
+    },
+    "updates": 100,
+    "trajectories_per_update": 48,
+    "total_trajectory_budget": 4800,
+    "actor_learning_rate": 0.0003,
+    "value_learning_rate": 0.001,
+    "ppo_clip": 0.2,
+    "ppo_epochs": 5,
+    "target_kl": 0.03,
+    "gamma": 1.0,
+    "gae_lambda": 0.98,
+    "entropy_strategy": "E1",
+    "normalization_strategy": "A0",
+    "grad_clip": 1.0,
+    "validation_interval": 10,
+    "validation_noise_replicas": 16,
+    "patience": 60
+  },
+  "parameter_count_actor": 372558,
+  "parameter_count_value": 368817,
+  "best_update": 50,
+  "final_update": 100,
+  "best_validation": {
+    "mean_u_ctrl": 0.8333333333333334,
+    "std_u_ctrl": 0.149071198499986,
+    "median_u_ctrl": 0.7,
+    "q10_u_ctrl": 0.7,
+    "q90_u_ctrl": 1.0,
+    "safety": 1.0,
+    "dominant_sequence": [
+      15,
+      22
+    ],
+    "dominant_sequence_fraction": 0.6111111111111112,
+    "unique_sequences": 2,
+    "sequence_entropy": 0.6682484776645385,
+    "entropy_t1": 1.1726539134979248,
+    "entropy_t2": 0.9100910400350889
+  },
+  "final_validation": {
+    "mean_u_ctrl": 0.8333333333333334,
+    "std_u_ctrl": 0.149071198499986,
+    "median_u_ctrl": 0.7,
+    "q10_u_ctrl": 0.7,
+    "q90_u_ctrl": 1.0,
+    "safety": 1.0,
+    "dominant_sequence": [
+      15,
+      14
+    ],
+    "dominant_sequence_fraction": 0.5138888888888888,
+    "unique_sequences": 2,
+    "sequence_entropy": 0.692761328460975,
+    "entropy_t1": 0.6957126259803772,
+    "entropy_t2": 0.3140699085779488
+  },
+  "degradation_after_best": 0.0,
+  "most_adaptive_score": 0.0,
+  "counters": {
+    "trajectories": 4800,
+    "transitions": 9600,
+    "actor_updates": 489,
+    "value_updates": 489,
+    "kl_early_stops": 16
+  },
+  "elapsed_seconds": 69.7536630879622,
+  "random_initialization": true,
+  "confirmation_used_for_selection": false,
+  "reward": "negative_terminal_u_ctrl",
+  "gamma": 1.0
+}

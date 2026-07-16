@@ -1,0 +1,49 @@
+{
+  "name": "C0",
+  "source": "ieee9 training bank only",
+  "horizon": 2,
+  "particle_ids": [
+    35,
+    94,
+    27,
+    88,
+    4,
+    77,
+    32,
+    43
+  ],
+  "available_actions": [
+    10,
+    19,
+    22,
+    28,
+    34,
+    36,
+    43
+  ],
+  "first_action": 10,
+  "observation_bin_edges": [
+    1.5787510273716279,
+    2.2430942291439915
+  ],
+  "second_action_by_bin": [
+    36,
+    36,
+    22
+  ],
+  "best_fixed_sequence": [
+    10,
+    36
+  ],
+  "best_fixed_cost": 1.07947265625,
+  "reference_adaptive_tree_cost": 1.06486328125,
+  "adaptive_advantage": 0.014609375000000036,
+  "adaptive_advantage_ci95": [
+    0.01279296875,
+    0.0164453125
+  ],
+  "verified_positive_adaptive_advantage": true,
+  "uses_training_data_only": true,
+  "expert_action_labels_used": false,
+  "uses_physical_ode": false
+}

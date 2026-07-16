@@ -1,0 +1,34 @@
+{
+  "selected_action_ids": [
+    18,
+    19,
+    25
+  ],
+  "selected_amplitudes": [
+    0.15,
+    0.15,
+    0.3
+  ],
+  "selected_buses": [
+    3,
+    4,
+    0
+  ],
+  "estimated_mean_u_ctrl": 0.7833333333333333,
+  "validation_mean_u_ctrl": 0.7833333333333333,
+  "validation_safety": 1.0,
+  "number_of_subsets_evaluated": 4060,
+  "search_space_size": 4060,
+  "search_mode": "exact",
+  "exact_or_approximate": "exact",
+  "used_test_systems": false,
+  "used_confirmation_systems": false,
+  "source_path": "/home/grads/g/g.lin/Documents/dad_mocu_kuramoto_v4/experiments/ieee5_dad_adaptive_value_diagnosis/adaptive_value_summary.json",
+  "terminal_rule": {
+    "terminal_rule_hash": "c2e2af33cb68a5ea",
+    "alpha": 0.05,
+    "additive_margin": 0.55
+  },
+  "system": "ieee5",
+  "T": 3
+}

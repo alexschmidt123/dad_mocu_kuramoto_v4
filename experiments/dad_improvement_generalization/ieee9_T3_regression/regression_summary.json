@@ -1,0 +1,21 @@
+{
+  "passed": true,
+  "fixed_sequence_loaded": [
+    0,
+    3,
+    47
+  ],
+  "fixed_source": "/home/grads/g/g.lin/Documents/dad_mocu_kuramoto_v4/experiments/ieee9_T3/eval/fixed/subset_meta.json",
+  "terminal_rule_hash": "5b4c2191621b1bbc",
+  "bc_reproduction_rate": 1.0,
+  "vs_fixed_replay": {
+    "mean_difference": 0.0,
+    "max_absolute_difference": 0.0,
+    "fraction_exactly_equal": 1.0,
+    "sequence_match_rate": 1.0,
+    "n": 48,
+    "passed": true
+  },
+  "validation_mean_u_ctrl": 0.98,
+  "notes": "Regression only: generalized Fixed-BC must reproduce IEEE9 Fixed-init equality without hard-coding the sequence in dad_fixed_init.py."
+}

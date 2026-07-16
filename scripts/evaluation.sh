@@ -1,5 +1,8 @@
 #!/bin/bash
-# Phase 3: evaluate all methods → experiments/<run>/eval/
+# Phase 5: evaluate DAD, Myopic, Fixed, and Random → experiments/<run>/eval/
+#
+# Usage:
+#   ./scripts/evaluation.sh -exp-dir <experiment_folder> [-method <method>]
 
 set -euo pipefail
 

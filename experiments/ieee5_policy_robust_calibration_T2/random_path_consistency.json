@@ -1,0 +1,15 @@
+{
+  "observability_legacy": {
+    "observation": "banked lookup_action_y (no keyed noise)",
+    "particles": "full train (~64) via TableThetaSupport.from_train",
+    "reported_safety": "~1.0 / 0.996"
+  },
+  "pilot_baseline_random": {
+    "observation": "keyed y_sim + sigma*z",
+    "particles": "support split (~40)",
+    "reported_safety": 0.986
+  },
+  "unified_path": "src.control.shared_rollout.run_keyed_history",
+  "identical_seeds_identical_histories": true,
+  "cause_of_0_986": "Keyed-noise + support-particle Random produced ESS-collapse under-control on a few development-test systems (u_ctrl < u_req); observability used a different observation/particle path and therefore disagreed."
+}

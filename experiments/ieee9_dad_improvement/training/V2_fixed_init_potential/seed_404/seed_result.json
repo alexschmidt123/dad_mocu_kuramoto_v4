@@ -1,0 +1,22 @@
+{
+  "variant": "V2_fixed_init_potential",
+  "seed": 404,
+  "J0_fixed_init": 0.98,
+  "J0_safety": 1.0,
+  "selected_checkpoint_id": 0,
+  "selected_is_checkpoint_0": true,
+  "selected_validation_mean_u_ctrl": 0.98,
+  "selected_validation_safety": 1.0,
+  "selected_dominant_sequence": [
+    0,
+    3,
+    47
+  ],
+  "selected_dominant_fraction": 1.0,
+  "selected_sequence_entropy": -0.0,
+  "delta_vs_fixed_init": 0.0,
+  "classification": "tied",
+  "telescope_ok": true,
+  "telescope_checks": 3120,
+  "n_candidates": 31
+}

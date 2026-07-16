@@ -1,0 +1,541 @@
+{
+  "check": "information_redundancy",
+  "passed": false,
+  "config_name": "ieee5",
+  "run_slug": "ieee5",
+  "data_path": "/home/grads/g/g.lin/Documents/dad_mocu_kuramoto_v4/data/ieee5",
+  "information_redundancy_config": {
+    "horizon": 2,
+    "particle_count": 256,
+    "predictive_mc_samples": 128,
+    "bootstrap_replicates": 1000,
+    "min_greedy_gap_nats": 0.2772588722239781,
+    "min_adaptivity_gap_nats": 0.11090354888959125,
+    "confidence_level": 0.95,
+    "calibration_seeds": [
+      0,
+      1,
+      2
+    ],
+    "action_subset": null,
+    "require_adaptivity": true
+  },
+  "seed_results": [
+    {
+      "seed": 0,
+      "mc_greedy_first_action": 23,
+      "plug_myopic_first_action": 34,
+      "oracle_first_action": 28,
+      "first_action_mismatch": true,
+      "v_star": 4.435057479368248,
+      "v_myopic": 4.224512438620838,
+      "v_adaptive": 4.366223294235898,
+      "v_best_fixed": 4.266257607218737,
+      "g_full": 0.21054504074740965,
+      "g_adapt": 0.09996568701716058,
+      "g_full_ci": {
+        "mean": 0.14171085561505944,
+        "lower": 0.048480287775983906,
+        "upper": 0.23951659656489863,
+        "confidence_level": 0.95,
+        "n_replicates": 1000
+      },
+      "g_adapt_ci": {
+        "mean": 0.0999656870171607,
+        "lower": 0.026385234401912032,
+        "upper": 0.16847220714565012,
+        "confidence_level": 0.95,
+        "n_replicates": 1000
+      },
+      "g_full_pass": false,
+      "g_adapt_pass": false,
+      "top_eig_actions": [
+        [
+          18,
+          2.7926933459601946
+        ],
+        [
+          33,
+          2.7892647610488166
+        ],
+        [
+          28,
+          2.787674911603887
+        ],
+        [
+          23,
+          2.778343308416116
+        ],
+        [
+          8,
+          2.7590981408325703
+        ],
+        [
+          13,
+          2.7268580978093793
+        ],
+        [
+          3,
+          2.7194388090768093
+        ],
+        [
+          4,
+          2.5992503185962423
+        ],
+        [
+          34,
+          2.5741748909182287
+        ],
+        [
+          9,
+          2.540565315063782
+        ]
+      ],
+      "branch_report": {
+        "first_action": 28,
+        "n_unique_second_actions": 21,
+        "quantile_bins": [
+          {
+            "bin": 0,
+            "y_lo": 2.958097953563345,
+            "y_hi": 4.187773081835701,
+            "n_samples": 26,
+            "dominant_second_action": 30,
+            "action_counts": {
+              "9": 1,
+              "14": 2,
+              "19": 2,
+              "20": 1,
+              "21": 1,
+              "24": 2,
+              "29": 3,
+              "30": 10,
+              "34": 4
+            }
+          },
+          {
+            "bin": 1,
+            "y_lo": 4.187773081835701,
+            "y_hi": 4.7351123058156155,
+            "n_samples": 25,
+            "dominant_second_action": 34,
+            "action_counts": {
+              "4": 1,
+              "9": 3,
+              "14": 2,
+              "19": 2,
+              "24": 3,
+              "29": 5,
+              "34": 9
+            }
+          },
+          {
+            "bin": 2,
+            "y_lo": 4.7351123058156155,
+            "y_hi": 5.604026253751604,
+            "n_samples": 26,
+            "dominant_second_action": 24,
+            "action_counts": {
+              "4": 1,
+              "9": 1,
+              "11": 1,
+              "14": 2,
+              "19": 2,
+              "24": 6,
+              "26": 1,
+              "29": 5,
+              "32": 1,
+              "34": 6
+            }
+          },
+          {
+            "bin": 3,
+            "y_lo": 5.604026253751604,
+            "y_hi": 7.35853541958117,
+            "n_samples": 25,
+            "dominant_second_action": 30,
+            "action_counts": {
+              "1": 1,
+              "4": 1,
+              "6": 3,
+              "9": 2,
+              "10": 1,
+              "14": 1,
+              "19": 1,
+              "20": 2,
+              "22": 1,
+              "25": 1,
+              "29": 3,
+              "30": 7,
+              "34": 1
+            }
+          },
+          {
+            "bin": 4,
+            "y_lo": 7.35853541958117,
+            "y_hi": 9.743658366902771,
+            "n_samples": 26,
+            "dominant_second_action": 6,
+            "action_counts": {
+              "0": 1,
+              "1": 3,
+              "4": 1,
+              "6": 4,
+              "11": 2,
+              "14": 2,
+              "16": 1,
+              "19": 2,
+              "24": 1,
+              "27": 3,
+              "30": 2,
+              "32": 2,
+              "34": 2
+            }
+          }
+        ]
+      }
+    },
+    {
+      "seed": 1,
+      "mc_greedy_first_action": 33,
+      "plug_myopic_first_action": 34,
+      "oracle_first_action": 28,
+      "first_action_mismatch": true,
+      "v_star": 4.393609986759758,
+      "v_myopic": 4.224512438620838,
+      "v_adaptive": 4.363556094522153,
+      "v_best_fixed": 4.234352112020609,
+      "g_full": 0.16909754813891986,
+      "g_adapt": 0.12920398250154363,
+      "g_full_ci": {
+        "mean": 0.13904365590131487,
+        "lower": 0.0484903766171999,
+        "upper": 0.23726215061059402,
+        "confidence_level": 0.95,
+        "n_replicates": 1000
+      },
+      "g_adapt_ci": {
+        "mean": 0.12920398250154352,
+        "lower": 0.05367575414165155,
+        "upper": 0.2067973559684781,
+        "confidence_level": 0.95,
+        "n_replicates": 1000
+      },
+      "g_full_pass": false,
+      "g_adapt_pass": false,
+      "top_eig_actions": [
+        [
+          33,
+          2.829115568187966
+        ],
+        [
+          3,
+          2.769358932647439
+        ],
+        [
+          18,
+          2.766712883804459
+        ],
+        [
+          28,
+          2.7665208273460555
+        ],
+        [
+          23,
+          2.7469107314417633
+        ],
+        [
+          8,
+          2.6902083003278476
+        ],
+        [
+          13,
+          2.6497721759557997
+        ],
+        [
+          34,
+          2.6099211680770753
+        ],
+        [
+          24,
+          2.6005005398216072
+        ],
+        [
+          29,
+          2.5698405959447816
+        ]
+      ],
+      "branch_report": {
+        "first_action": 28,
+        "n_unique_second_actions": 20,
+        "quantile_bins": [
+          {
+            "bin": 0,
+            "y_lo": 3.1078217664772,
+            "y_hi": 3.652414894920102,
+            "n_samples": 26,
+            "dominant_second_action": 30,
+            "action_counts": {
+              "4": 1,
+              "6": 1,
+              "20": 2,
+              "24": 1,
+              "25": 4,
+              "30": 17
+            }
+          },
+          {
+            "bin": 1,
+            "y_lo": 3.652414894920102,
+            "y_hi": 4.227650565035574,
+            "n_samples": 25,
+            "dominant_second_action": 14,
+            "action_counts": {
+              "4": 1,
+              "9": 1,
+              "14": 7,
+              "19": 3,
+              "24": 3,
+              "27": 1,
+              "29": 2,
+              "32": 4,
+              "34": 3
+            }
+          },
+          {
+            "bin": 2,
+            "y_lo": 4.227650565035574,
+            "y_hi": 5.17707638012334,
+            "n_samples": 26,
+            "dominant_second_action": 34,
+            "action_counts": {
+              "4": 1,
+              "9": 2,
+              "14": 1,
+              "19": 4,
+              "24": 3,
+              "29": 4,
+              "34": 11
+            }
+          },
+          {
+            "bin": 3,
+            "y_lo": 5.17707638012334,
+            "y_hi": 6.78772557416964,
+            "n_samples": 25,
+            "dominant_second_action": 34,
+            "action_counts": {
+              "1": 2,
+              "9": 2,
+              "14": 2,
+              "19": 5,
+              "21": 1,
+              "24": 2,
+              "29": 2,
+              "30": 2,
+              "32": 1,
+              "34": 6
+            }
+          },
+          {
+            "bin": 4,
+            "y_lo": 6.78772557416964,
+            "y_hi": 9.6702991439517,
+            "n_samples": 26,
+            "dominant_second_action": 1,
+            "action_counts": {
+              "0": 1,
+              "1": 5,
+              "4": 2,
+              "5": 1,
+              "6": 5,
+              "15": 1,
+              "17": 1,
+              "22": 1,
+              "25": 1,
+              "27": 2,
+              "29": 1,
+              "30": 2,
+              "32": 2,
+              "34": 1
+            }
+          }
+        ]
+      }
+    },
+    {
+      "seed": 2,
+      "mc_greedy_first_action": 33,
+      "plug_myopic_first_action": 34,
+      "oracle_first_action": 33,
+      "first_action_mismatch": true,
+      "v_star": 4.408342771660745,
+      "v_myopic": 4.224512438620838,
+      "v_adaptive": 4.3129012817872425,
+      "v_best_fixed": 4.234352112020609,
+      "g_full": 0.18383033303990715,
+      "g_adapt": 0.0785491697666334,
+      "g_full_ci": {
+        "mean": 0.08838884316640497,
+        "lower": -0.009047436020091266,
+        "upper": 0.18620079096010705,
+        "confidence_level": 0.95,
+        "n_replicates": 1000
+      },
+      "g_adapt_ci": {
+        "mean": 0.07854916976663363,
+        "lower": 0.00918728047194178,
+        "upper": 0.15609764071327345,
+        "confidence_level": 0.95,
+        "n_replicates": 1000
+      },
+      "g_full_pass": false,
+      "g_adapt_pass": false,
+      "top_eig_actions": [
+        [
+          28,
+          2.811977835569042
+        ],
+        [
+          23,
+          2.7964090643366974
+        ],
+        [
+          13,
+          2.7430292663194558
+        ],
+        [
+          3,
+          2.737479772821782
+        ],
+        [
+          18,
+          2.723807225842503
+        ],
+        [
+          33,
+          2.7105618802096565
+        ],
+        [
+          8,
+          2.6880455288304317
+        ],
+        [
+          34,
+          2.573062617327553
+        ],
+        [
+          24,
+          2.571920116059512
+        ],
+        [
+          29,
+          2.5520484545532796
+        ]
+      ],
+      "branch_report": {
+        "first_action": 33,
+        "n_unique_second_actions": 17,
+        "quantile_bins": [
+          {
+            "bin": 0,
+            "y_lo": 3.3097493616787244,
+            "y_hi": 3.7963842840407045,
+            "n_samples": 26,
+            "dominant_second_action": 30,
+            "action_counts": {
+              "4": 1,
+              "9": 2,
+              "14": 1,
+              "19": 2,
+              "25": 4,
+              "29": 3,
+              "30": 12,
+              "34": 1
+            }
+          },
+          {
+            "bin": 1,
+            "y_lo": 3.7963842840407045,
+            "y_hi": 4.744772713716894,
+            "n_samples": 25,
+            "dominant_second_action": 34,
+            "action_counts": {
+              "1": 1,
+              "4": 1,
+              "9": 1,
+              "12": 1,
+              "14": 4,
+              "19": 4,
+              "24": 2,
+              "29": 2,
+              "32": 1,
+              "34": 8
+            }
+          },
+          {
+            "bin": 2,
+            "y_lo": 4.744772713716894,
+            "y_hi": 5.5808251101136,
+            "n_samples": 26,
+            "dominant_second_action": 34,
+            "action_counts": {
+              "4": 5,
+              "9": 1,
+              "14": 4,
+              "19": 2,
+              "24": 3,
+              "29": 3,
+              "34": 8
+            }
+          },
+          {
+            "bin": 3,
+            "y_lo": 5.5808251101136,
+            "y_hi": 7.044545945105117,
+            "n_samples": 25,
+            "dominant_second_action": 34,
+            "action_counts": {
+              "1": 1,
+              "4": 2,
+              "6": 2,
+              "9": 1,
+              "24": 3,
+              "26": 1,
+              "27": 1,
+              "29": 1,
+              "30": 2,
+              "32": 1,
+              "34": 10
+            }
+          },
+          {
+            "bin": 4,
+            "y_lo": 7.044545945105117,
+            "y_hi": 10.204194123917526,
+            "n_samples": 26,
+            "dominant_second_action": 34,
+            "action_counts": {
+              "1": 3,
+              "4": 3,
+              "6": 1,
+              "9": 1,
+              "14": 2,
+              "16": 1,
+              "19": 1,
+              "20": 1,
+              "24": 3,
+              "25": 1,
+              "27": 1,
+              "29": 1,
+              "30": 2,
+              "32": 1,
+              "34": 4
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "verdict": "FAIL: The reset-based scenario may remain physically valid, but it is not a valid DAD-superiority benchmark under the current prior, action catalogue, noise level, and horizon. Do not proceed to claim that DAD should beat myopic in information gain."
+}

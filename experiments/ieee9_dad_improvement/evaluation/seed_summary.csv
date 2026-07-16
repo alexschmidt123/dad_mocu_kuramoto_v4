@@ -1,0 +1,17 @@
+variant,seed,J0_fixed_init,J0_safety,selected_checkpoint_id,selected_is_checkpoint_0,selected_validation_mean_u_ctrl,selected_validation_safety,selected_dominant_sequence,selected_dominant_fraction,selected_sequence_entropy,delta_vs_fixed_init,classification,telescope_ok,telescope_checks,n_candidates
+V0_original,101,0.9933333333333333,1.0,4,False,0.9700000000000001,1.0,"[12, 47, 11]",1.0,-0.0,-0.023333333333333206,improved,True,0,31
+V1_fixed_init_terminal,101,0.98,1.0,23,False,0.9733333333333333,1.0,"[0, 3, 21]",1.0,-0.0,-0.00666666666666671,improved,True,0,31
+V1_fixed_init_terminal,202,0.98,1.0,17,False,0.9733333333333333,1.0,"[0, 47, 39]",0.6666666666666666,0.6365141682948128,-0.00666666666666671,improved,True,0,31
+V1_fixed_init_terminal,303,0.98,1.0,0,True,0.98,1.0,"[0, 3, 47]",1.0,-0.0,0.0,tied,True,0,31
+V1_fixed_init_terminal,404,0.98,1.0,22,False,0.9700000000000001,1.0,"[0, 27, 17]",1.0,-0.0,-0.009999999999999898,improved,True,0,31
+V1_fixed_init_terminal,505,0.98,1.0,0,True,0.98,1.0,"[0, 3, 47]",1.0,-0.0,0.0,tied,True,0,31
+V2_fixed_init_potential,101,0.98,1.0,22,False,0.9733333333333333,1.0,"[0, 47, 6]",1.0,-0.0,-0.00666666666666671,improved,True,3120,31
+V2_fixed_init_potential,202,0.98,1.0,0,True,0.98,1.0,"[0, 3, 47]",1.0,-0.0,0.0,tied,True,3120,31
+V2_fixed_init_potential,303,0.98,1.0,26,False,0.9766666666666666,1.0,"[0, 41, 1]",0.5416666666666666,0.6896709283570267,-0.0033333333333334103,improved,True,3120,31
+V2_fixed_init_potential,404,0.98,1.0,0,True,0.98,1.0,"[0, 3, 47]",1.0,-0.0,0.0,tied,True,3120,31
+V2_fixed_init_potential,505,0.98,1.0,24,False,0.9733333333333333,1.0,"[0, 3, 35]",1.0,-0.0,-0.00666666666666671,improved,True,3120,31
+V3_fixed_init_potential_normadv,101,0.98,1.0,0,True,0.98,1.0,"[0, 3, 47]",1.0,-0.0,0.0,tied,True,3120,31
+V3_fixed_init_potential_normadv,202,0.98,1.0,0,True,0.98,1.0,"[0, 3, 47]",1.0,-0.0,0.0,tied,True,3120,31
+V3_fixed_init_potential_normadv,303,0.98,1.0,0,True,0.98,1.0,"[0, 3, 47]",1.0,-0.0,0.0,tied,True,3120,31
+V3_fixed_init_potential_normadv,404,0.98,1.0,0,True,0.98,1.0,"[0, 3, 47]",1.0,-0.0,0.0,tied,True,3120,31
+V3_fixed_init_potential_normadv,505,0.98,1.0,0,True,0.98,1.0,"[0, 3, 47]",1.0,-0.0,0.0,tied,True,3120,31

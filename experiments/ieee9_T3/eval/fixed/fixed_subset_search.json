@@ -1,0 +1,49 @@
+{
+  "subset": [
+    0,
+    3,
+    47
+  ],
+  "objective": 0.9675,
+  "n_candidates_evaluated": 424,
+  "search_mode": "greedy_multistart",
+  "seed": 7,
+  "metadata": {
+    "n_actions": 54,
+    "horizon": 3,
+    "n_combinations": 24804,
+    "exhaustive_threshold": 5000,
+    "restart_0": {
+      "subset": [
+        0,
+        3,
+        47
+      ],
+      "objective": 0.9675
+    },
+    "restart_1": {
+      "subset": [
+        3,
+        5,
+        37
+      ],
+      "objective": 0.9675
+    },
+    "restart_2": {
+      "subset": [
+        0,
+        12,
+        35
+      ],
+      "objective": 0.9675
+    },
+    "restart_3": {
+      "subset": [
+        0,
+        30,
+        41
+      ],
+      "objective": 0.9675
+    }
+  }
+}

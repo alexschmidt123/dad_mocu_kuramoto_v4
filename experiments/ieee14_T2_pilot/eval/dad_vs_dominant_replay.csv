@@ -1,0 +1,2 @@
+dominant_sequence,mean_paired_diff,median_paired_diff,std_error,ci95_low,ci95_high,fraction_a_lower,fraction_b_lower,fraction_tied,n,n_bootstrap,dad_mean,dominant_mean
+"[55, 56]",0.0,0.0,0.0,0.0,0.0,0.0,0.0,1.0,400,10000,1.4951999999999999,1.4951999999999999

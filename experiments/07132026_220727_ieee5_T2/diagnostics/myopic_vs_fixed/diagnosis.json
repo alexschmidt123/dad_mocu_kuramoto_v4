@@ -1,0 +1,465 @@
+{
+  "experiment": "/home/grads/g/g.lin/Documents/dad_mocu_kuramoto_v4/experiments/07132026_220727_ieee5_T2",
+  "seed": 3579,
+  "evaluation_rollouts": 2000,
+  "frozen_terminal_rule": {
+    "terminal_rule_hash": "dc0dc35332b394b7",
+    "quantile_level": 0.95,
+    "additive_margin": 0.4,
+    "alpha": 0.05,
+    "snap_up": true,
+    "control_grid_hash": "3697ea3799e74809",
+    "u_candidates": [
+      0.0,
+      0.05,
+      0.1,
+      0.15,
+      0.2,
+      0.25,
+      0.3,
+      0.35,
+      0.4,
+      0.45,
+      0.5,
+      0.6,
+      0.7,
+      0.8,
+      0.9,
+      1.0
+    ],
+    "source": "/home/grads/g/g.lin/Documents/dad_mocu_kuramoto_v4/experiments/07132026_220727_ieee5_T2/diagnostics/control_safety_calibration/calibrated_terminal_rule.json",
+    "rule": "snap_up(Q_{1-alpha}(U|w) + margin)"
+  },
+  "fixed_subset": [
+    10,
+    11
+  ],
+  "myopic_n_hypothetical": 16,
+  "paired_comparison": {
+    "n": 2000,
+    "myopic": {
+      "n": 2000,
+      "mean_u_ctrl": 0.7601499999999999,
+      "std_u_ctrl": 0.16626628491669623,
+      "median_u_ctrl": 0.7,
+      "q10_u_ctrl": 0.6,
+      "q90_u_ctrl": 1.0,
+      "unique_u_ctrl_count": 7,
+      "fraction_at_u_max": 0.247,
+      "true_safety_rate": 1.0,
+      "mean_true_u_req": 0.31875,
+      "mean_excess_control": 0.44139999999999996,
+      "median_excess_control": 0.4,
+      "over_control_rate": 1.0,
+      "under_control_rate": 0.0,
+      "mean_runtime_per_rollout": 0.08706540406891145
+    },
+    "fixed": {
+      "n": 2000,
+      "mean_u_ctrl": 0.7572249999999999,
+      "std_u_ctrl": 0.17043048252880116,
+      "median_u_ctrl": 0.7,
+      "q10_u_ctrl": 0.6,
+      "q90_u_ctrl": 1.0,
+      "unique_u_ctrl_count": 7,
+      "fraction_at_u_max": 0.25,
+      "true_safety_rate": 1.0,
+      "mean_true_u_req": 0.31875,
+      "mean_excess_control": 0.438475,
+      "median_excess_control": 0.4,
+      "over_control_rate": 1.0,
+      "under_control_rate": 0.0,
+      "mean_runtime_per_rollout": 0.06558139804878738
+    },
+    "myopic_minus_fixed": {
+      "mean_paired_diff": 0.0029250000000000005,
+      "median_paired_diff": 0.0,
+      "std_error": 0.0018022128545448074,
+      "ci95_low": -0.0006499999999999978,
+      "ci95_high": 0.006350625000000005,
+      "fraction_a_lower": 0.1485,
+      "fraction_tied": 0.6935,
+      "n": 2000
+    },
+    "statistically_tied_at_95": true,
+    "pilot_diff_reference": 0.004,
+    "fraction_identical_sequences": 0.0,
+    "myopic_top_unordered_pairs": [
+      {
+        "pair": [
+          0,
+          1
+        ],
+        "count": 651
+      },
+      {
+        "pair": [
+          1,
+          4
+        ],
+        "count": 169
+      },
+      {
+        "pair": [
+          1,
+          3
+        ],
+        "count": 140
+      },
+      {
+        "pair": [
+          1,
+          2
+        ],
+        "count": 129
+      },
+      {
+        "pair": [
+          0,
+          21
+        ],
+        "count": 79
+      },
+      {
+        "pair": [
+          0,
+          16
+        ],
+        "count": 73
+      },
+      {
+        "pair": [
+          0,
+          6
+        ],
+        "count": 66
+      },
+      {
+        "pair": [
+          1,
+          25
+        ],
+        "count": 50
+      }
+    ],
+    "fixed_pair_frequency_under_myopic": 0
+  },
+  "myopic_mc_accuracy": {
+    "setting": "prior_step_uniform_weights",
+    "ref_n_hypothetical": 256,
+    "ref_best_action": 1,
+    "ref_top5": [
+      {
+        "action": 1,
+        "score": 0.7677734375
+      },
+      {
+        "action": 6,
+        "score": 0.7685546875
+      },
+      {
+        "action": 11,
+        "score": 0.76875
+      },
+      {
+        "action": 21,
+        "score": 0.7689453124999999
+      },
+      {
+        "action": 16,
+        "score": 0.76953125
+      }
+    ],
+    "by_n_hypothetical": {
+      "8": {
+        "n_hypothetical": 8,
+        "n_reps": 48,
+        "top1_mode": 1,
+        "top1_mode_frequency": 0.75,
+        "top1_flip_rate": 0.25,
+        "agree_with_large_nh_ref": 0.75,
+        "mean_gap_best_second": 0.001562500000000006,
+        "median_gap_best_second": 0.0,
+        "mean_empirical_score_se": 0.03858175107807213,
+        "empirical_se_ref_best": 0.03990492322794288,
+        "fraction_gap_lt_2se": 1.0,
+        "mean_exact_tie_fraction_among_others": 0.09770114942528736,
+        "ref_best_action": 1,
+        "ref_best_score": 0.7677734375
+      },
+      "16": {
+        "n_hypothetical": 16,
+        "n_reps": 48,
+        "top1_mode": 1,
+        "top1_mode_frequency": 0.7083333333333334,
+        "top1_flip_rate": 0.29166666666666663,
+        "agree_with_large_nh_ref": 0.7083333333333334,
+        "mean_gap_best_second": 0.0011718750000000004,
+        "median_gap_best_second": 0.0,
+        "mean_empirical_score_se": 0.028029914422535447,
+        "empirical_se_ref_best": 0.026492659540524464,
+        "fraction_gap_lt_2se": 1.0,
+        "mean_exact_tie_fraction_among_others": 0.07543103448275862,
+        "ref_best_action": 1,
+        "ref_best_score": 0.7677734375
+      },
+      "32": {
+        "n_hypothetical": 32,
+        "n_reps": 48,
+        "top1_mode": 1,
+        "top1_mode_frequency": 0.625,
+        "top1_flip_rate": 0.375,
+        "agree_with_large_nh_ref": 0.625,
+        "mean_gap_best_second": 0.0009765624999999977,
+        "median_gap_best_second": 0.0,
+        "mean_empirical_score_se": 0.020489904275610052,
+        "empirical_se_ref_best": 0.019692705886069802,
+        "fraction_gap_lt_2se": 1.0,
+        "mean_exact_tie_fraction_among_others": 0.0603448275862069,
+        "ref_best_action": 1,
+        "ref_best_score": 0.7677734375
+      },
+      "64": {
+        "n_hypothetical": 64,
+        "n_reps": 48,
+        "top1_mode": 1,
+        "top1_mode_frequency": 0.5,
+        "top1_flip_rate": 0.5,
+        "agree_with_large_nh_ref": 0.5,
+        "mean_gap_best_second": 0.0009928385416666657,
+        "median_gap_best_second": 0.0011718749999999334,
+        "mean_empirical_score_se": 0.013339725502809704,
+        "empirical_se_ref_best": 0.013262812070586612,
+        "fraction_gap_lt_2se": 1.0,
+        "mean_exact_tie_fraction_among_others": 0.029454022988505746,
+        "ref_best_action": 1,
+        "ref_best_score": 0.7677734375
+      },
+      "128": {
+        "n_hypothetical": 128,
+        "n_reps": 48,
+        "top1_mode": 1,
+        "top1_mode_frequency": 0.4791666666666667,
+        "top1_flip_rate": 0.5208333333333333,
+        "agree_with_large_nh_ref": 0.4791666666666667,
+        "mean_gap_best_second": 0.0004557291666666778,
+        "median_gap_best_second": 5.551115123125783e-17,
+        "mean_empirical_score_se": 0.009830761822581552,
+        "empirical_se_ref_best": 0.01137963030878031,
+        "fraction_gap_lt_2se": 1.0,
+        "mean_exact_tie_fraction_among_others": 0.026580459770114945,
+        "ref_best_action": 1,
+        "ref_best_score": 0.7677734375
+      },
+      "256": {
+        "n_hypothetical": 256,
+        "n_reps": 48,
+        "top1_mode": 1,
+        "top1_mode_frequency": 0.3125,
+        "top1_flip_rate": 0.6875,
+        "agree_with_large_nh_ref": 0.3125,
+        "mean_gap_best_second": 0.0005615234374999936,
+        "median_gap_best_second": 0.0003906249999999778,
+        "mean_empirical_score_se": 0.007065313740347842,
+        "empirical_se_ref_best": 0.007906858242502913,
+        "fraction_gap_lt_2se": 1.0,
+        "mean_exact_tie_fraction_among_others": 0.005747126436781609,
+        "ref_best_action": 1,
+        "ref_best_score": 0.7677734375
+      }
+    },
+    "configured_n_hypothetical": 16,
+    "verdict_hints": {
+      "configured_n_hypothetical": 16,
+      "row_used": "16",
+      "excessive_mc_error": true,
+      "reason": "Top-1 unstable and/or best\u2013second gap comparable to score SE"
+    }
+  },
+  "quantized_ties": {
+    "n_contexts": 200,
+    "step0_exact_ties": {
+      "mean": 2.33,
+      "median": 2.0,
+      "frac_positive": 0.825,
+      "frac_ge_5": 0.055
+    },
+    "step0_near_ties_eps_1e-3": {
+      "mean": 2.33,
+      "median": 2.0,
+      "frac_positive": 0.825,
+      "frac_ge_5": 0.055
+    },
+    "step0_gap": {
+      "mean": 0.0010468749999999983,
+      "median": 0.0,
+      "frac_gap_lt_1e-3": 0.825,
+      "frac_gap_lt_1e-2": 1.0
+    },
+    "step1_exact_ties": {
+      "mean": 13.525,
+      "median": 5.0,
+      "frac_positive": 0.925,
+      "frac_ge_5": 0.82
+    },
+    "step1_near_ties_eps_1e-3": {
+      "mean": 13.525,
+      "median": 5.0,
+      "frac_positive": 0.925,
+      "frac_ge_5": 0.82
+    },
+    "step1_gap": {
+      "mean": 0.0005781249999999993,
+      "median": 0.0,
+      "frac_gap_lt_1e-3": 0.925
+    },
+    "many_quantized_ties": true
+  },
+  "complementarity": {
+    "n_systems_scored": 32,
+    "noise_replicas": 2,
+    "best_single": {
+      "action": 1,
+      "mean_u_ctrl": 0.765625
+    },
+    "top_singles": [
+      {
+        "action": 1,
+        "mean_u_ctrl": 0.765625
+      },
+      {
+        "action": 6,
+        "mean_u_ctrl": 0.765625
+      },
+      {
+        "action": 16,
+        "mean_u_ctrl": 0.7671874999999999
+      },
+      {
+        "action": 21,
+        "mean_u_ctrl": 0.7703125
+      },
+      {
+        "action": 11,
+        "mean_u_ctrl": 0.771875
+      },
+      {
+        "action": 26,
+        "mean_u_ctrl": 0.7781250000000001
+      },
+      {
+        "action": 23,
+        "mean_u_ctrl": 0.84375
+      },
+      {
+        "action": 28,
+        "mean_u_ctrl": 0.8453125
+      },
+      {
+        "action": 3,
+        "mean_u_ctrl": 0.8453125000000001
+      },
+      {
+        "action": 18,
+        "mean_u_ctrl": 0.846875
+      }
+    ],
+    "fixed_subset": {
+      "actions": [
+        10,
+        11
+      ],
+      "mean_u_ctrl": 0.753125,
+      "member_single_scores": {
+        "10": 0.90234375,
+        "11": 0.771875
+      },
+      "better_member_single": 0.771875,
+      "joint_gain_vs_better_single": 0.018749999999999933
+    },
+    "naive_top2_singles_pair": {
+      "actions": [
+        1,
+        6
+      ],
+      "mean_u_ctrl": 0.7609375
+    },
+    "greedy_sequential_pair": {
+      "actions": [
+        1,
+        9
+      ],
+      "mean_u_ctrl": 0.7328125000000001
+    },
+    "fixed_vs_naive_top2": 0.0078125,
+    "fixed_vs_greedy_sequential": -0.020312499999999956,
+    "pair_score_sample": {
+      "n_pairs": 84,
+      "mean": 0.7747302827380952,
+      "std": 0.04018775364068258,
+      "fixed_percentile": 66.66666666666666
+    },
+    "complementarity_present": true
+  },
+  "implementation_consistency": {
+    "shared_rule": {
+      "terminal_rule_hash": "dc0dc35332b394b7",
+      "quantile_level": 0.95,
+      "additive_margin": 0.4,
+      "alpha": 0.05,
+      "snap_up": true,
+      "control_grid_hash": "3697ea3799e74809",
+      "u_candidates": [
+        0.0,
+        0.05,
+        0.1,
+        0.15,
+        0.2,
+        0.25,
+        0.3,
+        0.35,
+        0.4,
+        0.45,
+        0.5,
+        0.6,
+        0.7,
+        0.8,
+        0.9,
+        1.0
+      ],
+      "source": "/home/grads/g/g.lin/Documents/dad_mocu_kuramoto_v4/experiments/07132026_220727_ieee5_T2/diagnostics/control_safety_calibration/calibrated_terminal_rule.json",
+      "rule": "snap_up(Q_{1-alpha}(U|w) + margin)"
+    },
+    "prior_u_ctrl": 1.0,
+    "fixed_subset_recomputed_mean_u": 0.74453125,
+    "issues": [],
+    "consistent": true,
+    "expected_algorithmic_difference": "Myopic optimizes one-step E[u_ctrl]; Fixed optimizes unordered size-T subset. Disagreement is expected when probes are complementary; not an implementation bug.",
+    "n_support_particles": 40,
+    "U_bank_size": 40,
+    "sigma_y": 0.08
+  },
+  "verdicts": {
+    "1_statistically_tied": {
+      "answer": true,
+      "detail": "myopic\u2212fixed mean=0.0029, 95% CI [-0.0006, 0.0064]"
+    },
+    "2_excessive_myopic_mc_error": {
+      "answer": true,
+      "detail": "Top-1 unstable and/or best\u2013second gap comparable to score SE"
+    },
+    "3_many_quantized_ties": {
+      "answer": true,
+      "detail": "step0 exact-tie rate=0.825, frac gap<1e-3=0.825"
+    },
+    "4_fixed_complementarity": {
+      "answer": true,
+      "detail": "joint_gain_vs_better_single=0.0187, fixed_vs_naive_top2=0.0078"
+    },
+    "5_implementation_inconsistency": {
+      "answer": false,
+      "detail": "none"
+    }
+  },
+  "recommendation": "Treat Myopic and Fixed as statistically tied at T=2 on this pilot (95% CI for paired difference contains 0). Increase myopic_hypothetical before the sweep; current MC error may blur Myopic decisions. Quantized u_ctrl ties are common; Myopic often breaks ties by action index, which can make it behave like a near-fixed rule. Fixed benefits from joint probe complementarity that one-step Myopic cannot plan; expect Fixed \u2265 Myopic at small T when pairs matter. Do not start the full IEEE5/9/14 sweep until this diagnosis is accepted."
+}

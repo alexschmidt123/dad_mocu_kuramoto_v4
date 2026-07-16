@@ -1,0 +1,162 @@
+{
+  "check": "training_performance",
+  "phase": "evaluation",
+  "experiment_dir": "/home/grads/g/g.lin/Documents/dad_mocu_kuramoto_v4/experiments/07082026_120510_ieee14_T2",
+  "comparison_rows": [
+    {
+      "System": "IEEE-14",
+      "Run": "run",
+      "T": "2",
+      "N_b": "14",
+      "Method": "random",
+      "sPCE_1..T": "[1.4974, 1.4438]",
+      "Tot.sPCE": "2.6821",
+      "\u0394H_1..T": "[1.4244, 1.2664]",
+      "\u0394H": "2.6909",
+      "MSE_\u03b8": "0.272298",
+      "train_s": "-",
+      "test_s": "0.0024"
+    },
+    {
+      "System": "IEEE-14",
+      "Run": "run",
+      "T": "2",
+      "N_b": "14",
+      "Method": "fixed_open_loop",
+      "sPCE_1..T": "[2.6847, 1.7877]",
+      "Tot.sPCE": "4.1060",
+      "\u0394H_1..T": "[2.8193, 1.5112]",
+      "\u0394H": "4.3305",
+      "MSE_\u03b8": "0.341344",
+      "train_s": "-",
+      "test_s": "0.0019"
+    },
+    {
+      "System": "IEEE-14",
+      "Run": "run",
+      "T": "2",
+      "N_b": "14",
+      "Method": "myopic_delta_h",
+      "sPCE_1..T": "[2.9235, 2.0334]",
+      "Tot.sPCE": "4.5565",
+      "\u0394H_1..T": "[2.9149, 1.6137]",
+      "\u0394H": "4.5286",
+      "MSE_\u03b8": "0.359008",
+      "train_s": "-",
+      "test_s": "0.0745"
+    },
+    {
+      "System": "IEEE-14",
+      "Run": "run",
+      "T": "2",
+      "N_b": "14",
+      "Method": "dad_spce",
+      "sPCE_1..T": "[2.0961, 2.7931]",
+      "Tot.sPCE": "4.4808",
+      "\u0394H_1..T": "[2.1396, 2.4832]",
+      "\u0394H": "4.6228",
+      "MSE_\u03b8": "0.370966",
+      "train_s": "107.6",
+      "test_s": "0.0036"
+    },
+    {
+      "System": "IEEE-14",
+      "Run": "run",
+      "T": "2",
+      "N_b": "14",
+      "Method": "dad_delta_h",
+      "sPCE_1..T": "[2.1828, 2.9235]",
+      "Tot.sPCE": "4.5616",
+      "\u0394H_1..T": "[2.2382, 2.4641]",
+      "\u0394H": "4.7023",
+      "MSE_\u03b8": "0.372718",
+      "train_s": "106.3",
+      "test_s": "0.0023"
+    }
+  ],
+  "summaries": {
+    "random": {
+      "spce_by_step": [
+        1.4974383254077985,
+        1.4437953548210047
+      ],
+      "delta_h_by_step": [
+        1.424424720163401,
+        1.266434256709305
+      ],
+      "total_spce": 2.6820665467447533,
+      "delta_h": 2.690858976872706,
+      "theta_sample_size": 200,
+      "mse_theta": 0.2722980440799107,
+      "std_mse_theta": 0.100491650026897
+    },
+    "fixed_open_loop": {
+      "spce_by_step": [
+        2.6846722977542457,
+        1.7876636539645059
+      ],
+      "delta_h_by_step": [
+        2.8192714111803894,
+        1.5111949900374657
+      ],
+      "total_spce": 4.106029083716056,
+      "delta_h": 4.330466401217853,
+      "theta_sample_size": 200,
+      "mse_theta": 0.3413439424944785,
+      "std_mse_theta": 0.11575424831934036
+    },
+    "myopic_delta_h": {
+      "spce_by_step": [
+        2.923512004068105,
+        2.0334168513419244
+      ],
+      "delta_h_by_step": [
+        2.9148646503518383,
+        1.6137271933243518
+      ],
+      "total_spce": 4.556480510493572,
+      "delta_h": 4.528591843676189,
+      "theta_sample_size": 200,
+      "mse_theta": 0.3590083847924482,
+      "std_mse_theta": 0.1292787775858121
+    },
+    "dad_spce": {
+      "spce_by_step": [
+        2.0960987736066685,
+        2.793113893967909
+      ],
+      "delta_h_by_step": [
+        2.1395830410616243,
+        2.483211036099437
+      ],
+      "total_spce": 4.480818938675597,
+      "delta_h": 4.622794077161063,
+      "theta_sample_size": 200,
+      "mse_theta": 0.37096632564328685,
+      "std_mse_theta": 0.13611936047423157
+    },
+    "dad_delta_h": {
+      "spce_by_step": [
+        2.182830292175147,
+        2.923512004068105
+      ],
+      "delta_h_by_step": [
+        2.23818687522582,
+        2.4640793701404693
+      ],
+      "total_spce": 4.561590562890425,
+      "delta_h": 4.70226624536629,
+      "theta_sample_size": 200,
+      "mse_theta": 0.37271781030852935,
+      "std_mse_theta": 0.13761901949970065
+    }
+  },
+  "training_performance": {
+    "myopic_delta_h": 4.528591843676189,
+    "dad_spce_delta_h": 4.622794077161063,
+    "dad_delta_h_delta_h": 4.70226624536629,
+    "best_dad_delta_h": 4.70226624536629,
+    "passed": true,
+    "verdict": "PASS: best DAD method matches or exceeds myopic on mean \u0394H."
+  }
+}

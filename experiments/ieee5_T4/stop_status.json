@@ -1,0 +1,51 @@
+{
+  "exp_dir": "/home/grads/g/g.lin/Documents/dad_mocu_kuramoto_v4/experiments/ieee5_T4",
+  "T": 4,
+  "frozen_margin": 0.55,
+  "terminal_rule_hash": "c2e2af33cb68a5ea",
+  "pilot_passed": true,
+  "stop_reasons": [],
+  "can_freeze_ieee5_before_ieee9": true,
+  "dad_adaptivity": {
+    "unique": 1,
+    "dominant_fraction": 1.0,
+    "interpretation": "effectively_nonadaptive",
+    "dominant_sequence": [
+      23,
+      29,
+      10,
+      19
+    ]
+  },
+  "dominant_vs_dad": {
+    "mean_paired_diff": 0.0,
+    "median_paired_diff": 0.0,
+    "std_error": 0.0,
+    "ci95_low": 0.0,
+    "ci95_high": 0.0,
+    "fraction_a_lower": 0.0,
+    "fraction_b_lower": 0.0,
+    "fraction_tied": 1.0,
+    "n": 1000,
+    "n_bootstrap": 10000
+  },
+  "summaries": {
+    "dad": {
+      "mean_u_ctrl": 0.8207000000000001,
+      "true_safety_rate": 1.0
+    },
+    "myopic": {
+      "mean_u_ctrl": 0.8528000000000001,
+      "true_safety_rate": 1.0
+    },
+    "fixed": {
+      "mean_u_ctrl": 0.8542000000000001,
+      "true_safety_rate": 1.0
+    },
+    "random": {
+      "mean_u_ctrl": 0.8688,
+      "true_safety_rate": 1.0
+    }
+  },
+  "horizon_summary": "/home/grads/g/g.lin/Documents/dad_mocu_kuramoto_v4/experiments/ieee5_horizon_summary"
+}

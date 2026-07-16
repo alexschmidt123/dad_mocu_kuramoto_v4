@@ -83,13 +83,51 @@ def masked_action_indices(used_actions: set[int], catalog: list[Design]) -> np.n
     )
 
 
+def unrank_no_repeat_sequence(n: int, step_number: int, rank: int) -> tuple[int, ...]:
+    """``rank``-th length-``step_number`` sequence in lex order (0-based)."""
+    if step_number > n:
+        raise ValueError("step_number cannot exceed n_actions")
+    if step_number < 0:
+        raise ValueError("step_number must be non-negative")
+    total = count_no_repeat_sequences(n, step_number)
+    if rank < 0 or rank >= total:
+        raise IndexError(f"rank {rank} out of range for P({n},{step_number})={total}")
+    if step_number == 0:
+        return tuple()
+    available = list(range(n))
+    seq: list[int] = []
+    r = int(rank)
+    for i in range(step_number):
+        tail = step_number - i - 1
+        denom = count_no_repeat_sequences(len(available) - 1, tail) if tail > 0 else 1
+        j = r // denom
+        r %= denom
+        seq.append(available.pop(j))
+    return tuple(seq)
+
+
+def unrank_sequence_chunk(
+    n: int,
+    step_number: int,
+    start: int,
+    count: int,
+) -> list[tuple[int, ...]]:
+    return [unrank_no_repeat_sequence(n, step_number, start + i) for i in range(count)]
+
+
 def enumerate_no_repeat_sequences(catalog: list[Design], step_number: int) -> list[tuple[int, ...]]:
-    """All ordered no-repeat action sequences of length ``step_number``."""
+    """All ordered no-repeat action sequences of length ``step_number`` (small T only)."""
     n = len(catalog)
     if step_number > n:
         return []
     if step_number == 0:
         return [tuple()]
+    total = count_no_repeat_sequences(n, step_number)
+    if total > 500_000:
+        raise MemoryError(
+            f"P({n},{step_number})={total} sequences is too large to list in RAM. "
+            "Use reset one-step observation banks for current experiments."
+        )
     return list(permutations(range(n), step_number))
 
 

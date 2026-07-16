@@ -1,0 +1,47 @@
+[
+  {
+    "first_action": 44,
+    "first_observation_bin": 0,
+    "most_common_second_action": 3,
+    "second_action_distribution": {
+      "3": 1.0
+    },
+    "n": 200
+  },
+  {
+    "first_action": 44,
+    "first_observation_bin": 1,
+    "most_common_second_action": 3,
+    "second_action_distribution": {
+      "3": 1.0
+    },
+    "n": 200
+  },
+  {
+    "first_action": 44,
+    "first_observation_bin": 2,
+    "most_common_second_action": 3,
+    "second_action_distribution": {
+      "3": 1.0
+    },
+    "n": 200
+  },
+  {
+    "first_action": 44,
+    "first_observation_bin": 3,
+    "most_common_second_action": 3,
+    "second_action_distribution": {
+      "3": 1.0
+    },
+    "n": 200
+  },
+  {
+    "first_action": 44,
+    "first_observation_bin": 4,
+    "most_common_second_action": 3,
+    "second_action_distribution": {
+      "3": 1.0
+    },
+    "n": 200
+  }
+]
