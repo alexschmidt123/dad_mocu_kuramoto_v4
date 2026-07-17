@@ -10,6 +10,7 @@
 #   ./run.sh -config ieee5_config -T 2
 #   ./run.sh -config ieee5_config -T 3
 #   ./run.sh -config ieee5_config -exp-dir experiments/<run>   # skip data gen; still runs phase 2+
+#   ./run.sh -study objective_rl_sboed -system ieee5 [-stage run-system|sensitivity] [--smoke]
 #
 # IEEE5 currently uses control_safety_calibration.mode=frozen with margin 0.55
 # (policy-robust rule). Phase 2 verifies the rule and does not recalibrate.
@@ -27,32 +28,72 @@ export PYTHONPATH="${ROOT}${PYTHONPATH:+:${PYTHONPATH}}"
 CONFIG=""
 EXP_DIR=""
 T=""
+STUDY=""
+SYSTEM="ieee5"
+STAGE="run-system"
+SMOKE=""
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
         -config) CONFIG="$2"; shift 2 ;;
         -exp-dir) EXP_DIR="$2"; shift 2 ;;
         -T) T="$2"; shift 2 ;;
+        -study) STUDY="$2"; shift 2 ;;
+        -system) SYSTEM="$2"; shift 2 ;;
+        -stage) STAGE="$2"; shift 2 ;;
+        --smoke) SMOKE="--smoke"; shift ;;
         *)
-            echo "Usage: $0 -config <name|path> [-T <horizon>] [-exp-dir <experiment_folder>]" >&2
+            echo "Usage: $0 (-config <name|path> [-T <horizon>] [-exp-dir <dir>]) | (-study objective_rl_sboed -system <ieee5|ieee9> [-stage <stage>] [--smoke])" >&2
             exit 1
             ;;
     esac
 done
 
+if [[ -n "$STUDY" ]]; then
+    if [[ "$STUDY" != "objective_rl_sboed" ]]; then
+        echo "Unknown study: $STUDY (supported: objective_rl_sboed)" >&2
+        exit 1
+    fi
+    echo "=== Study: objective_rl_sboed (system=$SYSTEM stage=$STAGE) ==="
+    exec ./scripts/objective_rl_sboed.sh -system "$SYSTEM" -stage "$STAGE" ${SMOKE}
+fi
+
 [[ -n "$CONFIG" ]] || {
     echo "Usage: $0 -config <name|path> [-T <horizon>] [-exp-dir <experiment_folder>]" >&2
+    echo "   or: $0 -study objective_rl_sboed -system <ieee5|ieee9> [-stage <stage>] [--smoke]" >&2
     exit 1
 }
 
-# Dedicated controlled T=3/T=4 paths (frozen margin 0.55, full four-method reports).
+# Dedicated controlled T=3/T=4 paths use the selected config's topology
+# (frozen margins come from that system's calibrated/frozen rule).
 if [[ "${T:-}" == "3" && -z "$EXP_DIR" ]]; then
-    echo "=== IEEE5 T=3 controlled experiment (frozen margin 0.55) ==="
-    exec python3 -m src.cli run-ieee5-t3
+    case "$CONFIG" in
+        *ieee5*)
+            echo "=== IEEE5 T=3 controlled experiment (frozen margin 0.55) ==="
+            exec python3 -m src.cli run-ieee5-t3
+            ;;
+        *ieee9*)
+            echo "=== IEEE9 T=3: use existing experiments/ieee9_T3 or -exp-dir ==="
+            echo "Pass -exp-dir experiments/ieee9_T3 to continue from an existing run." >&2
+            exit 1
+            ;;
+        *ieee14*)
+            echo "IEEE14 T=3 is deferred until IEEE5/IEEE9 objective_rl_sboed completes." >&2
+            exit 1
+            ;;
+    esac
 fi
 if [[ "${T:-}" == "4" && -z "$EXP_DIR" ]]; then
-    echo "=== IEEE5 T=4 controlled experiment (frozen margin 0.55) ==="
-    exec python3 -m src.cli run-ieee5-t4
+    case "$CONFIG" in
+        *ieee5*)
+            echo "=== IEEE5 T=4 controlled experiment (frozen margin 0.55) ==="
+            exec python3 -m src.cli run-ieee5-t4
+            ;;
+        *)
+            echo "T=4 controlled path is currently implemented for ieee5_config only." >&2
+            exit 1
+            ;;
+    esac
 fi
 
 DATA_ARGS=(-config "$CONFIG")
