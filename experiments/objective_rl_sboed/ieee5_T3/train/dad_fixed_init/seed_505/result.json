@@ -1,0 +1,39 @@
+{
+  "method": "DAD",
+  "init_mode": "fixed",
+  "seed": 505,
+  "reward_mode": "dad_terminal",
+  "best_update": 10,
+  "best_validation_mean_u_ctrl": 0.8234375,
+  "confirmation_mean_u_ctrl": 0.846875,
+  "confirmation_median_u_ctrl": 0.9,
+  "confirmation_std_u_ctrl": 0.15609367179677722,
+  "confirmation_unique_sequences": 1,
+  "confirmation_dominant_sequence": "0 19 28",
+  "confirmation_dominant_fraction": 1.0,
+  "bc": {
+    "epoch": 2,
+    "loss": 0.003564708892857501,
+    "step_accuracy": 1.0,
+    "full_sequence_accuracy": 1.0
+  },
+  "elapsed_seconds": 20.358643770217896,
+  "config": {
+    "updates": 120,
+    "trajectories_per_update": 16,
+    "ppo_epochs": 4,
+    "ppo_clip": 0.2,
+    "gae_lambda": 1.0,
+    "entropy_coefficient": 0.005,
+    "actor_lr": 0.0003,
+    "critic_lr": 0.001,
+    "max_grad_norm": 1.0,
+    "validation_interval": 10,
+    "validation_rollouts": 64,
+    "patience": 8,
+    "gamma": 1.0
+  },
+  "terminal_rule_hash": "c2e2af33cb68a5ea",
+  "uses_offline_banks_only": true,
+  "gamma": 1.0
+}

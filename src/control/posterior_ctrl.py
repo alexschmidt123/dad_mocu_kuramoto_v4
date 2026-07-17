@@ -94,6 +94,39 @@ class TerminalControlRule:
         )
 
 
+@dataclass(frozen=True)
+class ControlDecision:
+    """Shared posterior → control mapping used by all methods.
+
+    ``u_quantile`` is Q_{1-α}(U|w).
+    ``u_raw`` is the continuous pre-snap command ``u_quantile + margin``.
+    ``u_ctrl`` is the operational snapped command (primary evaluation metric).
+    """
+
+    u_quantile: float
+    u_raw: float
+    u_ctrl: float
+
+
+def posterior_control_decision(
+    U_bank: np.ndarray,
+    weights: np.ndarray,
+    alpha: float,
+    *,
+    margin: float = 0.0,
+    u_grid: Sequence[float] | np.ndarray | None = None,
+) -> ControlDecision:
+    """Compute both continuous ``u_raw`` and operational ``u_ctrl``."""
+    q = 1.0 - float(alpha)
+    u_quantile = float(weighted_quantile(U_bank, weights, q))
+    u_raw = u_quantile + float(margin)
+    if u_grid is not None and len(list(u_grid)) > 0:
+        u_ctrl = snap_up_to_grid(u_raw, u_grid)
+    else:
+        u_ctrl = float(u_raw)
+    return ControlDecision(u_quantile=u_quantile, u_raw=float(u_raw), u_ctrl=float(u_ctrl))
+
+
 def posterior_safe_u_ctrl(
     U_bank: np.ndarray,
     weights: np.ndarray,
@@ -108,12 +141,22 @@ def posterior_safe_u_ctrl(
         u0 = min{ u : Σ_n w_n 1{U_n ≤ u} ≥ 1 − α }
         u_ctrl = snap_up(u0 + margin)   if u_grid given, else u0 + margin
     """
-    q = 1.0 - float(alpha)
-    u0 = weighted_quantile(U_bank, weights, q)
-    u = float(u0) + float(margin)
-    if u_grid is not None and len(list(u_grid)) > 0:
-        return snap_up_to_grid(u, u_grid)
-    return float(u)
+    return posterior_control_decision(
+        U_bank, weights, alpha, margin=margin, u_grid=u_grid
+    ).u_ctrl
+
+
+def posterior_u_raw(
+    U_bank: np.ndarray,
+    weights: np.ndarray,
+    alpha: float,
+    *,
+    margin: float = 0.0,
+) -> float:
+    """Continuous pre-snap control ``Q_{1-α}(U|w) + margin`` (training diagnostic)."""
+    return posterior_control_decision(
+        U_bank, weights, alpha, margin=margin, u_grid=None
+    ).u_raw
 
 
 def normalize_log_weights(log_w: np.ndarray) -> np.ndarray:

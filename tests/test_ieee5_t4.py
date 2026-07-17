@@ -6,7 +6,7 @@ from pathlib import Path
 
 import numpy as np
 
-from src.control.ieee5_t4 import EXPECTED_HASH, FROZEN_MARGIN, _entropy, compute_dad_adaptivity
+from src.control.legacy.ieee5_t4 import EXPECTED_HASH, FROZEN_MARGIN, _entropy, compute_dad_adaptivity
 from src.control.terminal_rule import FrozenTerminalRule, load_frozen_terminal_rule
 from src.rollout import RandomSelector
 

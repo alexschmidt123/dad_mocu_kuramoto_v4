@@ -8,7 +8,7 @@ from pathlib import Path
 import numpy as np
 
 from src.control.fixed_search import estimate_fixed_subset_objective
-from src.control.ieee5_t4_fixed_exact import (
+from src.control.legacy.ieee5_t4_fixed_exact import (
     APPROX_FIXED_SUBSET,
     DAD_DOMINANT_SEQUENCE,
     DAD_SUBSET,

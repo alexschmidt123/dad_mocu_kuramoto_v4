@@ -6,7 +6,7 @@ from pathlib import Path
 
 import yaml
 
-from src.control.ieee5_horizon_sweep import check_t1_myopic_fixed_equivalence
+from src.control.legacy.ieee5_horizon_sweep import check_t1_myopic_fixed_equivalence
 from src.control.terminal_rule import keyed_noise, load_frozen_terminal_rule
 
 
@@ -58,6 +58,6 @@ def test_t1_equivalence_helper():
 
 
 def test_no_eig_in_horizon_sweep_module():
-    text = (ROOT / "src/control/ieee5_horizon_sweep.py").read_text().lower()
+    text = (ROOT / "src/control/legacy/ieee5_horizon_sweep.py").read_text().lower()
     assert "eig_score" not in text
     assert "delta_h" not in text

@@ -1,0 +1,22 @@
+{
+  "experiment_name": "objective_rl_sboed/ieee5_T3",
+  "entry_point": "run.sh",
+  "timestamp_utc": "2026-01-01T00:00:00Z",
+  "system": "ieee5",
+  "horizon": 3,
+  "method": "DAD",
+  "seed": 101,
+  "git_commit": null,
+  "terminal_rule_hash": null,
+  "data_dir": null,
+  "config_profile": null,
+  "initialization": null,
+  "scientific_methods": [
+    "DAD",
+    "RL-sBOED",
+    "Myopic",
+    "Fixed",
+    "Random"
+  ],
+  "extra": {}
+}

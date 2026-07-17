@@ -21,7 +21,7 @@ from src.experiment import (
     run_experiment,
     train_dad_policy,
 )
-from src.plot_summary import plot_all_detailed, plot_all_summaries, plot_sweep_six_metrics
+from src.legacy.plot_summary import plot_all_detailed, plot_all_summaries, plot_sweep_six_metrics
 from src.stepwise_eig.runner import run_all_systems, run_system_stepwise_eig
 from src.run_context import load_experiment_run
 
@@ -448,7 +448,7 @@ def main(argv: list[str] | None = None) -> None:
         return
 
     if args.command == "select-myopic-n-hypothetical":
-        from src.control.myopic_convergence import (
+        from src.control.legacy.myopic_convergence import (
             freeze_into_source_config,
             run_myopic_convergence,
         )
@@ -472,7 +472,7 @@ def main(argv: list[str] | None = None) -> None:
         return
 
     if args.command == "diagnose-myopic-fixed":
-        from src.control.diagnose_myopic_fixed import run_diagnose_myopic_fixed
+        from src.control.legacy.diagnose_myopic_fixed import run_diagnose_myopic_fixed
 
         report = run_diagnose_myopic_fixed(
             args.exp_dir,
@@ -488,7 +488,7 @@ def main(argv: list[str] | None = None) -> None:
     if args.command == "run-ieee5-t4":
         from pathlib import Path
 
-        from src.control.ieee5_t4 import run_ieee5_t4
+        from src.control.legacy.ieee5_t4 import run_ieee5_t4
 
         status = run_ieee5_t4(
             project_root=root,
@@ -510,7 +510,7 @@ def main(argv: list[str] | None = None) -> None:
     if args.command == "run-ieee5-t4-fixed-exact":
         from pathlib import Path
 
-        from src.control.ieee5_t4_fixed_exact import run_ieee5_t4_fixed_exact
+        from src.control.legacy.ieee5_t4_fixed_exact import run_ieee5_t4_fixed_exact
 
         report = run_ieee5_t4_fixed_exact(
             project_root=root,
@@ -525,7 +525,7 @@ def main(argv: list[str] | None = None) -> None:
     if args.command == "run-ieee5-adaptive-value-diagnosis":
         from pathlib import Path
 
-        from src.control.adaptive_value_diagnosis import run_adaptive_value_diagnosis
+        from src.control.legacy.adaptive_value_diagnosis import run_adaptive_value_diagnosis
 
         summary = run_adaptive_value_diagnosis(
             project_root=root,
@@ -542,7 +542,7 @@ def main(argv: list[str] | None = None) -> None:
     if args.command == "run-ieee5-t3":
         from pathlib import Path
 
-        from src.control.ieee5_t3 import run_ieee5_t3
+        from src.control.legacy.ieee5_t3 import run_ieee5_t3
 
         status = run_ieee5_t3(
             project_root=root,
@@ -564,7 +564,7 @@ def main(argv: list[str] | None = None) -> None:
     if args.command == "run-policy-robust-calibration":
         from pathlib import Path
 
-        from src.control.policy_robust_calibration import run_policy_robust_calibration
+        from src.control.legacy.policy_robust_calibration import run_policy_robust_calibration
 
         summary = run_policy_robust_calibration(
             project_root=root,
@@ -578,7 +578,7 @@ def main(argv: list[str] | None = None) -> None:
         return
 
     if args.command == "run-ieee5-horizon-sweep":
-        from src.control.ieee5_horizon_sweep import run_ieee5_horizon_sweep
+        from src.control.legacy.ieee5_horizon_sweep import run_ieee5_horizon_sweep
 
         T_values = list(range(int(args.from_t), int(args.to_t) + 1))
         result = run_ieee5_horizon_sweep(

@@ -1,0 +1,28 @@
+study_name: objective_rl_sboed
+step_number: 3
+system: multi
+topology: multi
+run_name: multi
+methods:
+- DAD
+- RL-sBOED
+- Myopic
+- Fixed
+- Random
+terminal_rule_hash: null
+data_dir: null
+source_config: null
+output_layout:
+  model: model
+  train: train
+  eval: eval
+  logs: logs
+  diagnostics: diagnostics
+  summary: summary
+entry_points:
+  single_run: ./run.sh
+  sweep: ./sweep_run.sh
+systems:
+- ieee5
+- ieee9
+primary_horizon: 3

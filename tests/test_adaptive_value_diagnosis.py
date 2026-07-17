@@ -7,7 +7,7 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from src.control.adaptive_value_diagnosis import (
+from src.control.legacy.adaptive_value_diagnosis import (
     expected_u_after_action,
     j_adaptive_t2_for_action,
     normalize_advantages,
@@ -142,7 +142,7 @@ def test_adaptive_later_action_depends_on_observation():
 
 
 def test_offline_banks_only_no_simulator_import_in_module():
-    src = (ROOT / "src" / "control" / "adaptive_value_diagnosis.py").read_text(encoding="utf-8")
+    src = (ROOT / "src" / "control" / "legacy" / "adaptive_value_diagnosis.py").read_text(encoding="utf-8")
     assert "CudaControlEngine" not in src
     assert "build_simulator" not in src
     assert "lookup_action_y_sim" in src
@@ -180,21 +180,21 @@ def test_dad_forward_uses_full_history_call_path():
 def test_value_baseline_must_not_use_true_theta_contract():
     # Contract test: baseline helpers in diagnosis module do not take u_req/theta.
     import inspect
-    from src.control import adaptive_value_diagnosis as m
+    from src.control.legacy import adaptive_value_diagnosis as m
 
     src = inspect.getsource(m.normalize_advantages)
     assert "u_req" not in src and "theta" not in src
 
 
 def test_frozen_terminal_rule_unchanged_in_diagnosis():
-    from src.control.adaptive_value_diagnosis import EXPECTED_HASH, FROZEN_MARGIN
+    from src.control.legacy.adaptive_value_diagnosis import EXPECTED_HASH, FROZEN_MARGIN
 
     assert EXPECTED_HASH == "c2e2af33cb68a5ea"
     assert abs(FROZEN_MARGIN - 0.55) < 1e-12
 
 
 def test_no_eig_objective_in_diagnosis_training_path():
-    src = (ROOT / "src" / "control" / "adaptive_value_diagnosis.py").read_text(encoding="utf-8")
+    src = (ROOT / "src" / "control" / "legacy" / "adaptive_value_diagnosis.py").read_text(encoding="utf-8")
     assert "EIG" not in src
     assert "delta_h" not in src.lower() or "Delta-H" not in src
     # Allow commenting that we do not use EIG
@@ -202,7 +202,7 @@ def test_no_eig_objective_in_diagnosis_training_path():
 
 
 def test_validation_not_test_for_variant_selection_contract():
-    src = (ROOT / "src" / "control" / "adaptive_value_diagnosis.py").read_text(encoding="utf-8")
+    src = (ROOT / "src" / "control" / "legacy" / "adaptive_value_diagnosis.py").read_text(encoding="utf-8")
     assert "used_test_systems" in src
     assert "validation_systems" in src
     assert "test_systems" not in src or "used_test_systems" in src

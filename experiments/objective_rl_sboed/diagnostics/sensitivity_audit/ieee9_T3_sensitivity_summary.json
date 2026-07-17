@@ -1,0 +1,28 @@
+{
+  "system": "ieee9",
+  "horizon": 3,
+  "n_sequences": 400,
+  "n_systems": 40,
+  "n_noise": 2,
+  "unique_terminal_u_ctrl": 44,
+  "unique_terminal_u_raw": 93,
+  "terminal_u_ctrl_std": 0.011713656292976974,
+  "terminal_u_raw_std": 0.027747785497224824,
+  "fraction_identical_modal_u_ctrl": 0.195,
+  "near_tie_rate_adjacent_sorted": 0.8922305764411027,
+  "best_mean_u_ctrl": 0.9670000000000002,
+  "second_best_mean_u_ctrl": 0.9680000000000002,
+  "best_minus_second_gap": 0.0010000000000000009,
+  "mean_order_gap": NaN,
+  "mean_single_probe_replace_gap": 0.008499999999999897,
+  "mean_amplitude_replace_gap": NaN,
+  "mean_bus_replace_gap": NaN,
+  "mean_abs_u_raw_minus_u_ctrl": 0.04205249999999992,
+  "u_grid_size": 16,
+  "margin": 0.9,
+  "terminal_rule_hash": "5b4c2191621b1bbc",
+  "used_confirmation_split": false,
+  "likely_sensitivity_drivers": [
+    "C_snap_up_quantization"
+  ]
+}

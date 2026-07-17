@@ -6,14 +6,14 @@ from pathlib import Path
 
 import numpy as np
 
-from src.control.policy_robust_calibration import (
+from src.control.legacy.policy_robust_calibration import (
     HORIZON,
     _onesided_wilson_lower,
     _u_ctrl_from_q,
     evaluate_margin_candidates,
     out_dir_default,
 )
-from src.control.shared_rollout import run_keyed_history
+from src.control.terminal_rule import run_keyed_history
 from src.control.terminal_rule import FrozenTerminalRule
 from src.rollout import RandomSelector
 from src.table_scoring import TableThetaSupport
@@ -245,7 +245,8 @@ def test_wilson_bound_zero_failures():
 
 
 def test_observability_and_baseline_share_keyed_path():
-    from src.control import observability, shared_rollout, pilot
+    from src.control import observability, pilot
+    from src.control import terminal_rule as shared_rollout
     import inspect
 
     obs_src = inspect.getsource(observability.run_diagnostic_rollout)

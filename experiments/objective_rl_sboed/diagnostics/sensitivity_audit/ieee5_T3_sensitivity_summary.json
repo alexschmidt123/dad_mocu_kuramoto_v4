@@ -1,0 +1,29 @@
+{
+  "system": "ieee5",
+  "horizon": 3,
+  "n_sequences": 400,
+  "n_systems": 40,
+  "n_noise": 2,
+  "unique_terminal_u_ctrl": 49,
+  "unique_terminal_u_raw": 98,
+  "terminal_u_ctrl_std": 0.018256504619929306,
+  "terminal_u_raw_std": 0.0250129153650388,
+  "fraction_identical_modal_u_ctrl": 0.14,
+  "near_tie_rate_adjacent_sorted": 0.8796992481203008,
+  "best_mean_u_ctrl": 0.8474999999999999,
+  "second_best_mean_u_ctrl": 0.8474999999999999,
+  "best_minus_second_gap": 0.0,
+  "mean_order_gap": 0.0012500000000000844,
+  "mean_single_probe_replace_gap": NaN,
+  "mean_amplitude_replace_gap": NaN,
+  "mean_bus_replace_gap": NaN,
+  "mean_abs_u_raw_minus_u_ctrl": 0.004476562500000027,
+  "u_grid_size": 16,
+  "margin": 0.55,
+  "terminal_rule_hash": "c2e2af33cb68a5ea",
+  "used_confirmation_split": false,
+  "likely_sensitivity_drivers": [
+    "C_snap_up_quantization",
+    "E_probes_produce_similar_posterior_changes"
+  ]
+}

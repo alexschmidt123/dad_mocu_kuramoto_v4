@@ -9,7 +9,7 @@ import numpy as np
 
 from src.config import repo_root
 from src.experiment_layout import model_dir
-from src.plot_summary import find_latest_experiment_dirs
+from src.legacy.plot_summary import find_latest_experiment_dirs
 from src.run_context import load_experiment_run
 from src.swing_equation_ode.design import build_catalog
 from src.table_scoring import TableThetaSupport

@@ -1,0 +1,22 @@
+{
+  "metrics": [
+    {
+      "epoch": 1,
+      "loss": 0.46705814746868174,
+      "step_accuracy": 0.96875,
+      "full_sequence_accuracy": 0.96875
+    },
+    {
+      "epoch": 2,
+      "loss": 0.003564708892857501,
+      "step_accuracy": 1.0,
+      "full_sequence_accuracy": 1.0
+    }
+  ],
+  "final": {
+    "epoch": 2,
+    "loss": 0.003564708892857501,
+    "step_accuracy": 1.0,
+    "full_sequence_accuracy": 1.0
+  }
+}

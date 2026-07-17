@@ -1,0 +1,21 @@
+method,init_mode,seed,n_unique_sequences,dominant_sequence,dominant_sequence_fraction,observation_dependent_rate,n_rollouts
+DAD,random,101,2,23 28 1,0.84375,0.15625,32
+DAD,random,202,1,14 18 5,1.0,0.0,32
+DAD,random,303,2,13 20 29,0.75,0.25,32
+DAD,random,404,1,23 10 9,1.0,0.0,32
+DAD,random,505,2,8 20 21,0.5625,0.4375,32
+DAD,fixed,101,1,0 19 28,1.0,0.0,32
+DAD,fixed,202,1,0 19 28,1.0,0.0,32
+DAD,fixed,303,1,14 19 28,1.0,0.0,32
+DAD,fixed,404,3,28 19 0,0.75,0.25,32
+DAD,fixed,505,1,0 19 28,1.0,0.0,32
+RL-sBOED,random,101,1,6 23 3,1.0,0.0,32
+RL-sBOED,random,202,1,21 4 8,1.0,0.0,32
+RL-sBOED,random,303,2,1 3 22,0.5625,0.4375,32
+RL-sBOED,random,404,1,1 11 13,1.0,0.0,32
+RL-sBOED,random,505,1,21 4 8,1.0,0.0,32
+RL-sBOED,fixed,101,1,0 19 28,1.0,0.0,32
+RL-sBOED,fixed,202,1,0 19 28,1.0,0.0,32
+RL-sBOED,fixed,303,1,0 19 28,1.0,0.0,32
+RL-sBOED,fixed,404,1,0 19 28,1.0,0.0,32
+RL-sBOED,fixed,505,1,0 19 28,1.0,0.0,32

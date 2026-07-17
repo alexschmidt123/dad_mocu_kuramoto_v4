@@ -17,7 +17,7 @@ import numpy as np
 
 from src.control.banks import extract_U_bank
 from src.control.fixed_search import estimate_fixed_subset_objective
-from src.control.ieee5_t4 import (
+from src.control.legacy.ieee5_t4 import (
     EXPECTED_HASH,
     FROZEN_MARGIN,
     _write_csv,

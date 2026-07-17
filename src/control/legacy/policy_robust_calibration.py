@@ -19,7 +19,7 @@ from src.control.myopic import MyopicControlSelector
 from src.control.observability import check_objective_observability
 from src.control.pilot import load_pilot_splits, run_pilot
 from src.control.posterior_ctrl import snap_up_to_grid
-from src.control.shared_rollout import run_keyed_history
+from src.control.terminal_rule import run_keyed_history
 from src.control.terminal_rule import FrozenTerminalRule, load_frozen_terminal_rule
 from src.control.u_req import ControlSpec
 from src.contrastive.spce import log_prior_uniform_discrete
@@ -362,7 +362,7 @@ def diagnose_random_paths(root: Path, out: Path) -> dict[str, Any]:
             "particles": "support split (~40)",
             "reported_safety": 0.986,
         },
-        "unified_path": "src.control.shared_rollout.run_keyed_history",
+        "unified_path": "src.control.terminal_rule.run_keyed_history",
         "identical_seeds_identical_histories": all_match,
         "cause_of_0_986": (
             "Keyed-noise + support-particle Random produced ESS-collapse under-control "

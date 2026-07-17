@@ -1,0 +1,4 @@
+method,mean_u_ctrl,median_u_ctrl,std_u_ctrl,n_rollouts,n_unique_sequences,dominant_sequence,dominant_sequence_fraction
+Fixed,0.83671875,0.9,0.15045301059944766,128,1,0 19 28,1.0
+Random,0.8632812500000001,0.9,0.12678173527144004,128,128,28 18 20,0.0078125
+Myopic,0.87109375,0.9,0.12509517860788044,128,43,1 0 2,0.2734375

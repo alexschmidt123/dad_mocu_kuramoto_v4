@@ -1,0 +1,12 @@
+{
+  "DAD": {
+    "method": "DAD",
+    "selected_init": "fixed",
+    "mean_validation_u_ctrl": 0.8178124999999999
+  },
+  "RL-sBOED": {
+    "method": "RL-sBOED",
+    "selected_init": "fixed",
+    "mean_validation_u_ctrl": 0.8203125
+  }
+}

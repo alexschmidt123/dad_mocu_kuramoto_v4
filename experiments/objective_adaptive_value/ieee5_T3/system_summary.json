@@ -1,0 +1,31 @@
+{
+  "system": "ieee5",
+  "horizon": 3,
+  "n_histories_per_xi1": 256,
+  "n_hyp_outer": 96,
+  "n_hyp_inner": 48,
+  "n_hyp_stability_agreement": null,
+  "case": "B",
+  "best_xi1_for_adaptive_planning": 20,
+  "J_adaptive_best_xi1": 0.834529537624783,
+  "J_common_best_xi1": 0.834539286295573,
+  "Delta_adaptive_best_xi1": 9.748670789943951e-06,
+  "ci95_low_best_xi1": -0.001426542070176854,
+  "ci95_high_best_xi1": 0.0014505343967014,
+  "n_unique_optimal_xi2_best_xi1": 25,
+  "dominant_xi2_fraction_best_xi1": 0.08203125,
+  "near_tie_rate_best_xi1": 0.0625,
+  "mean_Delta_adaptive_all_xi1": -0.0006211881284360542,
+  "fraction_xi1_with_significant_Delta": 0.0,
+  "dad_action_agreement": 0.03721354166666667,
+  "dad_mean_regret": 0.0007954553674768474,
+  "uses_offline_banks_only": true,
+  "used_confirmation_split": false,
+  "methods_in_project": [
+    "DAD",
+    "Myopic",
+    "Fixed",
+    "Random"
+  ],
+  "split_sample_unbiased_delta": true
+}

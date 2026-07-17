@@ -59,7 +59,6 @@ from src.swing_equation_ode.design import (
     random_valid_sequence,
 )
 from src.data import validate_trajectory_y_sim
-from src.design_eig import write_step1_design_report
 from src.table_scoring import (
     TableThetaSupport,
     spce_eig_from_rollout,

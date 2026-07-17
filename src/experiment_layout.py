@@ -1,9 +1,17 @@
-"""Paths and writers for the standard experiment folder layout."""
+"""Paths and writers for the standard experiment folder layout.
+
+Covers stamped pre-2026-07-13 runs (``run_config.yaml``, ``model/``, ``eval/``)
+and control-objective / study runs (``train/``, ``diagnostics/``, ``logs/``,
+``summary/``, ``run_metadata.json``).
+"""
 
 from __future__ import annotations
 
+import json
 import shutil
-from datetime import datetime
+import subprocess
+from dataclasses import asdict, dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -16,6 +24,13 @@ LEGACY_DATA_DIR_POINTER = "data_dir.txt"
 MODEL_SUBDIR = "model"
 EVAL_SUBDIR = "eval"
 EVAL_SUMMARY_FILENAME = "summary.csv"
+TRAIN_SUBDIR = "train"
+LOGS_SUBDIR = "logs"
+DIAGNOSTICS_SUBDIR = "diagnostics"
+SUMMARY_SUBDIR = "summary"
+PLOTS_SUBDIR = "plots"
+SCRATCH_SUBDIR = "scratch"
+RUN_METADATA_FILENAME = "run_metadata.json"
 
 
 def make_experiment_dir_name(
@@ -136,3 +151,190 @@ def resolve_experiment_config_path(exp_dir: Path) -> Path:
     raise FileNotFoundError(f"Ambiguous YAML in {exp_dir}: {[p.name for p in yamls]}")
 
 
+@dataclass
+class RunMetadata:
+    """Required audit fields for an authoritative complete run."""
+
+    experiment_name: str
+    entry_point: str  # "run.sh" | "sweep_run.sh"
+    timestamp_utc: str
+    system: str
+    horizon: int
+    method: str
+    seed: int | None = None
+    git_commit: str | None = None
+    terminal_rule_hash: str | None = None
+    data_dir: str | None = None
+    config_profile: str | None = None
+    initialization: str | None = None
+    scientific_methods: tuple[str, ...] = (
+        "DAD",
+        "RL-sBOED",
+        "Myopic",
+        "Fixed",
+        "Random",
+    )
+    extra: dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        payload = asdict(self)
+        payload["scientific_methods"] = list(self.scientific_methods)
+        return payload
+
+
+def git_commit_hash(repo_root: Path) -> str | None:
+    try:
+        proc = subprocess.run(
+            ["git", "-C", str(repo_root), "rev-parse", "HEAD"],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        if proc.returncode == 0:
+            return proc.stdout.strip() or None
+    except OSError:
+        return None
+    return None
+
+
+def utc_now_stamp() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+@dataclass(frozen=True)
+class StandardExperimentPaths:
+    """Resolved paths for one experiment directory."""
+
+    root: Path
+
+    @property
+    def run_config(self) -> Path:
+        return self.root / RUN_CONFIG_FILENAME
+
+    @property
+    def run_metadata(self) -> Path:
+        return self.root / RUN_METADATA_FILENAME
+
+    @property
+    def model(self) -> Path:
+        return self.root / MODEL_SUBDIR
+
+    @property
+    def train(self) -> Path:
+        return self.root / TRAIN_SUBDIR
+
+    @property
+    def eval(self) -> Path:
+        return self.root / EVAL_SUBDIR
+
+    @property
+    def logs(self) -> Path:
+        return self.root / LOGS_SUBDIR
+
+    @property
+    def diagnostics(self) -> Path:
+        return self.root / DIAGNOSTICS_SUBDIR
+
+    @property
+    def summary(self) -> Path:
+        return self.root / SUMMARY_SUBDIR
+
+    @property
+    def plots(self) -> Path:
+        return self.eval / PLOTS_SUBDIR
+
+    @property
+    def scratch(self) -> Path:
+        return self.logs / SCRATCH_SUBDIR
+
+
+def ensure_standard_layout(exp_dir: Path) -> StandardExperimentPaths:
+    """Create the standard subdirectory tree under ``exp_dir``."""
+    paths = StandardExperimentPaths(root=exp_dir.resolve())
+    for path in (
+        paths.model,
+        paths.train,
+        paths.eval,
+        paths.logs,
+        paths.diagnostics,
+        paths.summary,
+        paths.plots,
+        paths.scratch,
+    ):
+        path.mkdir(parents=True, exist_ok=True)
+    return paths
+
+
+def write_run_metadata(exp_dir: Path, metadata: RunMetadata) -> Path:
+    paths = ensure_standard_layout(exp_dir)
+    path = paths.run_metadata
+    path.write_text(json.dumps(metadata.to_dict(), indent=2), encoding="utf-8")
+    return path
+
+
+def write_study_run_config(
+    exp_dir: Path,
+    *,
+    study_name: str,
+    system: str,
+    horizon: int,
+    methods: list[str],
+    data_dir: str | Path | None,
+    source_config: str | Path | None,
+    terminal_rule_hash: str | None,
+    extra: dict[str, Any] | None = None,
+) -> Path:
+    """Write a study-level ``run_config.yaml`` compatible with stamped runs."""
+    ensure_standard_layout(exp_dir)
+    doc: dict[str, Any] = {
+        "study_name": study_name,
+        "step_number": int(horizon),
+        "system": system,
+        "topology": system,
+        "run_name": system,
+        "methods": list(methods),
+        "terminal_rule_hash": terminal_rule_hash,
+        "data_dir": str(data_dir) if data_dir is not None else None,
+        "source_config": str(source_config) if source_config is not None else None,
+        "output_layout": {
+            "model": MODEL_SUBDIR,
+            "train": TRAIN_SUBDIR,
+            "eval": EVAL_SUBDIR,
+            "logs": LOGS_SUBDIR,
+            "diagnostics": DIAGNOSTICS_SUBDIR,
+            "summary": SUMMARY_SUBDIR,
+        },
+        "entry_points": {
+            "single_run": "./run.sh",
+            "sweep": "./sweep_run.sh",
+        },
+    }
+    if extra:
+        doc.update(extra)
+    path = run_config_path(exp_dir)
+    with path.open("w", encoding="utf-8") as handle:
+        yaml.dump(doc, handle, default_flow_style=False, sort_keys=False)
+    return path
+
+
+def train_seed_dir(exp_dir: Path, method_key: str, seed: int) -> Path:
+    """``train/<method_key>/seed_<seed>/``."""
+    path = ensure_standard_layout(exp_dir).train / method_key / f"seed_{int(seed)}"
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def eval_method_dir(exp_dir: Path, method_key: str) -> Path:
+    path = ensure_standard_layout(exp_dir).eval / method_key
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def link_or_copy_checkpoint(src: Path, dest: Path) -> None:
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    if dest.exists() or dest.is_symlink():
+        dest.unlink()
+    try:
+        dest.symlink_to(src.resolve())
+    except OSError:
+        dest.write_bytes(src.read_bytes())
