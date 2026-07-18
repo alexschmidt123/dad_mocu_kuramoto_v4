@@ -1,8 +1,0 @@
-comparison,mean_diff,ci95_low,ci95_high,n_seeds,note
-RL-sBOED - DAD,-0.0031250000000000223,-0.024375000000000015,0.014999999999999947,5,
-DAD - Myopic,-0.03234374999999996,-0.04484374999999996,-0.018593749999999964,5,baseline treated as fixed mean across seeds
-DAD - Fixed,0.002031250000000084,-0.010468749999999916,0.01578125000000008,5,baseline treated as fixed mean across seeds
-DAD - Random,-0.02453125000000007,-0.03703125000000007,-0.010781250000000075,5,baseline treated as fixed mean across seeds
-RL-sBOED - Myopic,-0.03546874999999998,-0.04734374999999995,-0.023593750000000014,5,baseline treated as fixed mean across seeds
-RL-sBOED - Fixed,-0.0010937499999999379,-0.012968749999999907,0.01078125000000003,5,baseline treated as fixed mean across seeds
-RL-sBOED - Random,-0.027656250000000094,-0.03953125000000006,-0.015781250000000125,5,baseline treated as fixed mean across seeds

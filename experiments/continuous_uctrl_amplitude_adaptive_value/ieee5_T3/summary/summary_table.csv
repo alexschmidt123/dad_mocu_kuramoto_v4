@@ -1,0 +1,2 @@
+system,number_of_histories,number_of_amplitudes,number_of_valid_buses,dominant_amplitude,dominant_amplitude_fraction,number_of_unique_optimal_amplitudes,fraction_histories_with_non_dominant_amplitude,mean_best_second_gap,median_best_second_gap,mean_wrong_amplitude_regret,p95_wrong_amplitude_regret,max_wrong_amplitude_regret,case
+ieee5,200,6,5,0.05,0.69,6,0.31000000000000005,0.0005781250000000032,0.0,0.0005781250000000032,0.0023437499999999834,0.004687499999999956,B

@@ -1,4 +1,0 @@
-variant,n_seeds,mean_u_ctrl,std_u_ctrl,min_safety,frac_checkpoint_0,n_improved,n_tied,n_degraded
-V1_fixed_init_terminal,5,0.9753333333333334,0.003999999999999982,1.0,0.4,3,2,0
-V2_fixed_init_potential,5,0.9766666666666666,0.002981423969999739,1.0,0.4,3,2,0
-V3_fixed_init_potential_normadv,5,0.9800000000000001,1.1102230246251565e-16,1.0,1.0,0,5,0

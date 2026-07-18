@@ -1,0 +1,50 @@
+{
+  "rule": "Q_{1-alpha}(U|w) + margin",
+  "terminal_rule_hash": "cc365ff6ebda7bc4",
+  "quantile_level": 0.95,
+  "additive_margin": 0.9,
+  "alpha": 0.05,
+  "snap_up": false,
+  "control_grid_hash": "2a35b5c585aa23b1",
+  "u_candidates": [
+    0.0,
+    0.08,
+    0.16,
+    0.24,
+    0.32,
+    0.4,
+    0.48,
+    0.56,
+    0.64,
+    0.72,
+    0.8,
+    0.88,
+    0.96,
+    1.04,
+    1.12,
+    1.2
+  ],
+  "source": "/home/grads/g/g.lin/Documents/dad_mocu_kuramoto_v4/experiments/ieee9_T3/selected_policy_robust_rule.json|continuous_uctrl_amplitude_study",
+  "u_bank_audit": {
+    "U_n_generation": "For each support particle \u03b8_n, U_n = u_req(\u03b8_n) is the smallest value on the discrete control candidate grid that satisfies ROCOF and frequency-nadir constraints under the configured contingency (see src/control/banks.py generate_control_bank_for_split / u_req_for_theta).",
+    "control_search_method": "sequential_scan_of_u_candidates_smallest_safe",
+    "U_n_nature": "B_discrete_grid_selected",
+    "continuous_u_ctrl_status": "approximation_based_on_discrete_U_bank",
+    "physically_validated": false,
+    "validation_note": "U_n itself is a discrete-grid safe injection level. Continuous u_ctrl = Q_{1-\u03b1}(U|w) + margin interpolates between those banked discrete levels in posterior-quantile space. Intermediate continuous values are NOT individually re-simulated against ROCOF/nadir for this study. Safety thresholds (ROCOF, nadir) and calibrated margin are unchanged; only snap_up is removed from the terminal selector.",
+    "safety_constraints_unchanged": [
+      "max ROCOF",
+      "frequency nadir",
+      "calibrated additive margin",
+      "alpha = 0.05"
+    ],
+    "code_paths": {
+      "banks": "src/control/banks.py",
+      "u_req": "src/control/u_req.py",
+      "cuda": "src/control/cuda_control.py",
+      "posterior": "src/control/posterior_ctrl.py"
+    }
+  },
+  "snapped_parent_hash": "5b4c2191621b1bbc",
+  "continuous_physically_validated": false
+}

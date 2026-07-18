@@ -1,6 +1,0 @@
-system,seed,best_validation_u_ctrl,selected_checkpoint,best_epoch,dominant_sequence,dominant_fraction,unique_sequence_count,sequence_entropy
-ieee5,101,0.8166666666666668,/home/grads/g/g.lin/Documents/dad_mocu_kuramoto_v4/experiments/dad_rl_training_improvement/ieee5_T3/final_dad/seed_101/best_checkpoint.pt,65,28 11 13,1.0,1,-0.0
-ieee5,202,0.8333333333333335,/home/grads/g/g.lin/Documents/dad_mocu_kuramoto_v4/experiments/dad_rl_training_improvement/ieee5_T3/final_dad/seed_202/best_checkpoint.pt,0,16 13 24,1.0,1,-0.0
-ieee5,303,0.8333333333333334,/home/grads/g/g.lin/Documents/dad_mocu_kuramoto_v4/experiments/dad_rl_training_improvement/ieee5_T3/final_dad/seed_303/best_checkpoint.pt,100,8 13 6,1.0,1,-0.0
-ieee5,404,0.8250000000000001,/home/grads/g/g.lin/Documents/dad_mocu_kuramoto_v4/experiments/dad_rl_training_improvement/ieee5_T3/final_dad/seed_404/best_checkpoint.pt,25,23 6 8,0.75,2,0.5623351446188083
-ieee5,505,0.8333333333333334,/home/grads/g/g.lin/Documents/dad_mocu_kuramoto_v4/experiments/dad_rl_training_improvement/ieee5_T3/final_dad/seed_505/best_checkpoint.pt,30,11 28 3,1.0,1,-0.0

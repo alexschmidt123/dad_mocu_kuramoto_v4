@@ -1,0 +1,3 @@
+system,dominant_bus,dominant_bus_fraction,unique_buses,entropy,frac_pairs_different,case
+ieee5,1,0.745,4,0.8283196502852364,0.4222110552763819,BUS-B
+ieee9,0,0.685,5,0.782997884566481,0.458894472361809,BUS-B

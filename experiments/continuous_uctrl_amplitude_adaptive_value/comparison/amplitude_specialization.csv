@@ -1,0 +1,3 @@
+system,dominant_amplitude,dominant_fraction,unique_amplitudes,entropy,frac_pairs_different
+ieee5,0.05,0.69,6,1.09697896195207,0.5042211055276382
+ieee9,0.05,0.885,6,0.5198101515937217,0.214321608040201

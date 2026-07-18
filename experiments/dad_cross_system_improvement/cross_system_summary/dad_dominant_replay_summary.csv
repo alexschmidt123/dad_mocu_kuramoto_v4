@@ -1,6 +1,0 @@
-system_T,dominant_sequence,dad_mean,dominant_replay_mean,mean_paired_diff,median_paired_diff,std_error,ci95_low,ci95_high,fraction_a_lower,fraction_b_lower,fraction_tied,n,n_bootstrap,observation_dependent
-ieee5_T2,"[23, 24]",0.8305000000000001,0.8305000000000001,0.0,0.0,0.0,0.0,0.0,0.0,0.0,1.0,400,10000,False
-ieee5_T3,"[18, 19, 25]",0.848,0.848,0.0,0.0,0.0,0.0,0.0,0.0,0.0,1.0,400,10000,False
-ieee5_T4,"[8, 19, 28, 18]",0.818,0.818,0.0,0.0,0.0,0.0,0.0,0.0,0.0,1.0,400,10000,False
-ieee9_T2,"[13, 18]",0.9874000000000004,0.9874000000000004,0.0,0.0,0.0,0.0,0.0,0.0,0.0,1.0,400,10000,False
-ieee9_T3,"[0, 4, 6]",0.9788000000000002,0.9788000000000002,0.0,0.0,0.0,0.0,0.0,0.0,0.0,1.0,400,10000,False

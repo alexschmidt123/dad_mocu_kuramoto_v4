@@ -1,4 +1,16 @@
-"""Posterior → terminal control decision u_ctrl(h_T)."""
+"""Posterior → terminal control decision u_ctrl(h_T).
+
+Primary scientific mapping for *new* continuous-control studies:
+
+    u_ctrl = Q_{1-α}(U | w) + margin
+
+Historical / snapped mapping (default for frozen legacy rules):
+
+    u_ctrl = snap_up(Q_{1-α}(U | w) + margin)
+
+``u_ctrl_snapped`` is always available as a diagnostic. ``u_raw`` remains an
+alias of the continuous pre-snap quantity for backward compatibility.
+"""
 
 from __future__ import annotations
 
@@ -53,35 +65,49 @@ def snap_up_to_grid(u: float, u_grid: Sequence[float] | np.ndarray) -> float:
 @dataclass(frozen=True)
 class TerminalControlRule:
     """
-    Common terminal rule for all methods:
+    Common terminal rule for all methods.
+
+    With ``snap_up=True`` (historical):
 
         u_ctrl = snap_up( Q_{1-α}(U_bank | w) + margin )
+
+    With ``snap_up=False`` (continuous-control studies):
+
+        u_ctrl = Q_{1-α}(U_bank | w) + margin
     """
 
     alpha: float = 0.05
     margin: float = 0.0
     u_candidates: tuple[float, ...] = ()
+    snap_up: bool = True
 
     @property
     def quantile_level(self) -> float:
         return 1.0 - float(self.alpha)
 
     def apply(self, U_bank: np.ndarray, weights: np.ndarray) -> float:
-        return posterior_safe_u_ctrl(
+        return compute_u_ctrl(
             U_bank,
             weights,
-            self.alpha,
+            alpha=self.alpha,
             margin=self.margin,
             u_grid=self.u_candidates if self.u_candidates else None,
+            snap_up=self.snap_up,
         )
 
     def to_dict(self) -> dict[str, Any]:
+        formula = (
+            "snap_up(Q_{1-alpha}(U|w) + margin)"
+            if self.snap_up
+            else "Q_{1-alpha}(U|w) + margin"
+        )
         return {
             "alpha": float(self.alpha),
             "margin": float(self.margin),
             "quantile_level": float(self.quantile_level),
             "u_candidates": list(self.u_candidates),
-            "rule": "snap_up(Q_{1-alpha}(U|w) + margin)",
+            "snap_up": bool(self.snap_up),
+            "rule": formula,
         }
 
     @classmethod
@@ -91,6 +117,7 @@ class TerminalControlRule:
             alpha=float(raw.get("alpha", 0.05)),
             margin=float(raw.get("margin", 0.0)),
             u_candidates=cands,
+            snap_up=bool(raw.get("snap_up", True)),
         )
 
 
@@ -99,13 +126,15 @@ class ControlDecision:
     """Shared posterior → control mapping used by all methods.
 
     ``u_quantile`` is Q_{1-α}(U|w).
-    ``u_raw`` is the continuous pre-snap command ``u_quantile + margin``.
-    ``u_ctrl`` is the operational snapped command (primary evaluation metric).
+    ``u_raw`` is the continuous quantity ``u_quantile + margin`` (legacy name).
+    ``u_ctrl`` is the primary operational command (continuous or snapped).
+    ``u_ctrl_snapped`` is always the historical snap_up diagnostic.
     """
 
     u_quantile: float
     u_raw: float
     u_ctrl: float
+    u_ctrl_snapped: float
 
 
 def posterior_control_decision(
@@ -115,16 +144,62 @@ def posterior_control_decision(
     *,
     margin: float = 0.0,
     u_grid: Sequence[float] | np.ndarray | None = None,
+    snap_up: bool = True,
 ) -> ControlDecision:
-    """Compute both continuous ``u_raw`` and operational ``u_ctrl``."""
+    """Compute continuous and snapped control; primary ``u_ctrl`` follows ``snap_up``."""
     q = 1.0 - float(alpha)
     u_quantile = float(weighted_quantile(U_bank, weights, q))
-    u_raw = u_quantile + float(margin)
+    u_continuous = u_quantile + float(margin)
     if u_grid is not None and len(list(u_grid)) > 0:
-        u_ctrl = snap_up_to_grid(u_raw, u_grid)
+        u_snapped = snap_up_to_grid(u_continuous, u_grid)
     else:
-        u_ctrl = float(u_raw)
-    return ControlDecision(u_quantile=u_quantile, u_raw=float(u_raw), u_ctrl=float(u_ctrl))
+        u_snapped = float(u_continuous)
+    u_ctrl = float(u_snapped if snap_up else u_continuous)
+    return ControlDecision(
+        u_quantile=u_quantile,
+        u_raw=float(u_continuous),
+        u_ctrl=u_ctrl,
+        u_ctrl_snapped=float(u_snapped),
+    )
+
+
+def compute_u_ctrl(
+    U_bank: np.ndarray,
+    weights: np.ndarray,
+    *,
+    alpha: float,
+    margin: float = 0.0,
+    u_grid: Sequence[float] | np.ndarray | None = None,
+    snap_up: bool = True,
+) -> float:
+    """Shared primary terminal control used by all objective-based methods."""
+    return posterior_control_decision(
+        U_bank,
+        weights,
+        alpha,
+        margin=margin,
+        u_grid=u_grid,
+        snap_up=snap_up,
+    ).u_ctrl
+
+
+def compute_u_ctrl_snapped(
+    U_bank: np.ndarray,
+    weights: np.ndarray,
+    *,
+    alpha: float,
+    margin: float = 0.0,
+    u_grid: Sequence[float] | np.ndarray | None = None,
+) -> float:
+    """Historical snap_up diagnostic only (not the primary objective)."""
+    return posterior_control_decision(
+        U_bank,
+        weights,
+        alpha,
+        margin=margin,
+        u_grid=u_grid,
+        snap_up=True,
+    ).u_ctrl_snapped
 
 
 def posterior_safe_u_ctrl(
@@ -134,16 +209,22 @@ def posterior_safe_u_ctrl(
     *,
     margin: float = 0.0,
     u_grid: Sequence[float] | np.ndarray | None = None,
+    snap_up: bool = True,
 ) -> float:
     """
     Posterior-safe control:
 
-        u0 = min{ u : Σ_n w_n 1{U_n ≤ u} ≥ 1 − α }
-        u_ctrl = snap_up(u0 + margin)   if u_grid given, else u0 + margin
+        continuous: u_ctrl = Q_{1-α}(U|w) + margin
+        snapped:    u_ctrl = snap_up(Q_{1-α}(U|w) + margin)
     """
-    return posterior_control_decision(
-        U_bank, weights, alpha, margin=margin, u_grid=u_grid
-    ).u_ctrl
+    return compute_u_ctrl(
+        U_bank,
+        weights,
+        alpha=alpha,
+        margin=margin,
+        u_grid=u_grid,
+        snap_up=snap_up,
+    )
 
 
 def posterior_u_raw(
@@ -153,9 +234,9 @@ def posterior_u_raw(
     *,
     margin: float = 0.0,
 ) -> float:
-    """Continuous pre-snap control ``Q_{1-α}(U|w) + margin`` (training diagnostic)."""
+    """Continuous ``Q_{1-α}(U|w) + margin`` (legacy name; equals continuous u_ctrl)."""
     return posterior_control_decision(
-        U_bank, weights, alpha, margin=margin, u_grid=None
+        U_bank, weights, alpha, margin=margin, u_grid=None, snap_up=False
     ).u_raw
 
 

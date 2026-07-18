@@ -1,0 +1,180 @@
+{
+  "system": "ieee5",
+  "number_of_histories": 200,
+  "number_of_valid_buses": 5,
+  "number_of_amplitudes": 6,
+  "n_designs": 30,
+  "amplitudes": [
+    0.05,
+    0.075,
+    0.1,
+    0.15,
+    0.2,
+    0.3
+  ],
+  "buses": [
+    0,
+    1,
+    2,
+    3,
+    4
+  ],
+  "probe_duration_sec": 0.2,
+  "dominant_bus": 1,
+  "dominant_bus_fraction": 0.745,
+  "number_of_unique_optimal_buses": 4,
+  "fraction_non_dominant_bus": 0.255,
+  "entropy_optimal_bus": 0.8283196502852364,
+  "fraction_history_pairs_different_bus": 0.4222110552763819,
+  "mean_best_second_bus_gap": 0.021914062500000005,
+  "median_best_second_bus_gap": 0.020312500000000067,
+  "p95_best_second_bus_gap": 0.050078125000000015,
+  "mean_best_second_bus_gap_snapped": 0.01615625,
+  "wrong_bus_regret_cont": {
+    "mean": 0.019106352072864322,
+    "median": 0.0,
+    "p95": 0.10078124999999982,
+    "max": 0.16718749999999993
+  },
+  "wrong_bus_regret_snap": {
+    "mean": 0.016061086683417086,
+    "median": 0.0,
+    "p95": 0.0625,
+    "max": 0.11249999999999993
+  },
+  "mean_wrong_bus_regret": 0.019106352072864322,
+  "p95_wrong_bus_regret": 0.10078124999999982,
+  "max_wrong_bus_regret": 0.16718749999999993,
+  "mean_dominant_bus_regret": 0.007835937500000003,
+  "mean_fixed_bus_regret": 0.05633984375000001,
+  "dominant_bus_regret_cont": {
+    "mean": 0.007835937500000003,
+    "median": 0.0,
+    "p95": 0.0430078125000001,
+    "max": 0.06328125000000018
+  },
+  "fixed_bus_regret_cont": {
+    "mean": 0.05633984375000001,
+    "median": 0.0441406250000001,
+    "p95": 0.13363281250000017,
+    "max": 0.16718749999999993
+  },
+  "prior_wrong_amplitude_regret_mean": 0.0005781250000000032,
+  "case": "BUS-B",
+  "case_note": "one-step bus gaps/branching exist, but four-way terminal decomposition does not significantly beat Fully Fixed (practical terminal bus adaptive value still low; also BUS-E for policy training)",
+  "continuous_terminal_rule_hash": "90436366d8a5a193",
+  "snapped_terminal_rule_hash": "c2e2af33cb68a5ea",
+  "u_cont_physically_validated": false,
+  "n_hyp": 64,
+  "mc_stability": [
+    {
+      "history_id": 0,
+      "b_star_n": 4,
+      "b_star_2n": 4,
+      "agree": 1,
+      "n_hyp": 64
+    },
+    {
+      "history_id": 1,
+      "b_star_n": 1,
+      "b_star_2n": 1,
+      "agree": 1,
+      "n_hyp": 64
+    },
+    {
+      "history_id": 2,
+      "b_star_n": 1,
+      "b_star_2n": 1,
+      "agree": 1,
+      "n_hyp": 64
+    }
+  ],
+  "fixed_sequence": [
+    0,
+    19,
+    28
+  ],
+  "fixed_bus": 4,
+  "fixed_amplitude": 0.15,
+  "decomposition": {
+    "rows": [
+      {
+        "system": "ieee5",
+        "structure": "fully_fixed",
+        "mean_u_cont": 0.848828125,
+        "std_u_cont": 0.1484904305299987,
+        "mean_u_snap": 0.85,
+        "std_u_snap": 0.12869537676233753,
+        "n_rollouts": 128,
+        "fixed_bus": 4,
+        "fixed_amplitude": 0.15,
+        "global_best_amp_on_fixed_bus": 0.3
+      },
+      {
+        "system": "ieee5",
+        "structure": "fixed_bus_adaptive_amp",
+        "mean_u_cont": 0.8453125,
+        "std_u_cont": 0.1491430599919084,
+        "mean_u_snap": 0.846875,
+        "std_u_snap": 0.12926323674966522,
+        "n_rollouts": 128,
+        "fixed_bus": 4,
+        "fixed_amplitude": 0.15,
+        "global_best_amp_on_fixed_bus": 0.3
+      },
+      {
+        "system": "ieee5",
+        "structure": "adaptive_bus_fixed_amp",
+        "mean_u_cont": 0.8511718750000001,
+        "std_u_cont": 0.14231139433996268,
+        "mean_u_snap": 0.8539062500000001,
+        "std_u_snap": 0.12493894993530842,
+        "n_rollouts": 128,
+        "fixed_bus": 4,
+        "fixed_amplitude": 0.15,
+        "global_best_amp_on_fixed_bus": 0.3
+      },
+      {
+        "system": "ieee5",
+        "structure": "adaptive_bus_adaptive_amp",
+        "mean_u_cont": 0.852734375,
+        "std_u_cont": 0.14500923916550754,
+        "mean_u_snap": 0.8539062500000001,
+        "std_u_snap": 0.12556269832612513,
+        "n_rollouts": 128,
+        "fixed_bus": 4,
+        "fixed_amplitude": 0.15,
+        "global_best_amp_on_fixed_bus": 0.3
+      }
+    ],
+    "paired": [
+      {
+        "comparison": "fixed_bus_adaptive_amp - fully_fixed",
+        "mean_diff": -0.0035156249999999997,
+        "ci95_low": -0.008593749999999999,
+        "ci95_high": 0.0
+      },
+      {
+        "comparison": "adaptive_bus_fixed_amp - fully_fixed",
+        "mean_diff": 0.002343750000000003,
+        "ci95_low": -0.011328124999999994,
+        "ci95_high": 0.017578125000000003
+      },
+      {
+        "comparison": "adaptive_bus_adaptive_amp - fully_fixed",
+        "mean_diff": 0.003906250000000001,
+        "ci95_low": -0.011328124999999996,
+        "ci95_high": 0.021484374999999997
+      },
+      {
+        "comparison": "adaptive_bus_adaptive_amp - adaptive_bus_fixed_amp",
+        "mean_diff": 0.001562499999999998,
+        "ci95_low": -0.0027343750000000024,
+        "ci95_high": 0.0078124999999999965
+      }
+    ],
+    "global_best_amp_on_fixed_bus": 0.3,
+    "n_rollouts": 128
+  },
+  "used_confirmation_split": false
+}

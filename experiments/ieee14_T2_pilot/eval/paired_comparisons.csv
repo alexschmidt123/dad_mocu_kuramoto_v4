@@ -1,7 +1,0 @@
-contrast,mean_paired_diff,median_paired_diff,std_error,ci95_low,ci95_high,fraction_a_lower,fraction_b_lower,fraction_tied,n,n_bootstrap
-dad_fixed_init_minus_fixed,0.0,0.0,0.0,0.0,0.0,0.0,0.0,1.0,400,10000
-dad_minus_dad_fixed_init,0.0,0.0,0.0,0.0,0.0,0.0,0.0,1.0,400,10000
-dad_minus_fixed,0.0,0.0,0.0,0.0,0.0,0.0,0.0,1.0,400,10000
-dad_minus_dominant_replay,0.0,0.0,0.0,0.0,0.0,0.0,0.0,1.0,400,10000
-dad_minus_myopic,0.0028000000000000026,0.0,0.002398913705704846,-0.0018000000000000017,0.007600000000000007,0.09,0.1125,0.7975,400,10000
-dad_minus_random,-0.06300000000000006,-0.08000000000000007,0.004666040058182252,-0.07220000000000006,-0.05400000000000005,0.56,0.1125,0.3275,400,10000

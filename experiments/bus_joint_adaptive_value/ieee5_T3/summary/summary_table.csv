@@ -1,0 +1,2 @@
+system,number_of_histories,number_of_valid_buses,number_of_amplitudes,dominant_bus,dominant_bus_fraction,number_of_unique_optimal_buses,fraction_non_dominant_bus,mean_best_second_bus_gap,median_best_second_bus_gap,mean_wrong_bus_regret,p95_wrong_bus_regret,max_wrong_bus_regret,mean_dominant_bus_regret,mean_fixed_bus_regret,case
+ieee5,200,5,6,1,0.745,4,0.255,0.021914062500000005,0.020312500000000067,0.019106352072864322,0.10078124999999982,0.16718749999999993,0.007835937500000003,0.05633984375000001,BUS-B

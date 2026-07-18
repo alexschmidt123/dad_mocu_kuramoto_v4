@@ -1,6 +1,0 @@
-system,seed,best_validation_u_ctrl,mean_u_ctrl,std_u_ctrl,true_safety_rate,unique_sequence_count,dominant_sequence,dominant_sequence_fraction,sequence_entropy,xi2_action_variation_across_y1_bins,xi3_action_variation_across_y1_y2_bins,mi_y1_xi2,mi_y1y2_xi3,observation_action_mutual_information,classification,n_bins,deterministic_policy_evaluation
-ieee9,101,0.9700000000000001,0.9729600000000004,0.050072331681278844,1.0,1,"[30, 3, 38]",1.0,-0.0,1,1,0.0,0.0,0.0,effectively nonadaptive,5,True
-ieee9,202,0.9633333333333333,0.9812000000000003,0.06801293994527806,1.0,1,"[15, 46, 45]",1.0,-0.0,1,1,0.0,0.0,0.0,effectively nonadaptive,5,True
-ieee9,303,0.9700000000000001,0.9748000000000004,0.05102313200892318,1.0,1,"[39, 1, 35]",1.0,-0.0,1,1,0.0,0.0,0.0,effectively nonadaptive,5,True
-ieee9,404,0.9700000000000001,0.9692000000000004,0.033730698184295006,1.0,1,"[18, 26, 13]",1.0,-0.0,1,1,0.0,0.0,0.0,effectively nonadaptive,5,True
-ieee9,505,0.9633333333333333,0.9744000000000003,0.0525570166581019,1.0,1,"[0, 28, 11]",1.0,-0.0,1,1,0.0,0.0,0.0,effectively nonadaptive,5,True

@@ -33,8 +33,13 @@ def batch_u_ctrl(
     alpha: float,
     margin: float,
     u_grid: np.ndarray,
+    snap_up: bool = True,
 ) -> np.ndarray:
-    """Vectorized snap_up(Q_{1-α}(U|w) + margin). ``log_w``: (..., N) → (...)."""
+    """Vectorized terminal control. ``log_w``: (..., N) → (...).
+
+    ``snap_up=True`` (historical): snap_up(Q + margin).
+    ``snap_up=False`` (continuous studies): Q + margin.
+    """
     flat = log_w.reshape(-1, log_w.shape[-1])
     m = np.max(flat, axis=1, keepdims=True)
     w = np.exp(flat - m)
@@ -47,6 +52,8 @@ def batch_u_ctrl(
     idx = np.sum(cdf < q, axis=1)
     idx = np.clip(idx, 0, U.size - 1)
     u0 = U_sorted[idx] + float(margin)
+    if not snap_up:
+        return u0.reshape(log_w.shape[:-1])
     gi = np.searchsorted(u_grid, u0, side="left")
     gi = np.clip(gi, 0, u_grid.size - 1)
     return u_grid[gi].reshape(log_w.shape[:-1])
@@ -65,6 +72,7 @@ def expected_u_after_action(
     u_grid: np.ndarray,
     idx: np.ndarray,
     noise: np.ndarray,
+    snap_up: bool = True,
 ) -> float:
     """E_y[u_ctrl | h, a] with shared CRN (idx, noise). Offline banks only."""
     del weights  # CRN uses idx drawn from weights by the caller.
@@ -77,7 +85,16 @@ def expected_u_after_action(
     )
     log_w_h = log_w[None, :] + log_L
     return float(
-        np.mean(batch_u_ctrl(U, log_w_h, alpha=alpha, margin=margin, u_grid=u_grid))
+        np.mean(
+            batch_u_ctrl(
+                U,
+                log_w_h,
+                alpha=alpha,
+                margin=margin,
+                u_grid=u_grid,
+                snap_up=snap_up,
+            )
+        )
     )
 
 

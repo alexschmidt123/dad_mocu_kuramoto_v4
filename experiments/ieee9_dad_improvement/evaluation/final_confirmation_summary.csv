@@ -1,5 +1,0 @@
-method,mean_u_ctrl,std_u_ctrl,safety,dominant_sequence,dominant_sequence_fraction,sequence_entropy,n_unique_sequences
-improved_dad,0.9766666666666666,0.046067583203617556,1.0,"[0, 27, 17]",1.0,-0.0,1
-fixed_init_dad,0.9733333333333333,0.049888765156985884,1.0,"[0, 3, 47]",1.0,-0.0,1
-fixed,0.9733333333333333,0.049888765156985884,1.0,"[0, 3, 47]",1.0,0.0,1
-original_dad,0.9766666666666666,0.05647024782032473,1.0,"[47, 3, 19]",1.0,-0.0,1

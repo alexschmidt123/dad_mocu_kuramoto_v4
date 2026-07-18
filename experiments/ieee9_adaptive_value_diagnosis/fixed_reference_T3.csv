@@ -1,2 +1,0 @@
-T,exact_or_approximate,search_mode,n_combinations,candidates_evaluated,exact_fixed_subset,exact_fixed_value,validation_safety,runtime,used_test_systems,top_discoveries
-3,exhaustive,exhaustive,24804,24804,"[0, 4, 6]",0.96,1.0,173.13898335187696,False,"[{'subset': [0, 1, 2], 'mean_u': 0.9633333333333333, 'safety': 1.0, 'rank_at_discovery': 1}, {'subset': [0, 4, 6], 'mean_u': 0.96, 'safety': 1.0, 'rank_at_discovery': 155}]"

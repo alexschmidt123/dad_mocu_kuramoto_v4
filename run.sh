@@ -11,6 +11,10 @@
 #   ./run.sh -config ieee5_config -T 3
 #   ./run.sh -config ieee5_config -exp-dir experiments/<run>   # skip data gen; still runs phase 2+
 #   ./run.sh -study objective_rl_sboed -system ieee5 [-stage run-system|sensitivity] [--smoke]
+#   ./run.sh -study continuous_uctrl_amplitude -system both [-stage run|diagnose|audit] [--smoke]
+#   ./run.sh -study bus_joint_adaptive_value -system both [-stage run|report] [--smoke]
+#   ./run.sh -study particle_posterior_adequacy -system both [-stage run|generate-master|report] [--smoke]
+#   ./sweep_run.sh -study particle_posterior_adequacy -system both
 #
 # IEEE5 currently uses control_safety_calibration.mode=frozen with margin 0.55
 # (policy-robust rule). Phase 2 verifies the rule and does not recalibrate.
@@ -43,24 +47,40 @@ while [[ $# -gt 0 ]]; do
         -stage) STAGE="$2"; shift 2 ;;
         --smoke) SMOKE="--smoke"; shift ;;
         *)
-            echo "Usage: $0 (-config <name|path> [-T <horizon>] [-exp-dir <dir>]) | (-study objective_rl_sboed -system <ieee5|ieee9> [-stage <stage>] [--smoke])" >&2
+            echo "Usage: $0 (-config <name|path> [-T <horizon>] [-exp-dir <dir>]) | (-study <name> -system <ieee5|ieee9|both> [-stage <stage>] [--smoke])" >&2
             exit 1
             ;;
     esac
 done
 
 if [[ -n "$STUDY" ]]; then
-    if [[ "$STUDY" != "objective_rl_sboed" ]]; then
-        echo "Unknown study: $STUDY (supported: objective_rl_sboed)" >&2
-        exit 1
-    fi
-    echo "=== Study: objective_rl_sboed (system=$SYSTEM stage=$STAGE) ==="
-    exec ./scripts/objective_rl_sboed.sh -system "$SYSTEM" -stage "$STAGE" ${SMOKE}
+    case "$STUDY" in
+        objective_rl_sboed)
+            echo "=== Study: objective_rl_sboed (system=$SYSTEM stage=$STAGE) ==="
+            exec ./scripts/objective_rl_sboed.sh -system "$SYSTEM" -stage "$STAGE" ${SMOKE}
+            ;;
+        continuous_uctrl_amplitude)
+            echo "=== Study: continuous_uctrl_amplitude (system=$SYSTEM stage=$STAGE) ==="
+            exec ./scripts/continuous_uctrl_amplitude.sh -system "$SYSTEM" -stage "$STAGE" ${SMOKE}
+            ;;
+        bus_joint_adaptive_value)
+            echo "=== Study: bus_joint_adaptive_value (system=$SYSTEM stage=$STAGE) ==="
+            exec ./scripts/bus_joint_adaptive_value.sh -system "$SYSTEM" -stage "$STAGE" ${SMOKE}
+            ;;
+        particle_posterior_adequacy)
+            echo "=== Study: particle_posterior_adequacy (system=$SYSTEM stage=$STAGE) ==="
+            exec ./scripts/particle_posterior_adequacy.sh -system "$SYSTEM" -stage "$STAGE" ${SMOKE}
+            ;;
+        *)
+            echo "Unknown study: $STUDY (supported: objective_rl_sboed|continuous_uctrl_amplitude|bus_joint_adaptive_value|particle_posterior_adequacy)" >&2
+            exit 1
+            ;;
+    esac
 fi
 
 [[ -n "$CONFIG" ]] || {
     echo "Usage: $0 -config <name|path> [-T <horizon>] [-exp-dir <experiment_folder>]" >&2
-    echo "   or: $0 -study objective_rl_sboed -system <ieee5|ieee9> [-stage <stage>] [--smoke]" >&2
+    echo "   or: $0 -study objective_rl_sboed|continuous_uctrl_amplitude|bus_joint_adaptive_value|particle_posterior_adequacy -system <ieee5|ieee9|both> [-stage <stage>] [--smoke]" >&2
     exit 1
 }
 

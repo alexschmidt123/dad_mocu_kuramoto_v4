@@ -4,17 +4,25 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
 import numpy as np
 
-from src.control.cuda_control import CudaControlEngine
 from src.control.u_req import ControlSpec, is_control_safe
 from src.swing_equation_ode.simulator import system_mk
 
+if TYPE_CHECKING:
+    from src.control.cuda_control import CudaControlEngine
+
+
+def _cuda_engine_cls():
+    from src.control.cuda_control import CudaControlEngine
+
+    return CudaControlEngine
+
 
 def evaluate_control_metrics(
-    engine: CudaControlEngine,
+    engine: Any,
     M: np.ndarray | float,
     K: np.ndarray | float,
     u_ctrl: float,
@@ -24,7 +32,7 @@ def evaluate_control_metrics(
 
 
 def u_req_for_theta(
-    engine: CudaControlEngine,
+    engine: Any,
     M: np.ndarray | float,
     K: np.ndarray | float,
     spec: ControlSpec,

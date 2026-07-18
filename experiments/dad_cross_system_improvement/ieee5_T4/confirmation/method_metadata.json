@@ -1,9 +1,0 @@
-{
-  "terminal_rule_hash": "c2e2af33cb68a5ea",
-  "variant": "V1_fixed_init_terminal",
-  "selected_seed": 404,
-  "myopic_n_hypothetical": 1024,
-  "random_no_repeats": true,
-  "n_rollouts": 400,
-  "no_eig": true
-}

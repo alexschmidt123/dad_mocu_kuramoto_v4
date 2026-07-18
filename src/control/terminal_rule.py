@@ -10,7 +10,7 @@ from typing import Any, Sequence
 
 import numpy as np
 
-from src.control.posterior_ctrl import TerminalControlRule, posterior_safe_u_ctrl, snap_up_to_grid
+from src.control.posterior_ctrl import TerminalControlRule, posterior_safe_u_ctrl
 from src.control.u_req import ControlSpec
 
 
@@ -54,6 +54,11 @@ class FrozenTerminalRule:
         return _stable_hash(list(self.u_candidates))
 
     def metadata(self) -> dict[str, Any]:
+        formula = (
+            "snap_up(Q_{1-alpha}(U|w) + margin)"
+            if self.snap_up
+            else "Q_{1-alpha}(U|w) + margin"
+        )
         return {
             "terminal_rule_hash": self.terminal_rule_hash,
             "quantile_level": self.quantile_level,
@@ -63,8 +68,18 @@ class FrozenTerminalRule:
             "control_grid_hash": self.control_grid_hash,
             "u_candidates": list(self.u_candidates),
             "source": self.source,
-            "rule": "snap_up(Q_{1-alpha}(U|w) + margin)",
+            "rule": formula,
         }
+
+    def as_continuous(self, *, source: str | None = None) -> FrozenTerminalRule:
+        """Same α/margin/grid with snap_up disabled (new continuous-control studies)."""
+        return FrozenTerminalRule(
+            alpha=self.alpha,
+            margin=self.margin,
+            u_candidates=self.u_candidates,
+            snap_up=False,
+            source=source or f"{self.source}|continuous_no_snap",
+        )
 
     def to_control_spec(self, base: ControlSpec) -> ControlSpec:
         """Return a ControlSpec copy with frozen alpha/margin/grid."""
@@ -120,7 +135,7 @@ def load_frozen_terminal_rule(
         alpha=float(rule["alpha"]),
         margin=float(rule["margin"]),
         u_candidates=cands,
-        snap_up=True,
+        snap_up=bool(rule.get("snap_up", True)),
         source=str(path.resolve()),
     )
     if abs(frozen.alpha - 0.05) > 1e-12:
@@ -154,20 +169,21 @@ def posterior_to_u_ctrl(
     calibrated_rule: FrozenTerminalRule,
 ) -> float:
     """
-    Shared terminal map used by every method:
+    Shared terminal map used by every method.
 
-        u = snap_up( Q_{1-α}(U|w) + margin )
+    Historical (snap_up=True):  snap_up(Q_{1-α}(U|w) + margin)
+    Continuous (snap_up=False): Q_{1-α}(U|w) + margin
     """
-    u = posterior_safe_u_ctrl(
-        U_bank,
-        weights,
-        calibrated_rule.alpha,
-        margin=calibrated_rule.margin,
-        u_grid=calibrated_rule.u_candidates if calibrated_rule.snap_up else None,
+    return float(
+        posterior_safe_u_ctrl(
+            U_bank,
+            weights,
+            calibrated_rule.alpha,
+            margin=calibrated_rule.margin,
+            u_grid=calibrated_rule.u_candidates,
+            snap_up=calibrated_rule.snap_up,
+        )
     )
-    if calibrated_rule.snap_up:
-        return snap_up_to_grid(u, calibrated_rule.u_candidates)
-    return float(u)
 
 
 def assert_shared_rule_metadata(method_metas: dict[str, dict[str, Any]]) -> dict[str, Any]:

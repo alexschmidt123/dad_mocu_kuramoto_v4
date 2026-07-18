@@ -47,6 +47,7 @@ def test_shared_u_raw_and_u_ctrl():
     decision = posterior_control_decision(U, w, alpha=0.05, margin=0.1, u_grid=grid)
     assert decision.u_raw == pytest.approx(decision.u_quantile + 0.1)
     assert decision.u_ctrl >= decision.u_raw - 1e-12
+    assert decision.u_ctrl == decision.u_ctrl_snapped
     assert posterior_safe_u_ctrl(U, w, 0.05, margin=0.1, u_grid=grid) == decision.u_ctrl
     assert posterior_u_raw(U, w, 0.05, margin=0.1) == pytest.approx(decision.u_raw)
 

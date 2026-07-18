@@ -1,0 +1,27 @@
+{
+  "study": "particle_posterior_adequacy",
+  "system": "ieee9",
+  "step_number": 3,
+  "dataset_name": "ieee9_particle_adequacy_master_2048",
+  "data_dir": "/home/grads/g/g.lin/Documents/dad_mocu_kuramoto_v4/data/ieee9_particle_adequacy_master_2048",
+  "dataset_path": "/home/grads/g/g.lin/Documents/dad_mocu_kuramoto_v4/data/ieee9_particle_adequacy_master_2048",
+  "dataset_version": {
+    "git_commit": "fc08e8b0fa5f697bab8e1a729c115e22a597056d",
+    "train_json_sha256": "b3a21a590e0955ab64da32108b7fdade01e37510bf94dc89f1d1eea139a099d7",
+    "train_control_bank_sha256": "38f6082a012fe8ee59d1e7aa50dc72fde31751d968dcdc1b26e47314a7723e6f",
+    "creation_date_utc": "2026-07-17T23:17:24.117118+00:00"
+  },
+  "master_n_particles": 2048,
+  "nested_support_sizes": [
+    128,
+    256,
+    512,
+    1024,
+    2048
+  ],
+  "support_selection": "prefix_of_master_train",
+  "support_seed": 101,
+  "selected_particle_indices_rule": "range(0, N) for each nested N",
+  "config_path": "/home/grads/g/g.lin/Documents/dad_mocu_kuramoto_v4/config/ieee9_particle_adequacy_master_2048_config.yaml",
+  "historical_data_not_used": "data/ieee9"
+}

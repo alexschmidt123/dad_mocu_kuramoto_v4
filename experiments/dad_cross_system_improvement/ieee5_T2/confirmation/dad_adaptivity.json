@@ -1,8 +1,0 @@
-{
-  "classification": "effectively nonadaptive",
-  "observation_dependent": false,
-  "unique_second_actions": [
-    24
-  ],
-  "first_action": 23
-}

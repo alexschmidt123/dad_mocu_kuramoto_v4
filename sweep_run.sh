@@ -8,6 +8,7 @@
 #   ./sweep_run.sh -config ieee14_config
 #   ./sweep_run.sh -config ieee9_config -from 1 -to 5
 #   ./sweep_run.sh -config ieee5_config,ieee9_config,ieee14_config -from 1 -to 6
+#   ./sweep_run.sh -study particle_posterior_adequacy -system both
 
 set -euo pipefail
 
@@ -24,6 +25,9 @@ fi
 CONFIGS=()
 T_FROM=1
 T_TO=4
+STUDY=""
+SYSTEM="both"
+SMOKE=""
 
 add_configs() {
     local raw="$1"
@@ -40,15 +44,34 @@ while [[ $# -gt 0 ]]; do
         -config) add_configs "$2"; shift 2 ;;
         -from) T_FROM="$2"; shift 2 ;;
         -to) T_TO="$2"; shift 2 ;;
+        -study) STUDY="$2"; shift 2 ;;
+        -system) SYSTEM="$2"; shift 2 ;;
+        --smoke) SMOKE="--smoke"; shift ;;
         *)
-            echo "Usage: $0 -config <name[,name...]|path> [-config <name> ...] [-from <T>] [-to <T>]" >&2
+            echo "Usage: $0 (-config <name[,name...]|path> [-from <T>] [-to <T>]) | (-study particle_posterior_adequacy -system <ieee5|ieee9|both> [--smoke])" >&2
             exit 1
             ;;
     esac
 done
 
+if [[ -n "$STUDY" ]]; then
+    case "$STUDY" in
+        particle_posterior_adequacy)
+            echo "Sweep study: particle_posterior_adequacy (multi-seed nested supports inside run)"
+            ./run.sh -study particle_posterior_adequacy -system "$SYSTEM" -stage run ${SMOKE}
+            echo "Sweep study complete."
+            exit 0
+            ;;
+        *)
+            echo "Unknown study for sweep_run.sh: $STUDY" >&2
+            exit 1
+            ;;
+    esac
+fi
+
 [[ "${#CONFIGS[@]}" -gt 0 ]] || {
     echo "Usage: $0 -config <name[,name...]|path> [-config <name> ...] [-from <T>] [-to <T>]" >&2
+    echo "   or: $0 -study particle_posterior_adequacy -system <ieee5|ieee9|both> [--smoke]" >&2
     exit 1
 }
 
