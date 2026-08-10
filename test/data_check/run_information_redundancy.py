@@ -7,7 +7,7 @@ import argparse
 import json
 from pathlib import Path
 
-from tests.data_check.information_redundancy import run_information_redundancy
+from test.data_check.information_redundancy import run_information_redundancy
 
 
 def main() -> None:

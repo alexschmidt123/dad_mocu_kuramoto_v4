@@ -1,4 +1,4 @@
-"""Information redundancy check orchestration (tests/data_check)."""
+"""Information redundancy check orchestration (test/data_check)."""
 
 from __future__ import annotations
 
@@ -14,11 +14,11 @@ from src.config import SBOEDConfig, load_config_for_run, repo_root
 from src.data import resolve_data_path, save_json
 from src.swing_equation_ode.design import build_catalog
 from src.table_scoring import TableThetaSupport
-from tests.data_check.bootstrap import bootstrap_mean_ci_threshold
-from tests.data_check.lookahead_oracle import run_certification_protocol_t2
-from tests.data_check.oracle_eig import greedy_mc_eig_action
-from tests.data_check.redundancy import build_action_centres, compute_redundancy_diagnostics, save_redundancy_artifacts
-from tests.data_check.splits import (
+from test.data_check.bootstrap import bootstrap_mean_ci_threshold
+from test.data_check.lookahead_oracle import run_certification_protocol_t2
+from test.data_check.oracle_eig import greedy_mc_eig_action
+from test.data_check.redundancy import build_action_centres, compute_redundancy_diagnostics, save_redundancy_artifacts
+from test.data_check.splits import (
     CERTIFICATION_SPLIT,
     SEARCH_SPLIT,
     SUPPORT_SPLIT,
@@ -108,7 +108,7 @@ def run_information_redundancy(
 
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
     out = out_dir or (
-        root / "tests" / "data_check" / "results" / f"{stamp}_{cfg.run_slug}_information_redundancy"
+        root / "test" / "data_check" / "results" / f"{stamp}_{cfg.run_slug}_information_redundancy"
     )
     out.mkdir(parents=True, exist_ok=True)
 

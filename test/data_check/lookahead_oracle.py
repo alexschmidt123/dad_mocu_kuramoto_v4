@@ -14,8 +14,8 @@ from src.contrastive.spce import (
     posterior_entropy,
 )
 from src.table_scoring import TableThetaSupport, y_sim_last_step_from_tables
-from tests.data_check.oracle_eig import mc_particle_eig
-from tests.data_check.rollout import evaluate_policy_matrix
+from test.data_check.oracle_eig import mc_particle_eig
+from test.data_check.rollout import evaluate_policy_matrix
 
 
 @dataclass(frozen=True)

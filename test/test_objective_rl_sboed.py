@@ -78,7 +78,7 @@ def test_historical_adaptive_value_untouched():
 
 
 def test_standard_experiment_layout_helpers():
-    from src.experiment_layout import ensure_standard_layout, RunMetadata, write_run_metadata
+    from src.run_context import ensure_standard_layout, RunMetadata, write_run_metadata
 
     root = ROOT / "experiments" / "objective_rl_sboed" / "ieee5_T3"
     paths = ensure_standard_layout(root)
@@ -105,20 +105,16 @@ def test_standard_experiment_layout_helpers():
 def test_production_scripts_syntax():
     import subprocess
 
-    scripts = list((ROOT / "scripts").glob("*.sh")) + [
-        ROOT / "run.sh",
-        ROOT / "sweep_run.sh",
-    ]
-    for script in scripts:
-        if not script.exists():
-            continue
-        proc = subprocess.run(
-            ["bash", "-n", str(script)],
-            check=False,
-            capture_output=True,
-            text=True,
-        )
-        assert proc.returncode == 0, f"{script}: {proc.stderr}"
+    checker = ROOT / "test" / "check_shell_scripts.sh"
+    assert checker.is_file()
+    proc = subprocess.run(
+        ["bash", str(checker)],
+        cwd=ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert proc.returncode == 0, proc.stdout + proc.stderr
 
 
 def test_fixed_init_uses_train_validation_fixed_sequence_only():

@@ -9,7 +9,7 @@ from typing import Any
 import numpy as np
 
 from src.table_scoring import TableThetaSupport, y_sim_last_step_from_tables
-from tests.data_check.oracle_eig import mc_conditional_eig_given_action, mc_particle_eig
+from test.data_check.oracle_eig import mc_conditional_eig_given_action, mc_particle_eig
 
 
 @dataclass(frozen=True)
