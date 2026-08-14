@@ -1,0 +1,200 @@
+{
+  "purpose": "Plan-2 structure audit: create a Myopic trap (one-step-best \u03be1 with bad overlay, excluded from optimal T\u22652 sets) so DAD/RL-sBOED can win before MoE-sBOED innovation work.",
+  "system": "ieee5",
+  "data_dir": "/home/grads/g/g.lin/Documents/dad_mocu_kuramoto_v4/tests/fixed_bus_scale_audit/data/duration_scale",
+  "config_path": "/home/grads/g/g.lin/Documents/dad_mocu_kuramoto_v4/tests/fixed_bus_scale_audit/configs/ieee5_fixedbus_duration_scale.yaml",
+  "N_obs": 200,
+  "noise_sigma": 0.01,
+  "verdict": "PARTIAL_ADAPTIVE_ROOM",
+  "dad_rl_ready": true,
+  "myopic_beatable": false,
+  "fixed_beatable": true,
+  "branching_ok": true,
+  "adaptive_room": true,
+  "moe_deferred": true,
+  "u_heterogeneity": {
+    "n": 256,
+    "mean": 0.1065234375,
+    "std": 0.06460837127016587,
+    "q05": 0.0,
+    "q95": 0.21,
+    "headroom_q95_minus_mean": 0.1034765625,
+    "positive_frac": 0.93359375,
+    "n_unique_rounded": 10
+  },
+  "action_redundancy": {
+    "n_actions": 6,
+    "n_theta": 256,
+    "n_unique_amps": 1,
+    "n_unique_buses": 1,
+    "near_duplicate_threshold": 0.98,
+    "near_duplicate_frac": 0.6,
+    "n_near_duplicate_pairs": 9,
+    "n_pairs": 15,
+    "mean_abs_corr": 0.9845217703654556,
+    "max_abs_corr": 1.0019111035108734,
+    "same_bus_pair_count": 15,
+    "same_bus_near_dup_frac": 0.6,
+    "same_bus_amp_normalized_corr_mean": 0.0,
+    "amp_scale_redundant": false,
+    "top_near_duplicates": [
+      {
+        "i": 2,
+        "j": 3,
+        "abs_corr": 1.0019111035108734,
+        "bus_i": 0,
+        "bus_j": 0,
+        "amp_i": 0.15,
+        "amp_j": 0.15
+      },
+      {
+        "i": 1,
+        "j": 2,
+        "abs_corr": 1.0011239686717093,
+        "bus_i": 0,
+        "bus_j": 0,
+        "amp_i": 0.15,
+        "amp_j": 0.15
+      },
+      {
+        "i": 3,
+        "j": 4,
+        "abs_corr": 0.9971875572697054,
+        "bus_i": 0,
+        "bus_j": 0,
+        "amp_i": 0.15,
+        "amp_j": 0.15
+      },
+      {
+        "i": 1,
+        "j": 3,
+        "abs_corr": 0.9960518239011141,
+        "bus_i": 0,
+        "bus_j": 0,
+        "amp_i": 0.15,
+        "amp_j": 0.15
+      },
+      {
+        "i": 2,
+        "j": 4,
+        "abs_corr": 0.9942349322890535,
+        "bus_i": 0,
+        "bus_j": 0,
+        "amp_i": 0.15,
+        "amp_j": 0.15
+      },
+      {
+        "i": 0,
+        "j": 1,
+        "abs_corr": 0.9939856708579732,
+        "bus_i": 0,
+        "bus_j": 0,
+        "amp_i": 0.15,
+        "amp_j": 0.15
+      },
+      {
+        "i": 1,
+        "j": 4,
+        "abs_corr": 0.9914750383019096,
+        "bus_i": 0,
+        "bus_j": 0,
+        "amp_i": 0.15,
+        "amp_j": 0.15
+      },
+      {
+        "i": 0,
+        "j": 5,
+        "abs_corr": 0.9902883445124062,
+        "bus_i": 0,
+        "bus_j": 0,
+        "amp_i": 0.15,
+        "amp_j": 0.15
+      }
+    ]
+  },
+  "myopic_trap": {
+    "myopic_first_design": 5,
+    "planning_first_design": 5,
+    "approx_fixed_pair": [
+      5,
+      3
+    ],
+    "myopic_first_equals_planning_first": true,
+    "myopic_first_in_fixed_pair": true,
+    "planning_minus_myopic": 0.0,
+    "xi1_mean_abs_corr_with_others": 0.9714194926033345,
+    "trap_present": false,
+    "strong_trap": false,
+    "myopic_first_meta": {
+      "bus": 0,
+      "amp": 0.15,
+      "duration": 0.2
+    },
+    "planning_first_meta": {
+      "bus": 0,
+      "amp": 0.15,
+      "duration": 0.2
+    },
+    "interpretation": "NO_MYOPIC_TRAP: one-step greedy first matches (or is as good as) non-myopic first \u2014 Myopic is hard to beat; add complementary overlap structure (e.g. multi-duration waveforms), not just more amps."
+  },
+  "t2_adaptive_screen": {
+    "N_obs": 200,
+    "sigma": 0.01,
+    "support_size": 96,
+    "n_actions": 6,
+    "alpha": 0.01,
+    "margin": 0.06,
+    "myopic_first_design": 5,
+    "planning_first_design": 5,
+    "approx_fixed_pair": [
+      5,
+      3
+    ],
+    "J_myopic_T2": 0.262421875,
+    "J_planning_T2": 0.262421875,
+    "J_fixed_T2_approx": 0.26625,
+    "planning_minus_myopic": 0.0,
+    "planning_minus_fixed": -0.00382812499999996,
+    "n_distinct_second_actions": 4,
+    "second_action_entropy": 1.1636350982420294,
+    "second_action_mass": {
+      "0": 0.4166666666666667,
+      "1": 0.041666666666666664,
+      "3": 0.16666666666666666,
+      "4": 0.375
+    },
+    "first_candidates": [
+      5,
+      4,
+      3,
+      2,
+      1,
+      0
+    ],
+    "search_note": "Approximate Monte Carlo T=2 screen: top-k first actions, full second-action catalog. Not a trained-policy result.",
+    "observation_mode": "sampled_delta_f",
+    "obs_indices_head": [
+      0,
+      8,
+      16,
+      24,
+      32
+    ]
+  },
+  "thresholds": {
+    "near_duplicate_corr": 0.98,
+    "near_duplicate_frac_limit": 0.25,
+    "advantage_eps": 0.0001
+  },
+  "recommendations": [
+    "High cross-action redundancy: drop near-duplicate buses/amps and regenerate into a new dataset_dir.",
+    "No Myopic trap yet: greedy \u03be1 is also (near) optimal for T\u22652. Need a one-step-best design that overlays other useful probes so the optimal T-set excludes \u03be1. Try probe_durations=[short,mid,long] with one amp (short pulse = high-ROCOF bait; long pulse = complementary).",
+    "Same-bus designs remain near-duplicates: keep one amplitude per bus.",
+    "Little non-myopic gap vs Myopic: enlarge overlay trap (durations) or use moderate noise with vector N_obs>=100 and T>=3."
+  ],
+  "next_steps": [
+    "No Myopic trap: regenerate with multi-duration designs (probe_durations) so one-step-best \u03be1 overlays other probes and is excluded from the optimal T-set.",
+    "Re-run bank-structure-audit until myopic_trap.trap_present=true.",
+    "Keep MoE-sBOED disabled until DAD/RL win Fixed/Myopic."
+  ]
+}

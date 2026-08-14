@@ -1,0 +1,75 @@
+# Test: fixed bus 0, amplitude scale only (duration fixed).
+# Ξ = amp {0.05,0.08,0.10,0.12,0.15,0.20} × duration 0.15 × bus 0 → N_ξ=6
+system:
+  name: ieee5
+
+N: 5
+
+data:
+  dataset_dir: tools/fixed_bus_scale_audit/data/amp_scale
+  generate_if_missing: true
+
+observation:
+  N_obs: 0
+  sampling: uniform
+
+oracle:
+  tolerance: 1.0e-4
+
+swing_equation:
+  topology: ieee5
+  coupling_strength: 1.0
+  damping: 0.1
+  base_power: 1.0
+  M_lower: 0.01
+  M_upper: 0.06
+  K_lower: 0.05
+  K_upper: 0.5
+  use_node_specific_damping: true
+  D_nodes: [0.08, 0.14, 0.1, 0.09, 0.11]
+  P_m_nodes: [0.55, -0.75, 0.35, 1.2, 0.6]
+  theta0_nodes: [0.0, -0.08, -0.05, -0.02, -0.1]
+  omega0_nodes: [0.0, 0.0, 0.0, 0.0, 0.0]
+  enforce_initial_equilibrium: true
+  probe_buses: [0]
+  probe_amplitudes: [0.05, 0.08, 0.10, 0.12, 0.15, 0.20]
+  probe_duration: 0.15
+  T_obs_sec: 10.0
+  fs_hz: 12.0
+  sigma: 0.2
+
+prior:
+  mc_samples: 256
+  mc_support_seed: 1
+
+experiment:
+  step_number: 2
+  methods: [myopic, fixed]
+
+control:
+  alpha: 0.01
+  safety_margin: 0.06
+  rocof_limit_hz_s: 22.0
+  delta_f_nadir_hz: -0.2
+  T_obs_sec: 10.0
+  ode_dt: 0.00625
+  fs_hz: 12.0
+  contingency: {bus: 1, magnitude: -0.6, units: pu}
+  profile: {bus: 1, t_start: 0.0, duration: 10.0, shape: step, units: pu}
+  u_candidates: [0.0, 0.03, 0.06, 0.09, 0.12, 0.15, 0.18, 0.21, 0.24, 0.27, 0.3, 0.33, 0.36, 0.39, 0.42, 0.45, 0.48, 0.51, 0.54, 0.57, 0.6]
+  myopic_hypothetical: 64
+  fixed_exhaustive_threshold: 30000
+  fixed_noise_replicas: 2
+  fixed_greedy_restarts: 8
+
+data_generation:
+  backend: cuda
+  cuda_batch_size: 128
+  theta_sample_size_train: 256
+  theta_sample_size_test: 64
+  train_seed: 101
+  test_seed: 202
+
+# Structure-audit harness only: fixed-bus catalogs often fail ROCOF–U corr.
+bank_quality:
+  enabled: false

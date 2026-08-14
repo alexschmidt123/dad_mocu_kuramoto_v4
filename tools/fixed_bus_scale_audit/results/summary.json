@@ -1,0 +1,206 @@
+{
+  "purpose": "Test whether duration-scale vs amp-scale on a fixed bus creates Myopic trap and/or adaptive room (planning beats Fixed + branching).",
+  "N_obs": 200,
+  "noise_sigmas": [
+    0.01,
+    0.001
+  ],
+  "smoke": false,
+  "variants": [
+    {
+      "variant": "duration_scale",
+      "config": "tests/fixed_bus_scale_audit/configs/ieee5_fixedbus_duration_scale.yaml",
+      "data_dir": "/home/grads/g/g.lin/Documents/dad_mocu_kuramoto_v4/tests/fixed_bus_scale_audit/data/duration_scale",
+      "n_actions": 6,
+      "designs": [
+        [
+          0.15,
+          0,
+          0.05
+        ],
+        [
+          0.15,
+          0,
+          0.08
+        ],
+        [
+          0.15,
+          0,
+          0.1
+        ],
+        [
+          0.15,
+          0,
+          0.12
+        ],
+        [
+          0.15,
+          0,
+          0.15
+        ],
+        [
+          0.15,
+          0,
+          0.2
+        ]
+      ],
+      "generation": {
+        "reused": false,
+        "smoke": false
+      },
+      "audits": [
+        {
+          "N_obs": 200,
+          "noise_sigma": 0.01,
+          "verdict": "PARTIAL_ADAPTIVE_ROOM",
+          "myopic_trap": false,
+          "strong_trap": false,
+          "fixed_beatable": true,
+          "branching_ok": true,
+          "adaptive_room": true,
+          "planning_minus_myopic": 0.0,
+          "planning_minus_fixed": -0.00382812499999996,
+          "n_distinct_second_actions": 4,
+          "second_action_entropy": 1.1636350982420294,
+          "J_myopic": 0.262421875,
+          "J_planning": 0.262421875,
+          "J_fixed": 0.26625,
+          "amp_scale_redundant": false,
+          "near_duplicate_frac": 0.6,
+          "same_bus_near_dup_frac": 0.6,
+          "recommendations": [
+            "High cross-action redundancy: drop near-duplicate buses/amps and regenerate into a new dataset_dir.",
+            "No Myopic trap yet: greedy \u03be1 is also (near) optimal for T\u22652. Need a one-step-best design that overlays other useful probes so the optimal T-set excludes \u03be1. Try probe_durations=[short,mid,long] with one amp (short pulse = high-ROCOF bait; long pulse = complementary).",
+            "Same-bus designs remain near-duplicates: keep one amplitude per bus.",
+            "Little non-myopic gap vs Myopic: enlarge overlay trap (durations) or use moderate noise with vector N_obs>=100 and T>=3."
+          ]
+        },
+        {
+          "N_obs": 200,
+          "noise_sigma": 0.001,
+          "verdict": "MYOPIC_TRAP_READY_FOR_DAD_RL",
+          "myopic_trap": true,
+          "strong_trap": true,
+          "fixed_beatable": false,
+          "branching_ok": true,
+          "adaptive_room": false,
+          "planning_minus_myopic": -0.0010156249999999922,
+          "planning_minus_fixed": 0.00023437500000000888,
+          "n_distinct_second_actions": 2,
+          "second_action_entropy": 0.17320520674717715,
+          "J_myopic": 0.15625,
+          "J_planning": 0.155234375,
+          "J_fixed": 0.155,
+          "amp_scale_redundant": false,
+          "near_duplicate_frac": 0.6,
+          "same_bus_near_dup_frac": 0.6,
+          "recommendations": [
+            "High cross-action redundancy: drop near-duplicate buses/amps and regenerate into a new dataset_dir.",
+            "Same-bus designs remain near-duplicates: keep one amplitude per bus.",
+            "Adaptive planning does not beat Fixed on this screen: increase U heterogeneity (stronger contingency / lower nadir) or reduce open-loop sufficiency by making probes more informative but belief-dependent."
+          ]
+        }
+      ],
+      "pass_all_sigmas": {
+        "myopic_trap": false,
+        "adaptive_room": false
+      }
+    },
+    {
+      "variant": "amp_scale",
+      "config": "tests/fixed_bus_scale_audit/configs/ieee5_fixedbus_amp_scale.yaml",
+      "data_dir": "/home/grads/g/g.lin/Documents/dad_mocu_kuramoto_v4/tests/fixed_bus_scale_audit/data/amp_scale",
+      "n_actions": 6,
+      "designs": [
+        [
+          0.05,
+          0,
+          0.15
+        ],
+        [
+          0.08,
+          0,
+          0.15
+        ],
+        [
+          0.1,
+          0,
+          0.15
+        ],
+        [
+          0.12,
+          0,
+          0.15
+        ],
+        [
+          0.15,
+          0,
+          0.15
+        ],
+        [
+          0.2,
+          0,
+          0.15
+        ]
+      ],
+      "generation": {
+        "reused": false,
+        "smoke": false
+      },
+      "audits": [
+        {
+          "N_obs": 200,
+          "noise_sigma": 0.01,
+          "verdict": "MYOPIC_TRAP_READY_FOR_DAD_RL",
+          "myopic_trap": true,
+          "strong_trap": true,
+          "fixed_beatable": true,
+          "branching_ok": true,
+          "adaptive_room": true,
+          "planning_minus_myopic": -0.0004687500000000733,
+          "planning_minus_fixed": -0.005234375000000013,
+          "n_distinct_second_actions": 3,
+          "second_action_entropy": 0.5442837329664394,
+          "J_myopic": 0.26148437500000005,
+          "J_planning": 0.261015625,
+          "J_fixed": 0.26625,
+          "amp_scale_redundant": true,
+          "near_duplicate_frac": 1.0,
+          "same_bus_near_dup_frac": 1.0,
+          "recommendations": [
+            "Probe amplitudes are scale-redundant (same-bus amp-normalized |corr|\u22481): use a single probe_amplitude. Multi-amp does not create a Myopic trap \u2014 it only duplicates \u03be."
+          ]
+        },
+        {
+          "N_obs": 200,
+          "noise_sigma": 0.001,
+          "verdict": "AMP_SCALE_REDUNDANT",
+          "myopic_trap": true,
+          "strong_trap": true,
+          "fixed_beatable": false,
+          "branching_ok": true,
+          "adaptive_room": false,
+          "planning_minus_myopic": -0.0007031249999999989,
+          "planning_minus_fixed": 0.0005468750000000022,
+          "n_distinct_second_actions": 2,
+          "second_action_entropy": 0.17320520674717715,
+          "J_myopic": 0.15625,
+          "J_planning": 0.155546875,
+          "J_fixed": 0.155,
+          "amp_scale_redundant": true,
+          "near_duplicate_frac": 1.0,
+          "same_bus_near_dup_frac": 1.0,
+          "recommendations": [
+            "Probe amplitudes are scale-redundant (same-bus amp-normalized |corr|\u22481): use a single probe_amplitude. Multi-amp does not create a Myopic trap \u2014 it only duplicates \u03be.",
+            "Adaptive planning does not beat Fixed on this screen: increase U heterogeneity (stronger contingency / lower nadir) or reduce open-loop sufficiency by making probes more informative but belief-dependent."
+          ]
+        }
+      ],
+      "pass_all_sigmas": {
+        "myopic_trap": true,
+        "adaptive_room": false
+      }
+    }
+  ],
+  "takeaway": "duration_scale: myopic_trap_all_\u03c3=False, adaptive_room_all_\u03c3=False. amp_scale: myopic_trap_all_\u03c3=True, adaptive_room_all_\u03c3=False. amp_scale flagged amp_scale_redundant (same-bus multi-amp \u2248 ROCOF scaling) \u2014 expected; this is why multi-amp alone rarely creates a Fixed-beatable adaptive problem. Neither fixed-bus catalog alone provides adaptive_room on all \u03c3 \u2014 need bus diversity and/or stronger U heterogeneity in the generator YAML (not data filtering)."
+}
