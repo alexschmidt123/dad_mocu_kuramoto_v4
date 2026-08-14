@@ -124,7 +124,9 @@ data/
 models/
 # results/ removed: all outputs go under experiments/
 Experiment/
-../experiments/
+
+# Run artifacts (never sync experiment outputs)
+experiments/
 
 # Allow example configs and small test files (optional)
 # !configs/**
@@ -193,4 +195,3 @@ secrets.yaml
 *.pem
 .pytest_cache/
 sweep_logs/
-experiments/_*/

@@ -1,4 +1,0 @@
-update,mean_train_u_ctrl,mean_train_control_cost,method,update_seconds,trajectories_sampled,policy_entropy,validation_mean_u_ctrl,validation_mean_mocu,validation_n_unique_sequences,validation_sequence_entropy,validation_unique_frac,validation_under_control_rate,validation_valid,validation_mean_shortfall,validation_checkpoint_score,validation_meets_unique_floor
-1,0.24,0.24,RL-sBOED,0.23081350326538086,4,3.359602451324463,,,,,,,,,,
-2,0.19499999999999998,0.19499999999999998,RL-sBOED,0.03219437599182129,8,3.356921911239624,0.2775,0.135,3,1.0397207708399179,0.75,0.0,1,0.0,0.135,1
-3,0.255,0.255,RL-sBOED,0.03188014030456543,12,3.3548972606658936,0.29250000000000004,0.15000000000000002,1,-0.0,0.25,0.0,1,0.0,0.15000000000000002,0

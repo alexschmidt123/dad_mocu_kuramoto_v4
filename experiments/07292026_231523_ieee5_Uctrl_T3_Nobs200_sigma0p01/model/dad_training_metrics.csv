@@ -1,4 +1,0 @@
-update,mean_train_u_ctrl,mean_train_control_cost,method,update_seconds,trajectories_sampled,policy_entropy,validation_mean_u_ctrl,validation_mean_mocu,validation_n_unique_sequences,validation_sequence_entropy,validation_unique_frac,validation_under_control_rate,validation_valid,validation_mean_shortfall,validation_checkpoint_score,validation_meets_unique_floor
-1,0.24,0.24,DAD,0.2201688289642334,4,3.3598952293395996,,,,,,,,,,
-2,0.19499999999999998,0.19499999999999998,DAD,0.028380155563354492,8,3.3591322898864746,0.255,0.1125,4,1.3862943611198906,1.0,0.0,1,0.0,0.1125,1
-3,0.255,0.255,DAD,0.027400493621826172,12,3.3595616817474365,0.255,0.1125,4,1.3862943611198906,1.0,0.0,1,0.0,0.1125,1
