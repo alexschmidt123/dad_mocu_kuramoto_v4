@@ -12,8 +12,8 @@ from typing import Any
 import numpy as np
 
 from src.control.posterior_ctrl import normalize_log_weights, posterior_safe_u_ctrl
-from src.contrastive.spce import log_gaussian_observation_density
-from src.table_scoring import TableThetaSupport, y_sim_last_step_from_tables
+from src.inference.spce import log_gaussian_observation_density
+from src.inference.scoring import TableThetaSupport, y_sim_last_step_from_tables
 
 
 @dataclass
@@ -63,7 +63,7 @@ def estimate_fixed_subset_objective(
     n_rep = max(1, int(noise_replicas))
     for sys in calibration_systems:
         # Prefer banked clean centres for the true θ* when available via lookup.
-        from src.data import lookup_action_y_sim
+        from src.banks.tables import lookup_action_y_sim
 
         y_clean = np.asarray(
             [lookup_action_y_sim(sys, a) for a in subset], dtype=np.float64

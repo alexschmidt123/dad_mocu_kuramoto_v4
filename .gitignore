@@ -45,6 +45,13 @@ nosetests.xml
 coverage.xml
 *.cover
 
+# Generated diagnostic/sweep artifacts under tests/ (keep only source)
+tests/sweep_results/
+tests/**/results/
+tests/**/reports/
+tests/**/figures/
+tests/**/data_inventory.json
+
 # Jupyter Notebook
 .ipynb_checkpoints
 *.ipynb
@@ -143,9 +150,9 @@ documents/images/README*
 documents/images/readme_design_github*
 documents/image/
 
-# Logs
+# Logs (never a top-level logs/ folder; per-run logs live under experiments/*/logs/)
 *.log
-logs/
+/logs/
 
 # Tensorboard
 runs/
@@ -184,3 +191,6 @@ node_modules/
 secrets.yaml
 *.key
 *.pem
+.pytest_cache/
+sweep_logs/
+experiments/_*/

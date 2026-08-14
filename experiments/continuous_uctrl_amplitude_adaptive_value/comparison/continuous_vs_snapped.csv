@@ -1,3 +1,0 @@
-system,case,dominant_amplitude,dominant_amplitude_fraction,unique_optimal_amplitudes_continuous,unique_optimal_amplitudes_snapped,mean_best_second_gap_continuous,mean_best_second_gap_snapped,continuous_J_std,snapped_J_std,mean_wrong_amplitude_regret,mean_cross_history_amplitude_regret,continuous_terminal_rule_hash
-ieee5,B,0.05,0.69,6,6,0.0005781250000000032,0.0005234375000000019,0.08836262013271648,0.06396425345624572,0.0005781250000000032,0.0017002002198492506,90436366d8a5a193
-ieee9,B,0.05,0.885,6,6,0.0002687500000000004,0.000256249999999999,0.015638083272495384,0.010909256390790354,0.0002687500000000004,0.0005736180904522626,cc365ff6ebda7bc4

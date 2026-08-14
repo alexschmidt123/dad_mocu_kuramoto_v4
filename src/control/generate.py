@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from src.config import SBOEDConfig, load_config_for_run, repo_root
-from src.control.banks import (
+from src.banks.control_u import (
     attach_control_bank_to_probe_json,
     generate_control_bank_for_split,
     save_control_bank_sidecar,
@@ -15,9 +15,9 @@ from src.control.banks import (
 )
 from src.control.cuda_control import CudaControlEngine
 from src.control.u_req import ControlSpec
-from src.data import load_tables, resolve_data_path, get_systems
-from src.swing_equation_ode.design import build_simulator
-from src.swing_equation_ode.simulator import system_mk
+from src.banks.tables import load_tables, resolve_data_path, get_systems
+from src.domains.swing.design import build_simulator
+from src.domains.swing.simulator import system_mk
 
 
 def generate_control_bank(

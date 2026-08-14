@@ -109,6 +109,7 @@ def load_frozen_terminal_rule(
 ) -> FrozenTerminalRule:
     """Load calibrated rule from experiment diagnostics; never silently invent one."""
     exp_dir = Path(exp_dir)
+    robust_model = exp_dir / "model" / "selected_policy_robust_rule.json"
     robust = exp_dir / "selected_policy_robust_rule.json"
     legacy = (
         exp_dir
@@ -116,13 +117,15 @@ def load_frozen_terminal_rule(
         / "control_safety_calibration"
         / "calibrated_terminal_rule.json"
     )
-    if allow_policy_robust and robust.is_file():
+    if allow_policy_robust and robust_model.is_file():
+        path = robust_model
+    elif allow_policy_robust and robust.is_file():
         path = robust
     elif legacy.is_file():
         path = legacy
     else:
         raise FileNotFoundError(
-            f"Frozen terminal rule missing under {exp_dir}. "
+            f"Frozen terminal rule missing under {exp_dir}/model/. "
             "Run control_safety_calibration or policy-robust calibration first."
         )
     raw = json.loads(path.read_text(encoding="utf-8"))
@@ -138,10 +141,8 @@ def load_frozen_terminal_rule(
         snap_up=bool(rule.get("snap_up", True)),
         source=str(path.resolve()),
     )
-    if abs(frozen.alpha - 0.05) > 1e-12:
-        raise RuntimeError(
-            f"Unexpected calibrated α={frozen.alpha}; expected α=0.05."
-        )
+    if not (0.0 < frozen.alpha < 1.0):
+        raise RuntimeError(f"Invalid calibrated alpha={frozen.alpha}")
     if expected_margin is not None and abs(frozen.margin - float(expected_margin)) > 1e-12:
         raise RuntimeError(
             f"Unexpected margin={frozen.margin}; expected {expected_margin}."
@@ -158,8 +159,10 @@ def load_frozen_terminal_rule(
             f"Unexpected calibrated rule α={frozen.alpha}, margin={frozen.margin}; "
             "legacy pilot expects α=0.05, margin=0.40 unless a policy-robust rule is present."
         )
-    if abs(frozen.quantile_level - 0.95) > 1e-12:
-        raise RuntimeError(f"quantile_level={frozen.quantile_level} != 0.95")
+    if not (0.0 < frozen.quantile_level < 1.0):
+        raise RuntimeError(
+            f"Invalid quantile_level={frozen.quantile_level}"
+        )
     return frozen
 
 
@@ -238,7 +241,7 @@ def observe_with_keyed_noise(
     step: int,
 ) -> float:
     """Banked y_sim + keyed Gaussian noise (reproducible, action-specific)."""
-    from src.data import lookup_action_y_sim
+    from src.banks.tables import lookup_action_y_sim
 
     y0 = float(lookup_action_y_sim(system, int(action)))
     z = keyed_noise(
@@ -278,8 +281,8 @@ def run_keyed_history(
         posterior_safe_u_ctrl,
         weighted_quantile,
     )
-    from src.rollout import update_log_weights
-    from src.table_scoring import y_sim_last_step_from_tables
+    from src.objectives.eig.rollout import update_log_weights
+    from src.inference.scoring import y_sim_last_step_from_tables
 
     log_w = np.asarray(table_support.log_p0, dtype=np.float64).copy()
     used: set[int] = set()

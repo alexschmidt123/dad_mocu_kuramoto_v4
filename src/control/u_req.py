@@ -58,6 +58,8 @@ class ControlSpec:
     contingency: ContingencySpec
     u_candidates: tuple[float, ...]
     safety_margin: float = 0.0  # additive pu after quantile; snapped up to grid
+    # "ibr_max" = Yoon IBR max{U_n:w_n>0}; "quantile" = Q_{1-α}+margin
+    robust_rule: str = "quantile"
     myopic_hypothetical: int = 16
     fixed_exhaustive_threshold: int = 5000
     fixed_noise_replicas: int = 2
@@ -85,6 +87,11 @@ class ControlSpec:
             alpha=float(self.alpha),
             margin=float(self.safety_margin),
             u_candidates=tuple(self.u_candidates),
+            robust_rule=(
+                "ibr_max"
+                if str(self.robust_rule).lower() in {"ibr", "ibr_max", "max", "yoon_ibr"}
+                else "quantile"
+            ),
         )
 
     @classmethod
@@ -142,9 +149,16 @@ class ControlSpec:
         fs = float(raw.get("fs_hz", sw.get("fs_hz", getattr(cfg, "fs_hz", 12.0))))
         ode_dt = float(raw.get("ode_dt", 1.0 / 160.0))
 
+        rule_raw = str(raw.get("robust_rule", "quantile")).strip().lower()
+        robust_rule = (
+            "ibr_max"
+            if rule_raw in {"ibr", "ibr_max", "max", "yoon_ibr"}
+            else "quantile"
+        )
         return cls(
             alpha=float(raw.get("alpha", 0.05)),
             safety_margin=float(raw.get("safety_margin", raw.get("margin", 0.0))),
+            robust_rule=robust_rule,
             rocof_limit_hz_s=rocof,
             delta_f_nadir_hz=nadir,
             profile=ControlProfile(

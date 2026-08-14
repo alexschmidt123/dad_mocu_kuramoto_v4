@@ -1,1112 +1,916 @@
-"""
-Experiment pipeline: Foster DAD + iDAD-style tables.
+"""Config-driven experiment steps (called by scripts/*.sh).
 
-Train/eval: table ``sequence``, noisy ``y``, ``y_sim`` (ODE before noise). π uses ``y`` only.
-sPCE / myopic use ``y_sim`` as likelihood centres (no ODE at train/eval).
+  python -m src.experiment allocate-dir --config configs/ieee5.yaml
+  python -m src.experiment generate-data --config configs/ieee5.yaml --exp-dir ...
+  python -m src.experiment train --config configs/ieee5.yaml --method dad --exp-dir ...
+  python -m src.experiment evaluate --config configs/ieee5.yaml --exp-dir ...
+
+Result folders are always named:
+  date_time_configname_Uctrl|EIG_Tnum_NobsN_sigmaX
+  e.g. 07232026_215655_ieee14_Uctrl_T3_Nobs0_sigma0p005
+
+Config YAML controls generation / compression / training / evaluation parameters.
 """
 
 from __future__ import annotations
 
-import csv
+import argparse
 import json
-import time
-from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
-import numpy as np
-
-try:  # pragma: no cover - cosmetic progress helper
-    from tqdm.auto import tqdm
-except ImportError:  # pragma: no cover
-    def tqdm(iterable=None, **kwargs):
-        return iterable if iterable is not None else range(0)
-    tqdm.write = print
-
-from src.config import ALL_METHODS, SBOEDConfig, repo_root
-from src.run_context import ExperimentRun, load_experiment_run
-from src.data import (
-    ensure_data,
-    load_split_systems,
-    lookup_action_y,
-    lookup_sequence_y,
-    resolve_data_dir,
-    save_json,
+from src.config import (
+    DEFAULT_STEP_NUMBER,
+    effective_step_number,
+    load_config,
+    repo_root,
+    resolve_config_path,
+    with_step_number,
 )
-from src.swing_equation_ode.simulator import system_mk
-from src.experiment_layout import (
-    eval_dir,
-    eval_method_path,
-    eval_summary_path,
-    load_run_config_doc,
-    make_experiment_dir_name,
-    model_dir,
-    reset_model_dir,
+from src.banks.quality import BankQualityError
+from src.banks.power_grid import (
+    generate_physical_bank,
+    resolve_dataset_dir,
+    system_name_from_cfg,
+)
+from src.objectives.mocu.context import (
+    ALL_METHOD_KEYS,
+    build_context_from_config,
+    context_report_meta,
+    method_display_name,
+    methods_from_args,
+    normalize_method_key,
+)
+from src.reporting.summary import write_objective_summary_md
+from src.reporting.run_context import (
+    allocate_result_dir,
+    ensure_result_layout,
+    resolve_result_dir,
     write_run_config,
 )
-from src.contrastive.spce import (
-    clamp_info_gain,
-    log_gaussian_observation_density,
-    normalize_log_weights,
-    posterior_after_gaussian_observations,
-    posterior_entropy,
-    posterior_mean_mk_vectors,
-)
-from src.neural.train import rollout_dad, train_dad_policy as _train_dad_core
-from src.swing_equation_ode.design import (
-    build_catalog,
-    masked_action_indices,
-    random_valid_sequence,
-)
-from src.data import validate_trajectory_y_sim
-from src.table_scoring import (
-    TableThetaSupport,
-    spce_eig_from_rollout,
-    y_sim_last_step_from_tables,
-    y_sim_steps_from_tables,
-)
+
+ExperimentType = Literal["objective_based", "eig_based"]
+EXPERIMENT_TYPES: tuple[str, ...] = ("objective_based", "eig_based")
 
 
-# --- Baselines -------------------------------------------------------------
-
-class Method(ABC):
-    name: str
-
-    @abstractmethod
-    def run(self, cfg: SBOEDConfig, test_systems: list[dict], rng: np.random.Generator) -> list[dict]:
-        """Return list of rollouts: {M, K, sequence, y}."""
-
-
-def default_fixed_sequence(cfg: SBOEDConfig, catalog) -> list[int]:
-    """
-    Deterministic open-loop baseline: spread probes across buses at the middle
-    configured amplitude. This avoids catalog-order bias such as always taking
-    the first adjacent bus actions.
-    """
-    if cfg.step_number <= 0:
-        return []
-    if cfg.step_number > len(catalog):
-        raise ValueError(f"T={cfg.step_number} exceeds action catalog size={len(catalog)}")
-
-    amplitudes = sorted({float(d.amplitude) for d in catalog})
-    target_amp = amplitudes[len(amplitudes) // 2]
-    if cfg.N == 1:
-        target_buses = [0]
-    else:
-        target_buses = [
-            int(round(x))
-            for x in np.linspace(0, cfg.N - 1, num=min(cfg.step_number, cfg.N))
-        ]
-
-    seq: list[int] = []
-    used: set[int] = set()
-    for bus in target_buses:
-        for i, design in enumerate(catalog):
-            if i in used:
-                continue
-            if int(design.bus) == int(bus) and abs(float(design.amplitude) - target_amp) < 1e-12:
-                seq.append(i)
-                used.add(i)
-                break
-        if len(seq) >= cfg.step_number:
-            return seq
-
-    for i in range(len(catalog)):
-        if i not in used:
-            seq.append(i)
-            used.add(i)
-        if len(seq) >= cfg.step_number:
-            break
-    return seq
-
-
-class RandomMethod(Method):
-    name = "random"
-
-    def run(self, cfg, test_systems, rng):
-        catalog = build_catalog(cfg)
-        out = []
-        for sys in test_systems:
-            seq = random_valid_sequence(catalog, cfg.step_number, rng)
-            y = lookup_sequence_y(sys, seq)
-            out.append({"M": sys["M"], "K": sys["K"], "sequence": seq, "y": y})
-        return out
-
-
-class FixedOpenLoopMethod(Method):
-    name = "fixed_open_loop"
-
-    def __init__(self, fixed_sequence: list[int] | None = None):
-        self.fixed_sequence = fixed_sequence
-
-    def run(self, cfg, test_systems, rng):
-        catalog = build_catalog(cfg)
-        seq = self.fixed_sequence or default_fixed_sequence(cfg, catalog)
-        out = []
-        for sys in test_systems:
-            y = lookup_sequence_y(sys, seq)
-            out.append({"M": sys["M"], "K": sys["K"], "sequence": list(seq), "y": y})
-        return out
-
-
-class MyopicDeltaHMethod(Method):
-    """Greedy ΔH: banked train ``y`` on support; test ``y`` from test table."""
-
-    name = "myopic_delta_h"
-
-    def __init__(self, catalog, table_support: TableThetaSupport):
-        self.catalog = catalog
-        self.table_support = table_support
-
-    def run(self, cfg, test_systems, rng):
-        out = []
-        log_p0 = self.table_support.log_p0
-
-        for sys in tqdm(test_systems, desc="myopic eval", unit="θ", leave=False):
-            used: set[int] = set()
-            seq, y_hist = [], []
-            log_unnorm = np.array(log_p0, dtype=np.float64)
-
-            for _ in range(cfg.step_number):
-                p_before = normalize_log_weights(log_unnorm)
-                H_before = posterior_entropy(p_before)
-
-                feasible = masked_action_indices(used, self.catalog)
-                best_a, best_dh = int(feasible[0]), -np.inf
-                for a in feasible:
-                    trial = seq + [int(a)]
-                    m_vals = y_sim_last_step_from_tables(self.table_support, trial)
-                    y_hat = float(np.sum(p_before * m_vals))
-                    log_L = log_gaussian_observation_density(y_hat, m_vals, cfg.sigma_y)
-                    p_after = normalize_log_weights(log_unnorm + log_L)
-                    dh = clamp_info_gain(H_before - posterior_entropy(p_after))
-                    if dh > best_dh:
-                        best_dh, best_a = dh, int(a)
-
-                seq.append(best_a)
-                y = lookup_action_y(sys, best_a)
-                y_hist.append(float(y))
-                m_obs = y_sim_last_step_from_tables(self.table_support, seq)
-                log_unnorm = log_unnorm + log_gaussian_observation_density(
-                    y, m_obs, cfg.sigma_y,
-                )
-                used.add(best_a)
-
-            out.append({"M": sys["M"], "K": sys["K"], "sequence": seq, "y": y_hist})
-        return out
-
-
-def get_method(
-    name: str,
-    train_systems: list[dict] | None = None,
+def load_experiment_config(
+    config_arg: str,
     *,
-    catalog=None,
-    table_support: TableThetaSupport | None = None,
-    **kwargs,
-) -> Method:
-    if name == "random":
-        return RandomMethod()
-    if name == "fixed_open_loop":
-        return FixedOpenLoopMethod(kwargs.get("fixed_sequence"))
-    if name == "myopic_delta_h":
-        if catalog is None or table_support is None:
-            raise ValueError("myopic_delta_h requires catalog and table_support")
-        return MyopicDeltaHMethod(catalog, table_support)
-    raise ValueError(f"Unknown method: {name}. Use dad_spce/dad_delta_h via scripts/dad_training.sh.")
+    step_number: int | None = None,
+    n_obs: int = 0,
+    noise_sigma: float = 0.005,
+):
+    """Load YAML and apply CLI observation / horizon overrides."""
+    root = repo_root()
+    path = Path(config_arg)
+    if path.suffix in (".yaml", ".yml") and path.is_file():
+        cfg = load_config(path.resolve())
+    else:
+        cfg = load_config(resolve_config_path(config_arg, root))
+    T = effective_step_number(step_number, default=DEFAULT_STEP_NUMBER)
+    cfg = with_step_number(cfg, T)
+    if int(n_obs) < 0:
+        raise SystemExit(f"Invalid --N_obs: {n_obs} (non-negative integer required)")
+    if float(noise_sigma) <= 0.0:
+        raise SystemExit(
+            f"Invalid --noise_sigma: {noise_sigma} (positive float required)"
+        )
+    obs = dict(cfg.raw.get("observation") or {})
+    obs["N_obs"] = int(n_obs)
+    obs["noise_sigma"] = float(noise_sigma)
+    cfg.raw["observation"] = obs
+    return cfg
 
-# --- Metrics ---------------------------------------------------------------
+
+def resolve_experiment_type(raw: str | None) -> ExperimentType:
+    t = (raw or "objective_based").strip().lower().replace("-", "_")
+    if t not in EXPERIMENT_TYPES:
+        raise SystemExit(
+            f"Invalid --experiment-type {raw!r} "
+            f"(allowed: {', '.join(EXPERIMENT_TYPES)})"
+        )
+    return t  # type: ignore[return-value]
 
 
-def evaluate_rollout(
-    cfg: SBOEDConfig,
-    system: dict[str, Any],
-    sequence: list[int],
-    y_seq: list[float] | np.ndarray,
-    catalog,
-    table_support: TableThetaSupport,
-    rng: np.random.Generator,
-) -> dict[str, Any]:
-    """Score rollout: test noisy ``y``; sPCE / ΔH use banked train ``y_sim`` centres."""
-    del catalog
-    y_arr = np.asarray(y_seq, dtype=np.float64)
-    seq = [int(a) for a in sequence]
-    centre_steps = y_sim_steps_from_tables(table_support, seq)
+def _use_vector_eig_pipeline(cfg, exp_type: str, n_obs: int) -> bool:
+    """Physical-bank vector EIG (incl. continuous max-ROCOF with N_obs=0).
 
-    p_final, p_trace = posterior_after_gaussian_observations(
-        centre_steps, y_arr, cfg.sigma_y, table_support.log_p0,
+    Legacy table/stepwise EIG stays only for classic eig_based + N_obs=0
+    non-continuous IEEE configs.
+    """
+    if str(exp_type).lower().replace("-", "_") != "eig_based":
+        return False
+    if int(n_obs) > 0:
+        return True
+    return bool(getattr(cfg, "continuous_duration_mode", False))
+
+
+def _add_experiment_type(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--experiment-type",
+        "--experiment_type",
+        dest="experiment_type",
+        default="objective_based",
+        choices=EXPERIMENT_TYPES,
+        help="objective_based (default u_ctrl) or eig_based (stepwise ΔH/EIG)",
     )
-    H0 = posterior_entropy(p_trace[0])
-    H1 = posterior_entropy(p_final)
-    M_rows = np.stack([system_mk(s, cfg.N)[0] for s in table_support.systems])
-    K_rows = np.stack([system_mk(s, cfg.N)[1] for s in table_support.systems])
-    M_hat, K_hat = posterior_mean_mk_vectors(p_final, M_rows, K_rows)
 
-    step_spce_list, _, total_spce = spce_eig_from_rollout(
-        cfg, seq, y_arr, system, table_support, rng,
+
+def _add_exp_dir(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--exp-dir",
+        default=None,
+        help=(
+            "Result folder under experiments/ "
+            "(name: date_time_configname_Uctrl|EIG_Tnum_NobsN_sigmaX). "
+            "If omitted: allocate (generate/allocate-dir) or use latest match."
+        ),
     )
-    entropy_trace = [float(posterior_entropy(p)) for p in p_trace]
-    step_entropy = entropy_trace[1:]
-    step_delta_h = [
-        clamp_info_gain(entropy_trace[t] - entropy_trace[t + 1])
-        for t in range(len(y_arr))
-    ]
-    step_spce_list = [clamp_info_gain(float(x)) for x in step_spce_list]
-    total_spce = clamp_info_gain(float(total_spce))
-    terminal_delta_h = clamp_info_gain(float(np.sum(step_delta_h)))
-
-    M_arr = np.asarray(system["M"], dtype=np.float64).reshape(-1)
-    K_arr = np.asarray(system["K"], dtype=np.float64).reshape(-1)
-
-    mse_M = float(np.mean((M_hat - M_arr) ** 2))
-    mse_K = float(np.mean((K_hat - K_arr) ** 2))
-    mse_theta = float(np.sum((M_hat - M_arr) ** 2) + np.sum((K_hat - K_arr) ** 2))
-
-    eig = eig_metrics(step_spce_list, step_delta_h, total_spce, terminal_delta_h)
-    return {
-        "sequence": sequence,
-        "y": y_arr.tolist(),
-        "M_true": M_arr.tolist(),
-        "K_true": K_arr.tolist(),
-        "M_hat": M_hat.tolist(),
-        "K_hat": K_hat.tolist(),
-        "H_prior": H0,
-        "H_posterior": H1,
-        "entropy_trace": entropy_trace,
-        "step_entropy": step_entropy,
-        "mse_M": mse_M,
-        "mse_K": mse_K,
-        "mse_theta": mse_theta,
-        **eig,
-    }
 
 
-def eig_metrics(
-    spce_by_step: list[float] | np.ndarray,
-    delta_h_by_step: list[float] | np.ndarray,
-    total_spce: float,
-    delta_h: float,
-) -> dict[str, Any]:
-    """Canonical EIG result block: two lists + two scalars (all non-negative)."""
-    spce_steps = [clamp_info_gain(float(x)) for x in spce_by_step]
-    dh_steps = [clamp_info_gain(float(x)) for x in delta_h_by_step]
-    return {
-        "spce_by_step": spce_steps,
-        "delta_h_by_step": dh_steps,
-        "total_spce": clamp_info_gain(float(total_spce)),
-        "delta_h": clamp_info_gain(float(delta_h)),
-    }
+def _add_T(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "-T",
+        "--T",
+        "--step-number",
+        dest="step_number",
+        type=int,
+        default=None,
+        metavar="T",
+        help=f"Probe horizon (default {DEFAULT_STEP_NUMBER} if omitted)",
+    )
 
 
-def read_eig_metrics(record: dict[str, Any]) -> dict[str, Any]:
-    """Read canonical EIG fields; fall back to legacy eval JSON keys."""
-    if all(k in record for k in ("spce_by_step", "delta_h_by_step", "total_spce", "delta_h")):
-        return eig_metrics(
-            record["spce_by_step"],
-            record["delta_h_by_step"],
-            record["total_spce"],
-            record["delta_h"],
+def _add_observation_overrides(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--N_obs",
+        "--n-obs",
+        "--n_obs",
+        dest="n_obs",
+        type=int,
+        default=0,
+        metavar="N",
+        help="Method-visible trajectory samples; 0 = scalar max-ROCOF (default: 0)",
+    )
+    parser.add_argument(
+        "--noise_sigma",
+        "--noise-sigma",
+        dest="noise_sigma",
+        type=float,
+        default=0.005,
+        metavar="SIGMA",
+        help=(
+            "Observation-noise standard deviation (default: 0.005; "
+            "Hz/s when N_obs=0, Hz when N_obs>0)"
+        ),
+    )
+
+
+def _resolve_exp_dir(
+    cfg,
+    exp_type: str,
+    exp_dir_arg: str | None,
+    *,
+    create_new: bool,
+) -> Path:
+    return resolve_result_dir(
+        cfg,
+        exp_type,
+        exp_dir=exp_dir_arg,
+        create_new=create_new,
+    )
+
+
+def cmd_allocate_dir(args: argparse.Namespace) -> None:
+    """Print a newly allocated result folder path (for run.sh capture)."""
+    cfg = load_experiment_config(
+        args.config,
+        step_number=args.step_number,
+        n_obs=args.n_obs,
+        noise_sigma=args.noise_sigma,
+    )
+    exp_type = resolve_experiment_type(args.experiment_type)
+    if args.exp_dir:
+        path = _resolve_exp_dir(cfg, exp_type, args.exp_dir, create_new=False)
+    else:
+        path = allocate_result_dir(cfg, exp_type)
+    ensure_result_layout(path)
+    # stdout is only the path so shells can capture it cleanly
+    print(str(path))
+
+
+def cmd_generate_data(args: argparse.Namespace) -> None:
+    cfg = load_experiment_config(
+        args.config,
+        step_number=args.step_number,
+        n_obs=args.n_obs,
+        noise_sigma=args.noise_sigma,
+    )
+    exp_type = resolve_experiment_type(args.experiment_type)
+    exp_dir = _resolve_exp_dir(
+        cfg, exp_type, args.exp_dir, create_new=args.exp_dir is None
+    )
+    force = bool(getattr(args, "force", False))
+    print(
+        f"[generate-data] type={exp_type} config={cfg.config_path} "
+        f"exp_dir={exp_dir} smoke={args.smoke} force={force}"
+    )
+    from src.domains.sir.context import is_sir_config
+
+    if is_sir_config(cfg):
+        if exp_type != "eig_based":
+            raise SystemExit(
+                "SIR ODE supports --experiment-type eig_based only "
+                "(no MOCU/control track yet)."
+            )
+        from src.domains.sir.banks import generate_sir_bank
+
+        data_dir = resolve_dataset_dir(cfg)
+        print(f"[generate-data] SIR ODE dataset_dir={data_dir}")
+        rep = generate_sir_bank(
+            cfg, smoke=args.smoke, force=force
+        )
+        write_run_config(
+            exp_dir,
+            cfg,
+            data_dir,
+            experiment_type=exp_type,
+            extra={
+                "observation_model": "sir_infected_count_gaussian",
+                "domain": "sir_ode",
+                "design": "measurement_time_chronological_on_idad_grid",
+                "N_obs": 1,
+                "data_generation": {
+                    **dict(cfg.raw.get("data_generation") or {}),
+                    "reused": bool(rep.get("reused")),
+                    "force": force,
+                    "smoke": bool(args.smoke),
+                    "bank_shape_train": rep.get("bank_shape_train"),
+                    "bank_shape_test": rep.get("bank_shape_test"),
+                    "elapsed_seconds": rep.get("elapsed_seconds"),
+                    "train_theta_count": rep.get("train_theta_count"),
+                    "test_theta_count": rep.get("test_theta_count"),
+                },
+            },
+        )
+        print(json.dumps(rep, indent=2, default=str))
+        print(f"EXP_DIR={exp_dir}")
+        return
+
+    if exp_type == "objective_based" or _use_vector_eig_pipeline(
+        cfg, exp_type, int(args.n_obs)
+    ):
+        data_dir = resolve_dataset_dir(cfg)
+        print(f"[generate-data] dataset_dir={data_dir}")
+        rep = generate_physical_bank(cfg, smoke=args.smoke, force=force)
+        if exp_type == "eig_based" and int(args.n_obs) == 0:
+            obs_model = "continuous_duration_max_rocof"
+        elif exp_type == "eig_based":
+            obs_model = "sampled_delta_f_vector"
+        else:
+            obs_model = "objective_delta_f_vector"
+        write_run_config(
+            exp_dir,
+            cfg,
+            data_dir,
+            experiment_type=exp_type,
+            extra={
+                "observation_model": obs_model,
+                "N_obs": int(args.n_obs),
+                "data_generation": {
+                    **dict(cfg.raw.get("data_generation") or {}),
+                    "reused": bool(rep.get("reused")),
+                    "force": force,
+                    "smoke": bool(args.smoke),
+                    "bank_shape_train": rep.get("bank_shape_train")
+                    or rep.get("observation_shape"),
+                    "bank_shape_test": rep.get("bank_shape_test"),
+                    "elapsed_seconds": rep.get("elapsed_seconds"),
+                    "N_sim": rep.get("N_sim"),
+                    "train_theta_count": rep.get("train_theta_count"),
+                    "test_theta_count": rep.get("test_theta_count"),
+                }
+            },
+        )
+        slim = {k: v for k, v in rep.items() if k != "time_vector"}
+        slim["experiment_type"] = exp_type
+        slim["exp_dir"] = str(exp_dir)
+        print(json.dumps(slim, indent=2, default=str))
+        print(f"EXP_DIR={exp_dir}")
+        return
+
+    from src.objectives.eig.pipeline import generate_tables, print_experiment_banner
+
+    root = repo_root()
+    linked, data_path, train_systems, test_systems = generate_tables(
+        cfg, root, exp_dir, experiment_type=exp_type
+    )
+    print_experiment_banner(
+        cfg, linked, data_path, train_systems, test_systems, cfg.methods
+    )
+    print(
+        json.dumps(
+            {
+                "experiment_type": exp_type,
+                "exp_dir": str(linked),
+                "data_dir": str(data_path),
+                "n_train": len(train_systems),
+                "n_test": len(test_systems),
+            },
+            indent=2,
+        )
+    )
+    print(f"EXP_DIR={linked}")
+
+
+def cmd_train(args: argparse.Namespace) -> None:
+    cfg = load_experiment_config(
+        args.config,
+        step_number=args.step_number,
+        n_obs=args.n_obs,
+        noise_sigma=args.noise_sigma,
+    )
+    exp_type = resolve_experiment_type(args.experiment_type)
+    key = normalize_method_key(args.method)
+    if key not in ("dad", "rl_sboed", "moe_sboed", "matched_dense"):
+        raise SystemExit(
+            f"train only supports dad|rl_sboed|moe_sboed|matched_dense, got {args.method!r}"
         )
 
-    spce_raw = record.get("mean_spce_eig_by_step") or record.get("step_spce_eig")
-    if spce_raw is None:
-        tot = record.get("mean_total_spce_eig") or record.get("total_spce_eig")
-        spce_by_step = [float(tot)] if tot is not None else []
-    else:
-        spce_by_step = [float(x) for x in spce_raw]
-
-    dh_raw = record.get("mean_delta_h_by_step") or record.get("step_delta_h")
-    if dh_raw is None:
-        tot_dh = record.get("mean_delta_H") or record.get("delta_H")
-        delta_h_by_step = [float(tot_dh)] if tot_dh is not None else []
-    else:
-        delta_h_by_step = [float(x) for x in dh_raw]
-
-    total_spce = record.get("mean_total_spce_eig") or record.get("total_spce_eig")
-    if total_spce is None and spce_by_step:
-        total_spce = spce_by_step[0]
-
-    delta_h = record.get("mean_delta_H") or record.get("delta_H")
-    return eig_metrics(
-        spce_by_step,
-        delta_h_by_step,
-        float(total_spce or 0.0),
-        float(delta_h or 0.0),
+    exp_dir = _resolve_exp_dir(
+        cfg, exp_type, args.exp_dir, create_new=False
     )
 
+    if exp_type == "objective_based":
+        ctx = build_context_from_config(
+            cfg,
+            ensure_bank=True,
+            smoke=args.smoke,
+            out_dir=exp_dir,
+            experiment_type=exp_type,
+        )
+        write_run_config(
+            exp_dir, cfg, ctx.data_dir, experiment_type=exp_type
+        )
+        display = method_display_name(key)
+        print(
+            f"[train] type={exp_type} {display} "
+            f"config={cfg.config_path} N_obs={ctx.n_obs} exp_dir={exp_dir}"
+        )
+        from src.objectives.mocu.train import train_policy
 
-def format_eig_list(vals: list[float], *, prec: int = 4) -> str:
-    return "[" + ", ".join(f"{v:.{prec}f}" for v in vals) + "]"
+        result = train_policy(
+            ctx, method=display, seed=int(args.seed), smoke=args.smoke
+        )
+        print(json.dumps(result, indent=2))
+        print(f"EXP_DIR={exp_dir}")
+        return
 
+    if _use_vector_eig_pipeline(cfg, exp_type, int(args.n_obs)):
+        from src.objectives.eig.vector import train_vector_eig_policy
 
-def format_eig_line(eig: dict[str, Any], *, prec: int = 4) -> str:
-    return (
-        f"spce_by_step={format_eig_list(eig['spce_by_step'], prec=prec)}  "
-        f"delta_h_by_step={format_eig_list(eig['delta_h_by_step'], prec=prec)}  "
-        f"total_spce={eig['total_spce']:.{prec}f}  "
-        f"delta_h={eig['delta_h']:.{prec}f}"
-    )
+        ctx = build_context_from_config(
+            cfg,
+            ensure_bank=True,
+            smoke=args.smoke,
+            out_dir=exp_dir,
+            experiment_type=exp_type,
+        )
+        write_run_config(
+            exp_dir,
+            cfg,
+            ctx.data_dir,
+            experiment_type=exp_type,
+            extra={
+                "observation_model": (
+                    "continuous_duration_max_rocof"
+                    if int(args.n_obs) == 0
+                    else "sampled_delta_f_vector"
+                ),
+                "N_obs": ctx.n_obs,
+            },
+        )
+        if key == "dad":
+            result = train_vector_eig_policy(
+                ctx, method="dad_eig", smoke=bool(args.smoke), seed=int(args.seed)
+            )
+        elif key == "rl_sboed":
+            result = train_vector_eig_policy(
+                ctx,
+                method="rl_sboed_eig",
+                smoke=bool(args.smoke),
+                seed=int(args.seed),
+            )
+        else:
+            result = train_vector_eig_policy(
+                ctx, method="moe_sboed", smoke=bool(args.smoke), seed=int(args.seed)
+            )
+        print(json.dumps(result, indent=2))
+        print(f"EXP_DIR={exp_dir}")
+        return
 
+    if key == "rl_sboed":
+        from src.objectives.eig.pipeline import train_rl_sboed_eig
+        from src.reporting.run_context import load_experiment_run, load_run_config_doc
 
-def slim_method_summary(summary: dict[str, Any]) -> dict[str, Any]:
-    """Metrics-only block (full detail stays in ``eval/<method>.json``)."""
-    keys = (
-        "mean_u_ctrl",
-        "median_u_ctrl",
-        "std_u_ctrl",
-        "safety_rate",
-        "mean_excess",
-        "u_ctrl_values",
-        "mean_weight_sum",
-        "n",
-        "test_rollout_seconds_total",
-        "test_rollout_seconds_per_system",
-        "test_total_seconds",
-        "test_total_seconds_per_system",
-    )
-    out: dict[str, Any] = {}
-    for k in keys:
-        if k in summary:
-            out[k] = summary[k]
-    return out
-
-
-def _method_train_seconds_raw(method: str, timing: dict[str, Any] | None) -> float | None:
-    train = (timing or {}).get("training_seconds") or {}
-    if method in train:
-        return float(train[method])
-    return None
-
-
-def _method_test_seconds_raw(
-    method: str,
-    timing: dict[str, Any] | None,
-    summary: dict[str, Any],
-) -> float | None:
-    test = (timing or {}).get("test_seconds") or {}
-    block = test.get(method)
-    if isinstance(block, dict):
-        val = block.get("test_total_seconds_per_system")
-        if val is None:
-            val = block.get("test_total_seconds")
-        if val is not None:
-            return float(val)
-    for key in ("test_total_seconds_per_system", "test_total_seconds"):
-        if summary.get(key) is not None:
-            return float(summary[key])
-    return None
-
-
-def _method_train_seconds(method: str, timing: dict[str, Any] | None) -> str:
-    val = _method_train_seconds_raw(method, timing)
-    return f"{val:.1f}" if val is not None else "-"
-
-
-def _method_test_seconds(method: str, timing: dict[str, Any] | None, summary: dict[str, Any]) -> str:
-    val = _method_test_seconds_raw(method, timing, summary)
-    return f"{val:.4f}" if val is not None else "-"
-
-
-COMPARISON_TABLE_COLUMNS = [
-    "System",
-    "Run",
-    "T",
-    "N_b",
-    "Method",
-    "sPCE_1..T",
-    "Tot.sPCE",
-    "ΔH_1..T",
-    "ΔH",
-    "MSE_θ",
-    "train_s",
-    "test_s",
-]
-
-
-def _method_display_order(
-    summaries: dict[str, Any],
-    methods: list[str] | None = None,
-) -> list[str]:
-    if methods:
-        ordered = [m for m in methods if m in summaries]
-        extra = sorted(m for m in summaries if m not in ordered)
-        return ordered + extra
-    return list(summaries.keys())
-
-
-def build_print_table_rows(
-    summaries: dict[str, Any],
-    timing: dict[str, Any] | None = None,
-    methods: list[str] | None = None,
-    *,
-    run_labels: dict[str, Any] | None = None,
-) -> list[dict[str, Any]]:
-    """One row per method; values match the terminal comparison table."""
-    labels = run_labels or {}
-    rows: list[dict[str, Any]] = []
-    for method in _method_display_order(summaries, methods):
-        summary = summaries[method]
-        eig = read_eig_metrics(summary)
-        rows.append({
-            "System": str(labels.get("system_label", "")),
-            "Run": str(labels.get("run_name", "")),
-            "T": str(labels.get("step_number", "")),
-            "N_b": str(labels.get("n_buses", "")),
-            "Method": method,
-            "sPCE_1..T": format_eig_list(eig["spce_by_step"]),
-            "Tot.sPCE": f"{eig['total_spce']:.4f}",
-            "ΔH_1..T": format_eig_list(eig["delta_h_by_step"]),
-            "ΔH": f"{eig['delta_h']:.4f}",
-            "MSE_θ": f"{float(summary.get('mse_theta') or summary.get('mean_mse_theta') or 0.0):.6f}",
-            "train_s": _method_train_seconds(method, timing),
-            "test_s": _method_test_seconds(method, timing, summary),
-        })
-    return rows
-
-
-def save_comparison_csv(rows: list[dict[str, Any]], path: Path) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=COMPARISON_TABLE_COLUMNS)
-        writer.writeheader()
-        writer.writerows(rows)
-    legacy_json = path.parent / "summary.json"
-    if legacy_json.is_file():
-        legacy_json.unlink()
-
-
-def load_eval_aggregates(exp_dir: Path) -> tuple[dict[str, Any], dict[str, Any]]:
-    """Per-method metrics and timing from ``eval/<method>.json``."""
-    summaries: dict[str, Any] = {}
-    test_timing: dict[str, dict[str, float]] = {}
-    root = eval_dir(exp_dir)
-    if root.is_dir():
-        for path in sorted(root.glob("*.json")):
-            if path.name in ("summary.json",):
-                continue
-            with path.open(encoding="utf-8") as f:
-                payload = json.load(f)
-            method = path.stem
-            summaries[method] = slim_method_summary(payload.get("summary", {}))
-            if isinstance(payload.get("timing"), dict):
-                test_timing[method] = payload["timing"]
-    timing_block = {
-        "training_seconds": load_training_timing(exp_dir),
-        "test_seconds": test_timing,
-    }
-    return summaries, timing_block
-
-
-def aggregate_metrics(per_system: list[dict[str, Any]]) -> dict[str, Any]:
-    if not per_system:
-        return {}
-    out: dict[str, Any] = {"theta_sample_size": len(per_system)}
-
-    spce_rows = [read_eig_metrics(r)["spce_by_step"] for r in per_system]
-    dh_rows = [read_eig_metrics(r)["delta_h_by_step"] for r in per_system]
-    if spce_rows and all(len(x) == len(spce_rows[0]) for x in spce_rows):
-        out.update(
-            eig_metrics(
-                [float(x) for x in np.mean(np.array(spce_rows, dtype=np.float64), axis=0)],
-                [float(x) for x in np.mean(np.array(dh_rows, dtype=np.float64), axis=0)],
-                float(np.mean([read_eig_metrics(r)["total_spce"] for r in per_system])),
-                float(np.mean([read_eig_metrics(r)["delta_h"] for r in per_system])),
+        if not load_run_config_doc(exp_dir):
+            raise SystemExit(
+                f"eig_based experiment missing at {exp_dir}. Run data generation first."
+            )
+        run = load_experiment_run(exp_dir, repo_root())
+        print(f"[train] type={exp_type} EIG-specific RL-sBOED → {exp_dir}")
+        path = train_rl_sboed_eig(
+            run, smoke=bool(args.smoke), seed=int(args.seed)
+        )
+        print(
+            json.dumps(
+                {"experiment_type": exp_type, "policy": str(path)}, indent=2
             )
         )
-
-    for k in ("mse_theta", "mse_M", "mse_K"):
-        vals = [float(r[k]) for r in per_system if k in r]
-        if vals:
-            out[k] = float(np.mean(vals))
-            out[f"std_{k}"] = float(np.std(vals))
-    return out
-
-
-def design_selection_detail(catalog, sequence: list[int]) -> dict[str, Any]:
-    """Decode action indices to human-readable per-step design labels."""
-    seq = [int(a) for a in sequence]
-    steps: list[dict[str, Any]] = []
-    for t, a in enumerate(seq):
-        d = catalog[a]
-        steps.append({
-            "step": t + 1,
-            "action_index": a,
-            "design_id": a + 1,
-            "amplitude": float(d.amplitude),
-            "bus": int(d.bus),
-            "duration": float(d.duration),
-        })
-    design_ids = [s["design_id"] for s in steps]
-    return {
-        "action_indices": seq,
-        "design_ids": design_ids,
-        "design_label": ", ".join(f"design{did}" for did in design_ids),
-        "steps": steps,
-    }
-
-
-def aggregate_design_selections(per_system: list[dict[str, Any]]) -> dict[str, Any]:
-    """Summarize probe sequences chosen per test latent θ."""
-    if not per_system:
-        return {}
-
-    rows = []
-    for i, r in enumerate(per_system):
-        sel = r.get("design_selection") or {}
-        rows.append({
-            "test_index": int(r.get("test_index", i)),
-            "action_indices": list(sel.get("action_indices", r.get("sequence", []))),
-            "design_ids": list(sel.get("design_ids", [])),
-            "design_label": str(sel.get("design_label", "")),
-            "steps": list(sel.get("steps", [])),
-        })
-
-    keys = [tuple(x["action_indices"]) for x in rows]
-    unique_keys = list(dict.fromkeys(keys))
-    counts: dict[tuple[int, ...], int] = {}
-    for k in keys:
-        counts[k] = counts.get(k, 0) + 1
-
-    top_key = max(counts, key=counts.get)
-    top_row = next(x for x in rows if tuple(x["action_indices"]) == top_key)
-    all_same = len(unique_keys) == 1
-
-    return {
-        "n_test_systems": len(rows),
-        "n_unique_sequences": len(unique_keys),
-        "all_test_systems_same_sequence": all_same,
-        "shared_sequence": top_row if all_same else None,
-        "most_common_sequence": {
-            "count": counts[top_key],
-            "fraction": float(counts[top_key] / len(rows)),
-            **top_row,
-        },
-        "per_test_selections": rows,
-    }
-
-
-def _print_design_selection_summary(method_name: str, design_summary: dict[str, Any]) -> None:
-    n = int(design_summary.get("n_test_systems", 0))
-    n_unique = int(design_summary.get("n_unique_sequences", 0))
-    if n == 0:
+        print(f"EXP_DIR={exp_dir}")
         return
-    if design_summary.get("all_test_systems_same_sequence"):
-        shared = design_summary["shared_sequence"]
-        print(
-            f"  {method_name} designs: {shared['design_label']} "
-            f"(same for all {n} test θ)",
-            flush=True,
-        )
-        return
-    common = design_summary.get("most_common_sequence", {})
-    print(
-        f"  {method_name} designs: {n_unique} unique sequence(s) / {n} test θ; "
-        f"most common ({common.get('count', 0)}/{n}): {common.get('design_label', '')}",
-        flush=True,
-    )
 
-
-# --- Experiment dirs / orchestration ---------------------------------------
-
-def make_experiment_dir(project_root: Path, run_name: str, step_number: int) -> Path:
-    exp_dir = project_root / "experiments" / make_experiment_dir_name(run_name, step_number)
-    exp_dir.mkdir(parents=True, exist_ok=True)
-    return exp_dir
-
-
-def setup_experiment_dir(
-    cfg: SBOEDConfig,
-    project_root: Path,
-    exp_dir: Path | None = None,
-    *,
-    data_path: Path | None = None,
-) -> Path:
-    if exp_dir is None:
-        exp_dir = make_experiment_dir(project_root, cfg.run_slug, cfg.step_number)
-        reset_model_dir(exp_dir)
-    else:
-        exp_dir = exp_dir.resolve()
-        exp_dir.mkdir(parents=True, exist_ok=True)
-        model_dir(exp_dir).mkdir(parents=True, exist_ok=True)
-    eval_dir(exp_dir).mkdir(parents=True, exist_ok=True)
-
-    if data_path is None:
-        from src.data import data_dir, is_present, validate_data_bundle
-
-        d = data_dir(project_root, cfg)
-        if is_present(d):
-            validate_data_bundle(cfg, d)
-            data_path = d
-
-    if data_path is None:
-        data_path = resolve_data_dir(exp_dir, project_root)
-
-    write_run_config(exp_dir, cfg, data_path)
-    return exp_dir
-
-
-def load_experiment_systems(exp_dir: Path, project_root: Path) -> tuple[list[dict], list[dict]]:
-    run = load_experiment_run(exp_dir, project_root)
-    return run.train_systems, run.test_systems
-
-
-def generate_tables(
-    cfg: SBOEDConfig,
-    project_root: Path,
-    exp_dir: Path | None = None,
-    *,
-    splits: tuple[str, ...] = ("train", "test"),
-    theta_ranges: dict[str, tuple[int, int | None]] | None = None,
-) -> tuple[Path, Path, list[dict], list[dict]]:
-    data_path = ensure_data(
-        project_root, cfg, splits=splits, theta_ranges=theta_ranges,
-    )
-    train_systems, test_systems = load_split_systems(data_path)
-    linked_exp = setup_experiment_dir(cfg, project_root, exp_dir, data_path=data_path)
-    return linked_exp, data_path, train_systems, test_systems
-
-
-def run_method(
-    method_name: str,
-    cfg: SBOEDConfig,
-    exp_dir: Path,
-    train_systems: list[dict],
-    test_systems: list[dict],
-    rng: np.random.Generator,
-    *,
-    catalog,
-    table_support: TableThetaSupport,
-) -> dict[str, Any]:
-    """Dispatch one of {dad, myopic, fixed, random} through the shared rollout engine."""
-    from src.control.cuda_control import CudaControlEngine
-    from src.control.eval_metrics import aggregate_control_metrics, save_per_rollout_csv
-    from src.control.u_req import ControlSpec
-    from src.methods import (
-        ensure_fixed_subset,
-        run_dad,
-        run_fixed,
-        run_myopic,
-        run_random,
-        support_U_bank,
-    )
-    from src.swing_equation_ode.design import build_simulator
-
-    if method_name not in {"dad", "myopic", "fixed", "random"}:
-        raise ValueError(
-            f"Unknown method '{method_name}'. Final methods: dad, myopic, fixed, random."
+    if key == "moe_sboed":
+        raise SystemExit(
+            "Legacy Fixed/Myopic/DAD fusion MoE is disabled. "
+            "For continuous-duration / vector EIG use the BeliefConditionedMoE "
+            "path (N_obs matching the vector pipeline; train via "
+            "`python -m src.experiment train --method moe_sboed` under the "
+            "vector-EIG entrypoint). See documents/moe_sboed_workflow.txt."
         )
 
-    control_spec = ControlSpec.from_cfg(cfg)
-    U_support = support_U_bank(table_support)
-    sim = build_simulator(cfg)
-    sim.T_obs_sec = float(control_spec.T_obs_sec)
-    sim.ode_dt = float(control_spec.ode_dt)
-    sim.fs_hz = float(control_spec.fs_hz)
-    control_engine = CudaControlEngine(sim, control_spec)
-    t_rollout_0 = time.perf_counter()
+    from src.objectives.eig.pipeline import train_dad_policy
+    from src.reporting.run_context import load_experiment_run, load_run_config_doc
 
-    if method_name == "random":
-        rollouts = run_random(
-            cfg=cfg,
-            test_systems=test_systems,
-            table_support=table_support,
-            U_support=U_support,
-            control_spec=control_spec,
-            control_engine=control_engine,
-            rng=rng,
+    if not load_run_config_doc(exp_dir):
+        raise SystemExit(
+            f"eig_based experiment missing at {exp_dir}. "
+            f"Run: ./scripts/data_generation.sh --config {args.config} "
+            f"--experiment-type eig_based"
         )
-    elif method_name == "fixed":
-        subset = ensure_fixed_subset(
-            cfg=cfg,
-            exp_dir=exp_dir,
-            table_support=table_support,
-            U_support=U_support,
-            calibration_systems=train_systems[: min(32, len(train_systems))],
-            control_spec=control_spec,
-            seed=int(cfg.data.get("train_seed", 0)),
-        )
-        rollouts = run_fixed(
-            cfg=cfg,
-            test_systems=test_systems,
-            table_support=table_support,
-            U_support=U_support,
-            control_spec=control_spec,
-            control_engine=control_engine,
-            rng=rng,
-            subset=subset,
-        )
-    elif method_name == "myopic":
-        rollouts = run_myopic(
-            cfg=cfg,
-            test_systems=test_systems,
-            table_support=table_support,
-            U_support=U_support,
-            control_spec=control_spec,
-            control_engine=control_engine,
-            rng=rng,
-        )
-    else:
-        meta = {
-            "n_actions": len(catalog),
-            "step_number": cfg.step_number,
-            "sigma_y": cfg.sigma_y,
-            "experiment_dir": str(exp_dir.resolve()),
-        }
-        rollouts = run_dad(
-            cfg=cfg,
-            exp_dir=exp_dir,
-            test_systems=test_systems,
-            table_support=table_support,
-            U_support=U_support,
-            control_spec=control_spec,
-            control_engine=control_engine,
-            rng=rng,
-            meta=meta,
-        )
-
-    rollout_seconds = float(time.perf_counter() - t_rollout_0)
-    summary = aggregate_control_metrics(rollouts)
-    n_test = max(len(test_systems), 1)
-    summary["test_rollout_seconds_total"] = rollout_seconds
-    summary["test_rollout_seconds_per_system"] = float(rollout_seconds / n_test)
-    summary["test_total_seconds"] = rollout_seconds
-    summary["test_total_seconds_per_system"] = float(rollout_seconds / n_test)
-    save_per_rollout_csv(rollouts, eval_dir(exp_dir) / f"{method_name}_per_rollout.csv")
-    print(
-        f"  {method_name}: mean u_ctrl={summary['mean_u_ctrl']:.4f}  "
-        f"safety={summary['safety_rate']:.3f}  excess={summary['mean_excess']:.4f}"
-    )
-    return {
-        "method": method_name,
-        "summary": summary,
-        "per_system": rollouts,
-        "timing": {
-            "test_rollout_seconds_total": rollout_seconds,
-            "test_rollout_seconds_per_system": float(rollout_seconds / n_test),
-            "test_total_seconds": rollout_seconds,
-            "test_total_seconds_per_system": float(rollout_seconds / n_test),
-        },
-    }
-
-
-def train_dad_policy(
-    run: ExperimentRun,
-    method_name: str = "dad",
-    *,
-    reuse_policy: bool | None = None,
-) -> Path:
-    """Train DAD policy minimizing E[u_ctrl]; saves ``model/dad.pth``."""
-    if method_name not in {"dad", "dad_spce", "dad_delta_h"}:
-        # Accept legacy aliases but always train the control-objective dad.
-        raise ValueError(f"Unsupported DAD method '{method_name}'")
-    method_name = "dad"
-    exp_dir = run.exp_dir
-    out = model_dir(exp_dir)
-    out.mkdir(parents=True, exist_ok=True)
-    policy_path = out / "dad.pth"
-    if reuse_policy is None:
-        reuse_policy = bool(run.cfg.raw.get("training", {}).get("reuse_policy", False))
-    if policy_path.exists() and reuse_policy:
-        print(f"  Reusing existing policy → {policy_path} (training.reuse_policy=true)")
-        return policy_path
-    if policy_path.exists():
-        print(f"  Training fresh policy (replacing {policy_path.name})")
-    print(
-        f"  Training dad (objective=min E[u_ctrl], experiment T={run.cfg.step_number}, "
-        f"{run.meta.n_actions} actions) → {out}"
-    )
-    policy_meta = {
-        **run.policy_meta,
-        "experiment_dir": str(exp_dir.resolve()),
-        "method": "dad",
-    }
-    # Hold out a small validation slice from train for checkpoint selection.
-    n_val = max(4, min(16, len(run.train_systems) // 8))
-    val_systems = run.train_systems[-n_val:]
-    train_systems = run.train_systems[:-n_val] if len(run.train_systems) > n_val else run.train_systems
-    return _train_dad_core(
-        run.cfg,
-        train_systems,
-        policy_meta,
-        out,
-        data_dir=run.data_path,
-        run_tag="dad",
-        validation_systems=val_systems,
-    )
-
-
-def load_training_timing(exp_dir: Path) -> dict[str, float]:
-    """Read ``model/dad_training_metrics.json`` elapsed times."""
-    out: dict[str, float] = {}
-    mdir = model_dir(exp_dir)
-    path = mdir / "dad_training_metrics.json"
-    if path.is_file():
-        with path.open(encoding="utf-8") as f:
-            out["dad"] = float((json.load(f) or {}).get("elapsed_seconds", 0.0))
-    return out
-
-
-def run_evaluation(
-    run: ExperimentRun,
-    methods: list[str] | None = None,
-    rng: np.random.Generator | None = None,
-    training_timing: dict[str, float] | None = None,
-) -> dict[str, Any]:
-    if rng is None:
-        rng = np.random.default_rng(run.meta.test_seed)
-
-    cfg = run.cfg
-    exp_dir = run.exp_dir
-    if training_timing is None:
-        training_timing = load_training_timing(exp_dir)
-    train_systems = run.train_systems
-    test_systems = run.test_systems
-
-    validate_trajectory_y_sim(train_systems, split="train")
-    validate_trajectory_y_sim(test_systems, split="test")
-
-    from src.control.generate import control_banks_certified
-
-    certified, cert_detail = control_banks_certified(run.data_path)
-    if not certified:
-        raise RuntimeError(
-            "Control-bank safety invariants not certified "
-            "(oracle / u_max / U-bank particle safety rates must all be 1.0). "
-            "Run: python -m src.cli generate-control-bank --config <config>\n"
-            f"Detail: {cert_detail}"
-        )
-    print(f"  Control-bank certified → {cert_detail}")
-
-    catalog = build_catalog(cfg)
-    mc_seed = int(cfg.prior.get("mc_support_seed", run.meta.test_seed))
-    table_support = TableThetaSupport.from_train(
-        train_systems, cfg, np.random.default_rng(mc_seed),
-    )
-    eval_root = eval_dir(exp_dir)
-    eval_root.mkdir(parents=True, exist_ok=True)
-    print(
-        f"  Eval from data {run.data_path.name}: experiment T={cfg.step_number}, "
-        f"train-table θ support: {len(table_support)} latent θ × {run.meta.n_buses} buses"
-    )
-
-    run_methods = methods or cfg.methods
-
-    summaries, _ = load_eval_aggregates(exp_dir)
-    comparison_csv = eval_summary_path(exp_dir)
-    test_timing: dict[str, dict[str, float]] = {}
-    for m in tqdm(run_methods, desc="methods", unit="method"):
-        if m not in ALL_METHODS:
-            raise ValueError(f"Unknown method '{m}'. Valid: {ALL_METHODS}")
-        out_path = eval_method_path(exp_dir, m)
-        if out_path.is_file():
-            tqdm.write(f"[{m}] skip (already evaluated → {out_path.name})")
-            with out_path.open(encoding="utf-8") as f:
-                payload_m = json.load(f)
-                summaries[m] = slim_method_summary(payload_m["summary"])
-                if isinstance(payload_m.get("timing"), dict):
-                    test_timing[m] = payload_m["timing"]
-                elif isinstance(payload_m["summary"], dict):
-                    s = payload_m["summary"]
-                    test_timing[m] = {
-                        "test_rollout_seconds_total": float(s.get("test_rollout_seconds_total", 0.0)),
-                        "test_rollout_seconds_per_system": float(s.get("test_rollout_seconds_per_system", 0.0)),
-                        "test_total_seconds": float(s.get("test_total_seconds", 0.0)),
-                        "test_total_seconds_per_system": float(s.get("test_total_seconds_per_system", 0.0)),
-                    }
-            continue
-
-        tqdm.write(f"[{m}]")
-        method_result = run_method(
-            m,
-            cfg,
-            exp_dir,
-            train_systems,
-            test_systems,
-            rng,
-            catalog=catalog,
-            table_support=table_support,
-        )
-        save_json(method_result, eval_method_path(exp_dir, m))
-        summaries[m] = slim_method_summary(method_result["summary"])
-        test_timing[m] = method_result.get("timing", {})
-
-    timing_block = {
-        "training_seconds": training_timing or {},
-        "test_seconds": test_timing,
-    }
-    from src.control.eval_metrics import (
-        build_control_table_rows,
-        print_control_table,
-        save_control_comparison_csv,
-    )
-
-    labels = cfg.run_labels()
-    labels["step_number"] = cfg.step_number
-    labels["n_buses"] = cfg.N
-    rows = build_control_table_rows(
-        summaries, timing_block, methods=run_methods, run_labels=labels,
-    )
-    save_control_comparison_csv(rows, comparison_csv)
-    print_control_table(rows)
-    print(f"\nComparison table → {comparison_csv}")
-
-    return {
-        "comparison_csv": str(comparison_csv.resolve()),
-        "rows": rows,
-        "summaries": summaries,
-    }
-
-
-def print_print_table(rows: list[dict[str, Any]]) -> None:
-    if rows and rows[0].get("System"):
-        print(
-            f"\nSystem={rows[0]['System']}  Run={rows[0].get('Run', '')}  "
-            f"T={rows[0].get('T', '')}  N_b={rows[0].get('N_b', '')}"
-        )
-    spce_w = max((len(r["sPCE_1..T"]) for r in rows), default=12)
-    dh_w = max((len(r["ΔH_1..T"]) for r in rows), default=12)
-    spce_w = max(spce_w, len("sPCE_1..T"))
-    dh_w = max(dh_w, len("ΔH_1..T"))
-    print(
-        f"\n{'Method':<18} {'sPCE_1..T':<{spce_w}} {'Tot.sPCE':>9} "
-        f"{'ΔH_1..T':<{dh_w}} {'ΔH':>9} {'MSE_θ':>10} {'train_s':>8} {'test_s':>8}"
-    )
-    print("-" * (18 + spce_w + dh_w + 58))
-    for row in rows:
-        print(
-            f"{row['Method']:<18} {row['sPCE_1..T']:<{spce_w}} "
-            f"{row['Tot.sPCE']:>9} "
-            f"{row['ΔH_1..T']:<{dh_w}} "
-            f"{row['ΔH']:>9} {row['MSE_θ']:>10} "
-            f"{row['train_s']:>8} {row['test_s']:>8}"
-        )
-
-
-def print_results_table(
-    summaries: dict[str, Any],
-    *,
-    timing: dict[str, Any] | None = None,
-    step_number: int | None = None,
-) -> None:
-    del step_number
-    print_print_table(build_print_table_rows(summaries, timing))
-
-
-def print_experiment_banner(
-    cfg: SBOEDConfig,
-    exp_dir: Path,
-    data_path: Path,
-    train_systems: list[dict],
-    test_systems: list[dict],
-    methods: list[str],
-) -> None:
-    n_actions = len(build_catalog(cfg))
-    print(f"Experiment: {exp_dir.name}")
-    print(f"  dir={exp_dir}")
-    print(f"  data={data_path}")
-    print(
-        f"  system={cfg.system_label}  topology={cfg.topology}  "
-        f"preset={cfg.config_preset}  run={cfg.run_slug}"
-    )
-    print(f"  yaml={cfg.config_path.name}  T={cfg.step_number}  amplitudes={cfg.probe_amplitudes}")
-    print(
-        f"  actions={n_actions}  one_step_rows_per_system={n_actions}  "
-        f"BOED_horizon={cfg.step_number}"
-    )
-    print(f"  theta_dim={2 * cfg.N}  (per-bus M,K on {cfg.N} buses)")
-    print(
-        f"  train_theta_sample_size={len(train_systems)}  "
-        f"test_theta_sample_size={len(test_systems)}"
-    )
-    print(f"  methods={methods}")
-
-
-def run_experiment(
-    config_path: Path,
-    project_root: Path,
-    methods: list[str] | None = None,
-    exp_dir: Path | None = None,
-    step_number: int | None = None,
-) -> Path:
-    from src.config import load_config_for_run
-
-    cfg = load_config_for_run(config_path, project_root, step_number=step_number)
-    data_path = ensure_data(project_root, cfg)
-    exp_dir = setup_experiment_dir(cfg, project_root, exp_dir, data_path=data_path)
-    run = load_experiment_run(exp_dir, project_root)
-    run_methods = methods or run.cfg.methods
-    print_experiment_banner(
-        run.cfg, run.exp_dir, run.data_path, run.train_systems, run.test_systems, run_methods,
-    )
-    if "dad" in run_methods:
-        train_dad_policy(run, "dad")
-    run_evaluation(run, methods=run_methods, training_timing=load_training_timing(exp_dir))
+    run = load_experiment_run(exp_dir, repo_root())
+    print(f"[train] type={exp_type} EIG-based DAD → {exp_dir}")
+    path = train_dad_policy(run, method_name="dad", smoke=bool(args.smoke))
+    print(json.dumps({"experiment_type": exp_type, "policy": str(path)}, indent=2))
     print(f"EXP_DIR={exp_dir}")
-    print(f"DATA_DIR={data_path}")
-    return exp_dir
 
 
-def refresh_eval_summary(exp_dir: Path) -> list[dict[str, Any]]:
-    """Rebuild the printed comparison table and save to ``eval/summary.csv``."""
-    summaries, timing_block = load_eval_aggregates(exp_dir)
-    method_order: list[str] | None = None
-    run_labels: dict[str, Any] | None = None
+def cmd_evaluate(args: argparse.Namespace) -> None:
+    cfg = load_experiment_config(
+        args.config,
+        step_number=args.step_number,
+        n_obs=args.n_obs,
+        noise_sigma=args.noise_sigma,
+    )
+    exp_type = resolve_experiment_type(args.experiment_type)
+    exp_dir = _resolve_exp_dir(
+        cfg, exp_type, args.exp_dir, create_new=False
+    )
+
+    if exp_type == "objective_based":
+        method_keys = methods_from_args(cfg, args.method)
+        ctx = build_context_from_config(
+            cfg,
+            ensure_bank=True,
+            smoke=args.smoke,
+            out_dir=exp_dir,
+            experiment_type=exp_type,
+        )
+        meta = context_report_meta(ctx)
+        write_run_config(
+            exp_dir,
+            cfg,
+            ctx.data_dir,
+            experiment_type=exp_type,
+            extra={
+                "methods": method_keys,
+                "smoke": bool(args.smoke),
+                "exp_dir": str(exp_dir),
+                "eval_meta": meta,
+            },
+        )
+        print(
+            f"[evaluate] type={exp_type} methods={method_keys} "
+            f"N_obs={ctx.n_obs} mode={ctx.observation_mode} exp_dir={exp_dir}"
+        )
+        from src.objectives.mocu.evaluate import run_full_evaluation
+
+        eval_meta = run_full_evaluation(
+            ctx,
+            methods=method_keys,
+            smoke=args.smoke,
+            # Smoke validates plumbing and timing, not the expensive physical
+            # safety certification performed by publication runs.
+            skip_cuda_safety=bool(args.smoke),
+        )
+        summary_path = write_objective_summary_md(
+            ctx.out_dir,
+            system=ctx.system,
+            eval_meta={
+                **eval_meta,
+                "T": int(cfg.step_number),
+                "config_path": str(ctx.cfg.config_path),
+            },
+        )
+        print(f"Summary → {summary_path}")
+        print(
+            json.dumps(
+                {"out_dir": str(ctx.out_dir), "eval": eval_meta},
+                indent=2,
+                default=str,
+            )
+        )
+        print(f"Done → {ctx.out_dir}")
+        print(f"EXP_DIR={exp_dir}")
+        return
+
+    if _use_vector_eig_pipeline(cfg, exp_type, int(args.n_obs)):
+        from src.objectives.eig.vector import evaluate_vector_eig
+
+        ctx = build_context_from_config(
+            cfg,
+            ensure_bank=True,
+            smoke=args.smoke,
+            out_dir=exp_dir,
+            experiment_type=exp_type,
+        )
+        write_run_config(
+            exp_dir,
+            cfg,
+            ctx.data_dir,
+            experiment_type=exp_type,
+            extra={
+                "observation_model": (
+                    "continuous_duration_max_rocof"
+                    if int(args.n_obs) == 0
+                    else "sampled_delta_f_vector"
+                ),
+                "N_obs": ctx.n_obs,
+                "methods": list(ALL_METHOD_KEYS),
+            },
+        )
+        result = evaluate_vector_eig(ctx, smoke=bool(args.smoke))
+        print(json.dumps(result, indent=2))
+        print(f"EXP_DIR={exp_dir}")
+        return
+
+    from src.objectives.eig.stepwise.runner import run_system_stepwise_eig
+
+    system = system_name_from_cfg(cfg)
+    ensure_result_layout(exp_dir)
+    out_dir = exp_dir / "eval"
+    print(f"[evaluate] type={exp_type} stepwise-eig system={system} exp={exp_dir}")
+    from src.reporting.run_context import load_run_config_doc as _load_rc
+
+    if not _load_rc(exp_dir):
+        raise SystemExit(
+            f"eig_based experiment missing at {exp_dir}. "
+            f"Run data_generation + dad_training with --experiment-type eig_based first."
+        )
+    out = run_system_stepwise_eig(
+        system,
+        repo_root(),
+        exp_dir=exp_dir,
+        t_max=int(cfg.step_number),
+        out_dir=out_dir,
+    )
+    print(json.dumps({"experiment_type": exp_type, "out_dir": str(out)}, indent=2))
+    print(f"Done → {out}")
+    print(f"EXP_DIR={exp_dir}")
+
+
+def _diagnostic_context(args: argparse.Namespace):
+    cfg = load_experiment_config(
+        args.config,
+        step_number=args.step_number,
+        n_obs=args.n_obs,
+        noise_sigma=args.noise_sigma,
+    )
+    exp_type = resolve_experiment_type(args.experiment_type)
+    if exp_type != "objective_based":
+        raise SystemExit("Policy diagnostics only support objective_based experiments")
+    exp_dir = _resolve_exp_dir(cfg, exp_type, args.exp_dir, create_new=False)
+    ctx = build_context_from_config(
+        cfg,
+        ensure_bank=True,
+        smoke=False,
+        out_dir=exp_dir,
+        experiment_type=exp_type,
+    )
+    return ctx, exp_dir
+
+
+def cmd_diagnose_collapse(args: argparse.Namespace) -> None:
+    from src.objectives.mocu.diagnostics import (
+        diagnose_conditional_action_diversity,
+    )
+
+    ctx, exp_dir = _diagnostic_context(args)
+    report = diagnose_conditional_action_diversity(
+        ctx,
+        method=method_display_name(normalize_method_key(args.method)),
+        n_rollouts=int(args.rollouts),
+        seed=int(args.seed),
+        device=str(args.device),
+    )
+    print(json.dumps(report, indent=2))
+    print(f"EXP_DIR={exp_dir}")
+
+
+def cmd_moe_mechanism(args: argparse.Namespace) -> None:
+    from src.objectives.mocu.moe_diagnostics import moe_mechanism_report
+
+    ctx, exp_dir = _diagnostic_context(args)
+    report = moe_mechanism_report(
+        ctx,
+        n_rollouts=int(args.rollouts),
+        seed=int(args.seed),
+        device=str(args.device),
+    )
+    print(json.dumps(report, indent=2))
+    print(f"EXP_DIR={exp_dir}")
+
+
+def cmd_step_dad(args: argparse.Namespace) -> None:
+    from src.objectives.mocu.step_dad import StepDADConfig, step_dad_report
+
+    ctx, exp_dir = _diagnostic_context(args)
+    report = step_dad_report(
+        ctx,
+        n_rollouts=int(args.rollouts),
+        config=StepDADConfig(
+            refinement_steps=int(args.refinement_steps),
+            fantasy_rollouts=int(args.fantasy_rollouts),
+            learning_rate=float(args.learning_rate),
+            refine_from_step=int(args.refine_from_step),
+            seed=int(args.seed),
+            device=str(args.device),
+        ),
+        skip_cuda_safety=bool(args.smoke),
+    )
+    print(json.dumps(report, indent=2))
+    print(f"EXP_DIR={exp_dir}")
+
+
+def cmd_distill_myopic(args: argparse.Namespace) -> None:
+    from src.objectives.mocu.diagnostics import (
+        DistillationConfig,
+        distill_myopic_policy,
+    )
+
+    ctx, exp_dir = _diagnostic_context(args)
+    report = distill_myopic_policy(
+        ctx,
+        DistillationConfig(
+            epochs=int(args.epochs),
+            train_rollouts=int(args.train_rollouts),
+            validation_rollouts=int(args.validation_rollouts),
+            batch_size=int(args.batch_size),
+            learning_rate=float(args.learning_rate),
+            weight_decay=float(args.weight_decay),
+            seed=int(args.seed),
+            device=str(args.device),
+        ),
+    )
+    print(json.dumps(report, indent=2))
+    print(f"EXP_DIR={exp_dir}")
+
+
+def cmd_bank_structure_audit(args: argparse.Namespace) -> None:
+    """Plan-2: audit design redundancy and adaptive room before MoE work."""
+    from src.banks.audit import (
+        run_bank_structure_audit,
+        write_audit_report,
+    )
+
+    cfg = load_experiment_config(
+        args.config,
+        step_number=args.step_number,
+        n_obs=args.n_obs,
+        noise_sigma=args.noise_sigma,
+    )
+    exp_type = resolve_experiment_type(args.experiment_type)
+    exp_dir = _resolve_exp_dir(
+        cfg, exp_type, args.exp_dir, create_new=args.exp_dir is None
+    )
+    ensure_result_layout(exp_dir)
+    bq = dict(cfg.raw.get("bank_quality") or {})
+    report = run_bank_structure_audit(
+        cfg,
+        n_obs=int(args.n_obs),
+        noise_sigma=float(args.noise_sigma),
+        support_size=int(args.support_size),
+        n_outer=int(args.n_outer),
+        n_inner=int(args.n_inner),
+        top_k=int(args.top_k),
+        seed=int(args.seed),
+        near_dup_corr=float(args.near_dup_corr),
+        near_dup_frac_limit=float(args.near_dup_frac_limit),
+        min_fixed_advantage=float(bq.get("min_fixed_advantage", 0.01)),
+        min_distinct_second_actions=int(bq.get("min_distinct_second_actions", 2)),
+        min_mean_branch_value=float(bq.get("min_mean_branch_value", 0.01)),
+        max_mode_second_action_prob=float(bq.get("max_mode_second_action_prob", 0.75)),
+        structure_audit_horizons=list(bq.get("structure_audit_horizons") or [2, 3, 4]),
+        min_gap_improve_per_horizon=float(bq.get("min_gap_improve_per_horizon", 0.005)),
+        max_fixed_subsets=int(bq.get("structure_audit_max_fixed_subsets", 220)),
+    )
+    out = Path(exp_dir) / "diagnostics"
+    json_path, md_path = write_audit_report(report, out)
+    print(json.dumps(report, indent=2))
+    print(f"[bank-structure-audit] wrote {json_path}")
+    print(f"[bank-structure-audit] wrote {md_path}")
+    print(f"EXP_DIR={exp_dir}")
+    # Explicit --bank-structure-audit always enforces trap / adaptive / monotone.
+    # Normal runs skip these unless bank_quality.require_* is turned on in YAML.
+    fails = []
+    if not report.get("myopic_beatable"):
+        fails.append("myopic_trap")
+    if not report.get("adaptive_room"):
+        fails.append("adaptive_room")
+    if not report.get("monotone_adaptive_room"):
+        fails.append("monotone_adaptive_room")
+    if fails:
+        raise SystemExit(
+            "[bank-structure-audit] FAILED "
+            f"{fails} — verdict={report.get('verdict')} "
+            f"myopic_beatable={report.get('myopic_beatable')} "
+            f"adaptive_room={report.get('adaptive_room')} "
+            f"monotone_adaptive_room={report.get('monotone_adaptive_room')}. "
+            "Pass/fail only (no data filtering). Retune YAML generation params "
+            "(probe_durations, contingency, …) and regenerate with --force. "
+            "After checks pass, omit --bank-structure-audit for result runs."
+        )
+
+
+def build_parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(prog="experiment")
+    sub = p.add_subparsers(dest="command", required=True)
+
+    alloc = sub.add_parser(
+        "allocate-dir",
+        help="Create stamped result folder and print its path",
+    )
+    alloc.add_argument("--config", "-c", required=True)
+    _add_experiment_type(alloc)
+    _add_exp_dir(alloc)
+    _add_T(alloc)
+    _add_observation_overrides(alloc)
+    alloc.set_defaults(func=cmd_allocate_dir)
+
+    gen = sub.add_parser("generate-data", help="Generate physical / Foster banks")
+    gen.add_argument("--config", "-c", required=True)
+    _add_experiment_type(gen)
+    _add_exp_dir(gen)
+    _add_T(gen)
+    _add_observation_overrides(gen)
+    gen.add_argument("--smoke", action="store_true")
+    gen.add_argument(
+        "--force",
+        action="store_true",
+        help="Delete and regenerate the physical bank even if complete",
+    )
+    gen.set_defaults(func=cmd_generate_data)
+
+    tr = sub.add_parser("train", help="Train DAD/RL-sBOED or prepare MoE-sBOED")
+    tr.add_argument("--config", "-c", required=True)
+    tr.add_argument(
+        "--method",
+        "-m",
+        required=True,
+        choices=(
+            "dad",
+            "rl_sboed",
+            "moe_sboed",
+            "matched_dense",
+            "DAD",
+            "RL-sBOED",
+            "MoE-sBOED",
+            "MatchedDense",
+        ),
+    )
+    _add_experiment_type(tr)
+    _add_exp_dir(tr)
+    _add_T(tr)
+    _add_observation_overrides(tr)
+    tr.add_argument("--seed", type=int, default=101)
+    tr.add_argument("--smoke", action="store_true")
+    tr.set_defaults(func=cmd_train)
+
+    ev = sub.add_parser("evaluate", help="Evaluate methods / stepwise EIG")
+    ev.add_argument("--config", "-c", required=True)
+    ev.add_argument(
+        "--method",
+        "-m",
+        default=None,
+        help=f"Optional ({', '.join(ALL_METHOD_KEYS)}). Omit = all. Ignored for eig_based.",
+    )
+    _add_experiment_type(ev)
+    _add_exp_dir(ev)
+    _add_T(ev)
+    _add_observation_overrides(ev)
+    ev.add_argument("--smoke", action="store_true")
+    ev.set_defaults(func=cmd_evaluate)
+
+    collapse = sub.add_parser(
+        "diagnose-collapse",
+        help="Measure deterministic conditional action diversity",
+    )
+    collapse.add_argument("--config", "-c", required=True)
+    collapse.add_argument(
+        "--method", "-m", default="dad", choices=("dad", "rl_sboed", "DAD", "RL-sBOED")
+    )
+    _add_experiment_type(collapse)
+    _add_exp_dir(collapse)
+    _add_T(collapse)
+    _add_observation_overrides(collapse)
+    collapse.add_argument("--rollouts", type=int, default=128)
+    collapse.add_argument("--seed", type=int, default=101)
+    collapse.add_argument("--device", default="cpu", help="cpu|auto|cuda")
+    collapse.set_defaults(func=cmd_diagnose_collapse)
+
+    mech = sub.add_parser(
+        "moe-mechanism",
+        help="MoE router/expert specialization diagnostics (belief-regime evidence)",
+    )
+    mech.add_argument("--config", "-c", required=True)
+    _add_experiment_type(mech)
+    _add_exp_dir(mech)
+    _add_T(mech)
+    _add_observation_overrides(mech)
+    mech.add_argument("--rollouts", type=int, default=128)
+    mech.add_argument("--seed", type=int, default=101)
+    mech.add_argument("--device", default="auto", help="cpu|auto|cuda")
+    mech.set_defaults(func=cmd_moe_mechanism)
+
+    sdad = sub.add_parser(
+        "step-dad",
+        help="Evaluate the semi-amortized Step-DAD baseline (refines trained DAD)",
+    )
+    sdad.add_argument("--config", "-c", required=True)
+    _add_experiment_type(sdad)
+    _add_exp_dir(sdad)
+    _add_T(sdad)
+    _add_observation_overrides(sdad)
+    sdad.add_argument("--rollouts", type=int, default=48)
+    sdad.add_argument("--refinement-steps", type=int, default=4)
+    sdad.add_argument("--fantasy-rollouts", type=int, default=16)
+    sdad.add_argument("--learning-rate", type=float, default=3e-4)
+    sdad.add_argument("--refine-from-step", type=int, default=1)
+    sdad.add_argument("--seed", type=int, default=101)
+    sdad.add_argument("--device", default="auto", help="cpu|auto|cuda")
+    sdad.add_argument("--smoke", action="store_true")
+    sdad.set_defaults(func=cmd_step_dad)
+
+    distill = sub.add_parser(
+        "distill-myopic",
+        help="Behaviorally clone the myopic baseline with the DAD architecture",
+    )
+    distill.add_argument("--config", "-c", required=True)
+    _add_experiment_type(distill)
+    _add_exp_dir(distill)
+    _add_T(distill)
+    _add_observation_overrides(distill)
+    distill.add_argument("--epochs", type=int, default=50)
+    distill.add_argument("--train-rollouts", type=int, default=512)
+    distill.add_argument("--validation-rollouts", type=int, default=128)
+    distill.add_argument("--batch-size", type=int, default=256)
+    distill.add_argument("--learning-rate", type=float, default=3e-4)
+    distill.add_argument("--weight-decay", type=float, default=1e-5)
+    distill.add_argument("--seed", type=int, default=101)
+    distill.add_argument("--device", default="auto", help="cpu|auto|cuda")
+    distill.set_defaults(func=cmd_distill_myopic)
+
+    audit = sub.add_parser(
+        "bank-structure-audit",
+        help=(
+            "Plan-2: audit design redundancy and T=2 adaptive room "
+            "(DAD/RL before MoE)"
+        ),
+    )
+    audit.add_argument("--config", "-c", required=True)
+    _add_experiment_type(audit)
+    _add_exp_dir(audit)
+    _add_T(audit)
+    _add_observation_overrides(audit)
+    audit.add_argument("--support-size", type=int, default=96)
+    audit.add_argument("--n-outer", type=int, default=24)
+    audit.add_argument("--n-inner", type=int, default=16)
+    audit.add_argument("--top-k", type=int, default=12)
+    audit.add_argument("--seed", type=int, default=20260808)
+    audit.add_argument("--near-dup-corr", type=float, default=0.98)
+    audit.add_argument("--near-dup-frac-limit", type=float, default=0.25)
+    audit.set_defaults(func=cmd_bank_structure_audit)
+    return p
+
+
+def main(argv: list[str] | None = None) -> None:
+    parser = build_parser()
+    args = parser.parse_args(argv)
     try:
-        run = load_experiment_run(exp_dir, repo_root())
-        method_order = list(run.cfg.methods)
-        run_labels = run.cfg.run_labels()
-    except Exception:
-        doc = load_run_config_doc(exp_dir)
-        if doc:
-            run_labels = {
-                k: doc.get(k)
-                for k in (
-                    "system_label",
-                    "topology",
-                    "run_name",
-                    "config_name",  # legacy manifest key
-                    "preset",
-                    "config_preset",  # legacy
-                    "n_buses",
-                    "step_number",
-                )
-                if doc.get(k) is not None
-            }
-            if "run_name" not in run_labels and run_labels.get("config_name"):
-                name = str(run_labels["config_name"])
-                run_labels["run_name"] = name[: -len("_config")] if name.endswith("_config") else name
-            if "preset" not in run_labels and run_labels.get("config_preset"):
-                run_labels["preset"] = run_labels["config_preset"]
-    rows = None
-    try:
-        from src.control.eval_metrics import (
-            build_control_table_rows,
-            save_control_comparison_csv,
-        )
-
-        labels = run_labels or {}
-        rows = build_control_table_rows(
-            summaries, timing_block, methods=method_order or list(summaries), run_labels=labels,
-        )
-        csv_path = eval_summary_path(exp_dir)
-        save_control_comparison_csv(rows, csv_path)
-        return rows
-    except Exception:
-        rows = build_print_table_rows(
-            summaries, timing_block, methods=method_order, run_labels=run_labels,
-        )
-        csv_path = eval_summary_path(exp_dir)
-        save_comparison_csv(rows, csv_path)
-        return rows
+        args.func(args)
+    except BankQualityError as exc:
+        raise SystemExit(f"[bank-quality] FAILED\n{exc}") from exc
 
 
-def eval_experiment(exp_dir: Path) -> list[dict[str, Any]]:
-    rows = refresh_eval_summary(exp_dir)
-    from src.control.eval_metrics import print_control_table
-
-    if rows and "mean_u_ctrl" in rows[0]:
-        print_control_table(rows)
-    else:
-        print_print_table(rows)
-    csv_path = eval_summary_path(exp_dir)
-    print(f"\nComparison table → {csv_path}")
-    return rows
+if __name__ == "__main__":
+    main()

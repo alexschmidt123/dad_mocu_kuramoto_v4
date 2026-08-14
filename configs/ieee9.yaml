@@ -1,0 +1,152 @@
+# IEEE9 objective sBOED (publication defaults).
+# Topology: MATPOWER case9 (Chow 9-bus).
+#   bash run.sh --config configs/ieee9.yaml --experiment_type objective_based --force
+
+system:
+  name: ieee9
+
+N: 9
+
+data:
+  dataset_dir: data/ieee9
+  generate_if_missing: false
+
+observation:
+  # Manuscript: scalar max-|ROCOF| (uses max_rocof.npy)
+  N_obs: 0
+  sampling: uniform
+
+oracle:
+  tolerance: 1.0e-4
+
+swing_equation:
+  topology: ieee9
+  coupling_strength: 1.0
+  damping: 0.1
+  base_power: 1.0
+  M_lower: 0.01
+  M_upper: 0.06
+  K_lower: 0.05
+  K_upper: 0.5
+  use_node_specific_damping: true
+  D_nodes: [0.08, 0.09, 0.09, 0.12, 0.14, 0.11, 0.15, 0.1, 0.16]
+  P_m_nodes: [1.2, 0.55, 0.4, -0.1, -0.35, -0.05, -0.4, -0.08, -0.5]
+  theta0_nodes: [0.0, -0.03, -0.06, -0.08, -0.1, -0.09, -0.12, -0.11, -0.14]
+  omega0_nodes: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+  # P_m_nodes are rough MATPOWER injections and are not an equilibrium of the
+  # reduced unit-coupling lossless model. Derive the effective baseline P_m from
+  # B and theta0 before applying probes or the terminal contingency.
+  enforce_initial_equilibrium: true
+  probe_amplitudes: [0.05, 0.075, 0.1, 0.15, 0.2, 0.3]
+  probe_duration: 0.2
+  T_obs_sec: 10.0
+  fs_hz: 12.0
+  sigma: 0.2
+
+prior:
+  mc_samples: 512
+  mc_support_seed: 1
+
+experiment:
+  # Horizon T is set by CLI ``--T`` (run.sh default 5). This field is a fallback only.
+  step_number: 5
+  methods: [dad, rl_sboed, myopic, fixed, random]
+
+control:
+  # Fixed across every horizon: 99% posterior safety target.  Evaluation still
+  # requires >=95% empirical safety; the buffer avoids boundary-driven failures.
+  alpha: 0.01
+  # Pooled off-support calibration over T=2,3,4,5 at N_obs=120, sigma=0.005.
+  safety_margin: 0.045
+  rocof_limit_hz_s: 22.0
+  # Balanced-scenario search: 100% feasible and monotone on 128 held-out theta,
+  # with 10 occupied U levels and 98.4% positive requirements.
+  delta_f_nadir_hz: -0.2
+  T_obs_sec: 10.0
+  ode_dt: 0.00625
+  fs_hz: 12.0
+  contingency: {bus: 1, magnitude: -0.45, units: pu}
+  profile: {bus: 1, t_start: 0.0, duration: 10.0, shape: step, units: pu}
+  # u_max exactly cancels the loss event; values above 0.45 would be
+  # over-injection rather than restorative control.
+  u_candidates: [0.0, 0.0225, 0.045, 0.0675, 0.09, 0.1125, 0.135, 0.1575, 0.18, 0.2025, 0.225, 0.2475, 0.27, 0.2925, 0.315, 0.3375, 0.36, 0.3825, 0.405, 0.4275, 0.45]
+  myopic_hypothetical: 64
+  # C(54,4)=316251 — multi-restart greedy Fixed
+  fixed_exhaustive_threshold: 30000
+  fixed_noise_replicas: 2
+  fixed_greedy_restarts: 8
+
+data_generation:
+  backend: cuda
+  cuda_batch_size: 128
+  theta_sample_size_train: 512
+  theta_sample_size_test: 128
+  train_seed: 101
+  test_seed: 202
+
+# Default sBOED bank gates (also applied on reuse / train / eval load).
+# Fail → stop generation and block later stages.
+bank_quality:
+  enabled: true
+  min_u_positive_frac: 0.50
+  min_u_q95: 0.05
+  min_u_headroom: 0.05
+  min_max_abs_corr_rocof_u: 0.30
+
+
+training:
+  device: auto
+  updates: 1000
+  # Keeps T<=5 unchanged; gives T=10 at least 2000 updates.
+  min_updates_per_horizon: 200
+  trajectories_per_update: 64
+  ppo_epochs: 4
+  validation_interval: 25
+  validation_rollouts: 128
+  patience: 0
+  entropy_coefficient: 0.10
+  checkpoint_diversity_weight: 0.3
+  min_unique_sequence_fraction: 0.25
+  open_loop_warn_after_updates: 100
+  actor_lr: 0.0003
+  critic_lr: 0.001
+  max_grad_norm: 1.0
+  # Safety-first checkpointing for abstract/journal claims.  Methods below
+  # 0.95 safety are invalid; reject unsafe checkpoints more aggressively.
+  undercontrol_penalty: 20.0
+  violation_penalty: 0.25
+  checkpoint_safety_penalty: 50.0
+  min_valid_safety_rate: 0.95
+  # Ablation-driven default: pure PPO (CF off). Re-enable CF only if needed.
+  moe_counterfactual_coefficient: 0.0
+  moe_branching_coefficient: 0.0
+  moe_counterfactual_floor_fraction: 0.0
+  moe_counterfactual_anneal_fraction: 0.33
+  moe_counterfactual_bootstrap: true
+  moe_prototype_reset_fraction: 0.2
+  moe_balance_coefficient: 0.001
+  moe_redundancy_coefficient: 0.005
+  moe_logit_scale_init: 3.0
+  # Belief-gated Fixed anchor on shared base (high ESS only).
+  moe_fixed_bc_coefficient: 0.25
+  moe_fixed_bc_anneal_fraction: 0.5
+  moe_fixed_bc_floor_fraction: 0.0
+  moe_fixed_bc_ess_threshold: 0.4
+  # After BC anneals: push residual influence on low-ESS beliefs.
+  moe_low_ess_residual_coefficient: 0.05
+  moe_low_ess_threshold: 0.4
+  moe_residual_scale_coefficient: 0.01
+  moe_logit_scale_target: 3.5
+
+control_safety_calibration:
+  # Do not recalibrate by T: that changes the definition of u_ctrl and makes
+  # cross-horizon comparisons invalid.
+  enabled: false
+  mode: config
+  expected_alpha: 0.01
+  num_rollouts: 512
+  seed: 2468
+  alpha_grid: [0.01]
+  margin_grid: [0.0, 0.05, 0.1, 0.15, 0.2, 0.25, 0.3]
+  min_calibration_safety_rate: 0.95
+  min_validation_safety_rate: 0.95

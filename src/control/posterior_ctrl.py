@@ -1,23 +1,26 @@
-"""Posterior → terminal control decision u_ctrl(h_T).
+"""Posterior → Yoon IBR terminal operator ψ*(h_T).
 
-Primary scientific mapping for *new* continuous-control studies:
+Yoon terminology (TSP 2013):
+  ψ_θ*  = model-specific optimal operator  (= min safe support for θ)
+  ψ*    = IBR robust operator
+  MOCU  = E[C_θ(ψ*) - C_θ(ψ_θ*)]
 
-    u_ctrl = Q_{1-α}(U | w) + margin
+Hard-safety IBR reduction used here:
+  ψ*(w) = max { ψ_{θ_n}* : w_n > 0 }
 
-Historical / snapped mapping (default for frozen legacy rules):
-
-    u_ctrl = snap_up(Q_{1-α}(U | w) + margin)
-
-``u_ctrl_snapped`` is always available as a diagnostic. ``u_raw`` remains an
-alias of the continuous pre-snap quantity for backward compatibility.
+On disk the bank of ψ_θ* values is ``psi_star.npy`` (legacy ``U.npy``
+migrated automatically). In memory, arrays may still be named ``U_support``
+as a temporary alias for ψ_n*.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Sequence
+from typing import Any, Literal, Sequence
 
 import numpy as np
+
+RobustRule = Literal["ibr_max", "quantile"]
 
 
 def weighted_quantile(
@@ -62,24 +65,51 @@ def snap_up_to_grid(u: float, u_grid: Sequence[float] | np.ndarray) -> float:
     return float(g[-1])
 
 
+def ibr_max_u_ctrl(
+    U_bank: np.ndarray,
+    weights: np.ndarray,
+    *,
+    weight_eps: float = 1e-12,
+) -> float:
+    """Yoon IBR under hard safety: max U_n on positive-weight posterior support."""
+    v = np.asarray(U_bank, dtype=np.float64).reshape(-1)
+    w = np.asarray(weights, dtype=np.float64).reshape(-1)
+    if v.size == 0:
+        raise ValueError("empty U_bank for IBR max")
+    if v.shape != w.shape:
+        raise ValueError("U_bank and weights must have the same shape")
+    w = np.clip(w, 0.0, None)
+    s = float(np.sum(w))
+    if s <= 0.0:
+        raise ValueError("weights must sum to a positive value")
+    w = w / s
+    mask = w > float(weight_eps)
+    if not np.any(mask):
+        mask = w > 0.0
+    if not np.any(mask):
+        return float(np.max(v))
+    return float(np.max(v[mask]))
+
+
 @dataclass(frozen=True)
 class TerminalControlRule:
     """
-    Common terminal rule for all methods.
+    Common terminal rule for all objective-based methods.
 
-    With ``snap_up=True`` (historical):
+    ``robust_rule="ibr_max"`` (Yoon IBR / primary MOCU definition):
 
-        u_ctrl = snap_up( Q_{1-α}(U_bank | w) + margin )
+        u_ctrl = max { U_n : w_n > 0 }
 
-    With ``snap_up=False`` (continuous-control studies):
+    ``robust_rule="quantile"`` (chance-constrained / legacy):
 
-        u_ctrl = Q_{1-α}(U_bank | w) + margin
+        u_ctrl = Q_{1-α}(U|w) + margin   (optionally snap_up)
     """
 
     alpha: float = 0.05
     margin: float = 0.0
     u_candidates: tuple[float, ...] = ()
     snap_up: bool = True
+    robust_rule: RobustRule = "quantile"
 
     @property
     def quantile_level(self) -> float:
@@ -93,31 +123,40 @@ class TerminalControlRule:
             margin=self.margin,
             u_grid=self.u_candidates if self.u_candidates else None,
             snap_up=self.snap_up,
+            robust_rule=self.robust_rule,
         )
 
     def to_dict(self) -> dict[str, Any]:
-        formula = (
-            "snap_up(Q_{1-alpha}(U|w) + margin)"
-            if self.snap_up
-            else "Q_{1-alpha}(U|w) + margin"
-        )
+        if self.robust_rule == "ibr_max":
+            formula = "max{U_n : w_n > 0}  (Yoon IBR / hard safety)"
+        elif self.snap_up:
+            formula = "snap_up(Q_{1-alpha}(U|w) + margin)"
+        else:
+            formula = "Q_{1-alpha}(U|w) + margin"
         return {
             "alpha": float(self.alpha),
             "margin": float(self.margin),
             "quantile_level": float(self.quantile_level),
             "u_candidates": list(self.u_candidates),
             "snap_up": bool(self.snap_up),
+            "robust_rule": str(self.robust_rule),
             "rule": formula,
         }
 
     @classmethod
     def from_dict(cls, raw: dict[str, Any]) -> TerminalControlRule:
         cands = tuple(float(x) for x in (raw.get("u_candidates") or []))
+        rule = str(raw.get("robust_rule", "quantile")).strip().lower()
+        if rule in {"ibr", "ibr_max", "max", "yoon_ibr"}:
+            robust: RobustRule = "ibr_max"
+        else:
+            robust = "quantile"
         return cls(
             alpha=float(raw.get("alpha", 0.05)),
             margin=float(raw.get("margin", 0.0)),
             u_candidates=cands,
             snap_up=bool(raw.get("snap_up", True)),
+            robust_rule=robust,
         )
 
 
@@ -125,9 +164,9 @@ class TerminalControlRule:
 class ControlDecision:
     """Shared posterior → control mapping used by all methods.
 
-    ``u_quantile`` is Q_{1-α}(U|w).
-    ``u_raw`` is the continuous quantity ``u_quantile + margin`` (legacy name).
-    ``u_ctrl`` is the primary operational command (continuous or snapped).
+    ``u_quantile`` is Q_{1-α}(U|w) (diagnostic; equals u_ctrl under quantile rule).
+    ``u_raw`` is the continuous pre-snap quantity.
+    ``u_ctrl`` is the primary operational command.
     ``u_ctrl_snapped`` is always the historical snap_up diagnostic.
     """
 
@@ -135,6 +174,7 @@ class ControlDecision:
     u_raw: float
     u_ctrl: float
     u_ctrl_snapped: float
+    robust_rule: str = "quantile"
 
 
 def posterior_control_decision(
@@ -145,8 +185,28 @@ def posterior_control_decision(
     margin: float = 0.0,
     u_grid: Sequence[float] | np.ndarray | None = None,
     snap_up: bool = True,
+    robust_rule: str = "quantile",
 ) -> ControlDecision:
-    """Compute continuous and snapped control; primary ``u_ctrl`` follows ``snap_up``."""
+    """Compute terminal control; primary ``u_ctrl`` follows ``robust_rule``."""
+    rule = str(robust_rule or "quantile").strip().lower()
+    use_ibr = rule in {"ibr", "ibr_max", "max", "yoon_ibr"}
+
+    if use_ibr:
+        u_ibr = ibr_max_u_ctrl(U_bank, weights)
+        if u_grid is not None and len(list(u_grid)) > 0:
+            u_snapped = snap_up_to_grid(u_ibr, u_grid)
+        else:
+            u_snapped = float(u_ibr)
+        # IBR values already lie on the U-bank / candidate set; snap is diagnostic.
+        u_ctrl = float(u_ibr)
+        return ControlDecision(
+            u_quantile=float(u_ibr),
+            u_raw=float(u_ibr),
+            u_ctrl=u_ctrl,
+            u_ctrl_snapped=float(u_snapped),
+            robust_rule="ibr_max",
+        )
+
     q = 1.0 - float(alpha)
     u_quantile = float(weighted_quantile(U_bank, weights, q))
     u_continuous = u_quantile + float(margin)
@@ -160,6 +220,7 @@ def posterior_control_decision(
         u_raw=float(u_continuous),
         u_ctrl=u_ctrl,
         u_ctrl_snapped=float(u_snapped),
+        robust_rule="quantile",
     )
 
 
@@ -171,6 +232,7 @@ def compute_u_ctrl(
     margin: float = 0.0,
     u_grid: Sequence[float] | np.ndarray | None = None,
     snap_up: bool = True,
+    robust_rule: str = "quantile",
 ) -> float:
     """Shared primary terminal control used by all objective-based methods."""
     return posterior_control_decision(
@@ -180,6 +242,7 @@ def compute_u_ctrl(
         margin=margin,
         u_grid=u_grid,
         snap_up=snap_up,
+        robust_rule=robust_rule,
     ).u_ctrl
 
 
@@ -190,6 +253,7 @@ def compute_u_ctrl_snapped(
     alpha: float,
     margin: float = 0.0,
     u_grid: Sequence[float] | np.ndarray | None = None,
+    robust_rule: str = "quantile",
 ) -> float:
     """Historical snap_up diagnostic only (not the primary objective)."""
     return posterior_control_decision(
@@ -199,6 +263,7 @@ def compute_u_ctrl_snapped(
         margin=margin,
         u_grid=u_grid,
         snap_up=True,
+        robust_rule=robust_rule,
     ).u_ctrl_snapped
 
 
@@ -210,12 +275,13 @@ def posterior_safe_u_ctrl(
     margin: float = 0.0,
     u_grid: Sequence[float] | np.ndarray | None = None,
     snap_up: bool = True,
+    robust_rule: str = "quantile",
 ) -> float:
     """
-    Posterior-safe control:
+    Posterior terminal control:
 
-        continuous: u_ctrl = Q_{1-α}(U|w) + margin
-        snapped:    u_ctrl = snap_up(Q_{1-α}(U|w) + margin)
+        ibr_max:  u_ctrl = max { U_n : w_n > 0 }
+        quantile: u_ctrl = Q_{1-α}(U|w) + margin  (optionally snapped)
     """
     return compute_u_ctrl(
         U_bank,
@@ -224,6 +290,7 @@ def posterior_safe_u_ctrl(
         margin=margin,
         u_grid=u_grid,
         snap_up=snap_up,
+        robust_rule=robust_rule,
     )
 
 
@@ -233,11 +300,44 @@ def posterior_u_raw(
     alpha: float,
     *,
     margin: float = 0.0,
+    robust_rule: str = "quantile",
 ) -> float:
-    """Continuous ``Q_{1-α}(U|w) + margin`` (legacy name; equals continuous u_ctrl)."""
+    """Continuous pre-snap control (legacy name)."""
     return posterior_control_decision(
-        U_bank, weights, alpha, margin=margin, u_grid=None, snap_up=False
+        U_bank,
+        weights,
+        alpha,
+        margin=margin,
+        u_grid=None,
+        snap_up=False,
+        robust_rule=robust_rule,
     ).u_raw
+
+
+def ocu(
+    psi_theta_star: float | np.ndarray,
+    psi_star: float,
+) -> float | np.ndarray:
+    """Yoon OCU: C(ψ*) - C(ψ_θ*) under hard-safety cost (= ψ* - ψ_θ*)."""
+    return np.asarray(psi_star, dtype=np.float64) - np.asarray(
+        psi_theta_star, dtype=np.float64
+    )
+
+
+def belief_mocu(
+    psi_star_bank: np.ndarray,
+    weights: np.ndarray,
+    psi_star: float,
+) -> float:
+    """Yoon belief MOCU = E_w[OCU] = E_w[ψ* - ψ_θ*] for fixed robust operator ψ*."""
+    v = np.asarray(psi_star_bank, dtype=np.float64).reshape(-1)
+    w = np.asarray(weights, dtype=np.float64).reshape(-1)
+    w = np.clip(w, 0.0, None)
+    s = float(np.sum(w))
+    if s <= 0.0:
+        raise ValueError("weights must sum to a positive value")
+    w = w / s
+    return float(np.sum(w * ocu(v, float(psi_star))))
 
 
 def normalize_log_weights(log_w: np.ndarray) -> np.ndarray:

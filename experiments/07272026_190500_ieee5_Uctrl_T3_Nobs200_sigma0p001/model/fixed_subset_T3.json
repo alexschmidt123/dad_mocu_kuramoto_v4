@@ -1,0 +1,19 @@
+{
+  "selected_action_ids": [
+    0,
+    19,
+    24
+  ],
+  "subset": [
+    0,
+    19,
+    24
+  ],
+  "horizon": 3,
+  "search_mode": "exhaustive_offline",
+  "n_actions": 30,
+  "objective_mean_u_ctrl": 0.16679687499999998,
+  "n_candidates_evaluated": 4060,
+  "elapsed_seconds": 450.30455446243286,
+  "system": "ieee5"
+}

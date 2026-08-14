@@ -7,8 +7,8 @@ from dataclasses import dataclass
 import numpy as np
 
 from src.control.posterior_ctrl import normalize_log_weights, posterior_safe_u_ctrl
-from src.contrastive.spce import log_gaussian_observation_density
-from src.table_scoring import TableThetaSupport, y_sim_last_step_from_tables
+from src.inference.spce import log_gaussian_observation_density
+from src.inference.scoring import TableThetaSupport, y_sim_last_step_from_tables
 
 
 @dataclass

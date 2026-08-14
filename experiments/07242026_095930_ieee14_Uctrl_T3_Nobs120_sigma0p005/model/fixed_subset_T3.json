@@ -1,0 +1,19 @@
+{
+  "selected_action_ids": [
+    73,
+    76,
+    74
+  ],
+  "subset": [
+    73,
+    76,
+    74
+  ],
+  "horizon": 3,
+  "search_mode": "greedy_multirestart_offline",
+  "n_actions": 84,
+  "objective_mean_u_ctrl": 0.3630468750000001,
+  "n_candidates_evaluated": 9,
+  "elapsed_seconds": 162.4830973148346,
+  "system": "ieee14"
+}

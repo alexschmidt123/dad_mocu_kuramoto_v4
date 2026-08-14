@@ -1,96 +1,171 @@
 #!/bin/bash
-# Sweep wrapper: call ./run.sh sequentially for one or more configs across T values.
-# Each run.sh execution performs: banks → control-safety calibration → observability
-# gate → DAD train → evaluate.
-# Uses a file lock so only one sweep may run at a time (no parallel duplicate folders).
+# Sweep run.sh over configs and/or horizons (sequential calls to run.sh).
 #
-# Usage:
-#   ./sweep_run.sh -config ieee14_config
-#   ./sweep_run.sh -config ieee9_config -from 1 -to 5
-#   ./sweep_run.sh -config ieee5_config,ieee9_config,ieee14_config -from 1 -to 6
-#   ./sweep_run.sh -study particle_posterior_adequacy -system both
-
+# Same T, multiple configs:
+#   bash sweep_run.sh --configs ieee5,ieee9 --T 8
+#
+# Same config, multiple T:
+#   bash sweep_run.sh --configs ieee5 --T 4,5,8
+#
+# Cartesian product (every config × every T):
+#   bash sweep_run.sh --configs ieee5,ieee9 --T 4,8
+#
+# Plan-2 trap objective grid (replaces obsolete scripts/plan2_*.sh):
+#   bash sweep_run.sh --config configs/ieee5_plan2_trap.yaml \
+#       --experiment_type objective_based --T 2,3,4,5 \
+#       --N_obs 200 --noise_sigma 0.01,0.001 --seed 101
+#
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-cd "$ROOT"
+# Shared PATH / PYTHONPATH / validate_experiment_type / defaults
+# shellcheck source=run.sh
+source "$ROOT/run.sh"
 
-LOCK_FILE="$ROOT/.sweep.lock"
-exec 200>"$LOCK_FILE"
-if ! flock -n 200; then
-    echo "Another sweep is already running (lock: $LOCK_FILE). Wait for it to finish." >&2
-    exit 1
-fi
-
-CONFIGS=()
-T_FROM=1
-T_TO=4
-STUDY=""
-SYSTEM="both"
+CONFIGS="ieee5,ieee9"
+TS="$DEFAULT_STEP_NUMBER"
+N_OBS_VALUES="$DEFAULT_N_OBS"
+NOISE_SIGMAS="$DEFAULT_NOISE_SIGMA"
+SEEDS="101"
+FORCE=""
+METHOD=""
 SMOKE=""
+BANK_STRUCTURE_AUDIT=""
+EXPERIMENT_TYPE="$EXPERIMENT_TYPE_DEFAULT"
 
-add_configs() {
-    local raw="$1"
-    local item
-    IFS=',' read -ra parts <<< "$raw"
-    for item in "${parts[@]}"; do
-        item="${item//[[:space:]]/}"
-        [[ -n "$item" ]] && CONFIGS+=("$item")
-    done
+usage() {
+    echo "Usage: $0 [--configs ieee5,ieee9] [--T 5|4,8] [--N_obs 0|120] [--noise_sigma 0.005|0.001,0.005] [--experiment_type objective_based|eig_based] [--method <method>] [--force] [--bank-structure-audit] [--smoke]" >&2
+    echo "" >&2
+    echo "  --configs   comma-separated config stems or paths under configs/ (default: ieee5,ieee9)" >&2
+    echo "  --systems   alias for --configs" >&2
+    echo "  --config    alias for --configs (also accepts full yaml paths)" >&2
+    echo "  --T         one horizon or comma-separated list (default: ${DEFAULT_STEP_NUMBER})" >&2
+    echo "  --N_obs     one count or comma-separated list (default: ${DEFAULT_N_OBS})" >&2
+    echo "  --noise_sigma one std or comma-separated list (default: ${DEFAULT_NOISE_SIGMA})" >&2
+    echo "  --force     regenerate physical banks" >&2
+    echo "  --bank-structure-audit  forward to run.sh (Myopic-trap gate per cell)" >&2
+    echo "" >&2
+    echo "Examples:" >&2
+    echo "  $0 --configs ieee5,ieee9 --T 8          # same T, multiple yaml" >&2
+    echo "  $0 --configs ieee5 --T 4,5,8            # same yaml, multiple T" >&2
+    echo "  $0 --configs ieee5,ieee9 --T 4,8        # product of both" >&2
+    echo "  $0 --config configs/ieee5_plan2_trap.yaml --experiment_type objective_based \\" >&2
+    echo "      --T 2,3,4,5 --N_obs 200 --noise_sigma 0.01,0.001 --seed 101" >&2
+}
+
+resolve_cfg() {
+    local item="$1"
+    if [[ -f "$item" ]]; then
+        echo "$item"
+        return 0
+    fi
+    if [[ -f "configs/${item}" ]]; then
+        echo "configs/${item}"
+        return 0
+    fi
+    if [[ -f "configs/${item}.yaml" ]]; then
+        echo "configs/${item}.yaml"
+        return 0
+    fi
+    echo "Missing config: $item (tried path, configs/${item}, configs/${item}.yaml)" >&2
+    return 1
 }
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        -config) add_configs "$2"; shift 2 ;;
-        -from) T_FROM="$2"; shift 2 ;;
-        -to) T_TO="$2"; shift 2 ;;
-        -study) STUDY="$2"; shift 2 ;;
-        -system) SYSTEM="$2"; shift 2 ;;
-        --smoke) SMOKE="--smoke"; shift ;;
-        *)
-            echo "Usage: $0 (-config <name[,name...]|path> [-from <T>] [-to <T>]) | (-study particle_posterior_adequacy -system <ieee5|ieee9|both> [--smoke])" >&2
-            exit 1
+        --configs|--systems|--config|-config|-c) CONFIGS="$2"; shift 2 ;;
+        -T|--T|--step-number|--step_number) TS="$2"; shift 2 ;;
+        --N_obs|--n-obs|--n_obs) N_OBS_VALUES="$2"; shift 2 ;;
+        --noise_sigma|--noise-sigma) NOISE_SIGMAS="$2"; shift 2 ;;
+        --seeds|--seed) SEEDS="$2"; shift 2 ;;
+        --method|-method|-m) METHOD="$2"; shift 2 ;;
+        --experiment_type|--experiment-type)
+            EXPERIMENT_TYPE="$(validate_experiment_type "$2")" || exit 1
+            shift 2
             ;;
+        --force) FORCE="--force"; shift ;;
+        --bank-structure-audit|--require-myopic-trap)
+            BANK_STRUCTURE_AUDIT="--bank-structure-audit"
+            shift
+            ;;
+        --smoke) SMOKE="--smoke"; shift ;;
+        -h|--help) usage; exit 0 ;;
+        *) usage; exit 1 ;;
     esac
 done
 
-if [[ -n "$STUDY" ]]; then
-    case "$STUDY" in
-        particle_posterior_adequacy)
-            echo "Sweep study: particle_posterior_adequacy (multi-seed nested supports inside run)"
-            ./run.sh -study particle_posterior_adequacy -system "$SYSTEM" -stage run ${SMOKE}
-            echo "Sweep study complete."
-            exit 0
-            ;;
-        *)
-            echo "Unknown study for sweep_run.sh: $STUDY" >&2
-            exit 1
-            ;;
-    esac
-fi
+CFG_ARR=()
+IFS=',' read -r -a _raw_cfgs <<< "$CONFIGS"
+for item in "${_raw_cfgs[@]}"; do
+    item="$(echo "$item" | xargs)"
+    [[ -n "$item" ]] || continue
+    CFG_ARR+=("$(resolve_cfg "$item")")
+done
+[[ ${#CFG_ARR[@]} -gt 0 ]] || { echo "No configs given" >&2; usage; exit 1; }
 
-[[ "${#CONFIGS[@]}" -gt 0 ]] || {
-    echo "Usage: $0 -config <name[,name...]|path> [-config <name> ...] [-from <T>] [-to <T>]" >&2
-    echo "   or: $0 -study particle_posterior_adequacy -system <ieee5|ieee9|both> [--smoke]" >&2
-    exit 1
-}
+T_ARR=()
+IFS=',' read -r -a _raw_ts <<< "$TS"
+for t in "${_raw_ts[@]}"; do
+    t="$(echo "$t" | xargs)"
+    [[ -n "$t" ]] || continue
+    [[ "$t" =~ ^[1-9][0-9]*$ ]] || { echo "Invalid --T value: $t" >&2; exit 1; }
+    T_ARR+=("$t")
+done
+[[ ${#T_ARR[@]} -gt 0 ]] || { echo "No --T values given" >&2; usage; exit 1; }
 
-if ! [[ "$T_FROM" =~ ^[0-9]+$ && "$T_TO" =~ ^[0-9]+$ && "$T_FROM" -le "$T_TO" ]]; then
-    echo "Invalid T range: from=$T_FROM to=$T_TO" >&2
-    exit 1
-fi
+NOBS_ARR=()
+IFS=',' read -r -a _raw_nobs <<< "$N_OBS_VALUES"
+for n_obs in "${_raw_nobs[@]}"; do
+    n_obs="$(echo "$n_obs" | xargs)"
+    [[ -n "$n_obs" ]] || continue
+    [[ "$n_obs" =~ ^[0-9]+$ ]] || { echo "Invalid --N_obs value: $n_obs" >&2; exit 1; }
+    NOBS_ARR+=("$n_obs")
+done
+[[ ${#NOBS_ARR[@]} -gt 0 ]] || { echo "No --N_obs values given" >&2; usage; exit 1; }
 
-echo "Sweep: configs=${CONFIGS[*]}  T=$T_FROM..$T_TO"
-echo ""
+SIGMA_ARR=()
+IFS=',' read -r -a _raw_sigmas <<< "$NOISE_SIGMAS"
+for sigma in "${_raw_sigmas[@]}"; do
+    sigma="$(echo "$sigma" | xargs)"
+    [[ -n "$sigma" ]] || continue
+    python3 -c 'import sys; x=float(sys.argv[1]); assert x > 0' "$sigma" 2>/dev/null \
+        || { echo "Invalid --noise_sigma value: $sigma" >&2; exit 1; }
+    SIGMA_ARR+=("$sigma")
+done
+[[ ${#SIGMA_ARR[@]} -gt 0 ]] || { echo "No --noise_sigma values given" >&2; usage; exit 1; }
 
-for CONFIG in "${CONFIGS[@]}"; do
-    for T in $(seq "$T_FROM" "$T_TO"); do
-        echo "========================================"
-        echo "  config=$CONFIG  T=$T"
-        echo "========================================"
-        ./run.sh -config "$CONFIG" -T "$T"
-        echo ""
+SEED_ARR=()
+IFS=',' read -r -a _raw_seeds <<< "$SEEDS"
+for seed in "${_raw_seeds[@]}"; do
+    seed="$(echo "$seed" | xargs)"
+    [[ "$seed" =~ ^[0-9]+$ ]] || { echo "Invalid --seed value: $seed" >&2; exit 1; }
+    SEED_ARR+=("$seed")
+done
+
+echo "=== sweep_run.sh configs=${CFG_ARR[*]} T=${T_ARR[*]} N_obs=${NOBS_ARR[*]} noise_sigma=${SIGMA_ARR[*]} type=$EXPERIMENT_TYPE ==="
+for cfg in "${CFG_ARR[@]}"; do
+    stem="$(basename "$cfg")"
+    stem="${stem%.yml}"
+    stem="${stem%.yaml}"
+    for T in "${T_ARR[@]}"; do
+      for N_OBS in "${NOBS_ARR[@]}"; do
+       for NOISE_SIGMA in "${SIGMA_ARR[@]}"; do
+        for SEED in "${SEED_ARR[@]}"; do
+        extra=()
+        if [[ -n "$FORCE" ]]; then
+            extra=(--force)
+        elif [[ ! -d "data/${stem}" ]]; then
+            extra=(--force)
+        fi
+        echo "--- $cfg --T $T --N_obs $N_OBS --noise_sigma $NOISE_SIGMA ${extra[*]:-} ---"
+        ARGS=(--config "$cfg" --experiment_type "$EXPERIMENT_TYPE" -T "$T" --N_obs "$N_OBS" --noise_sigma "$NOISE_SIGMA" --seed "$SEED")
+        [[ -n "$METHOD" ]] && ARGS+=(--method "$METHOD")
+        [[ -n "$BANK_STRUCTURE_AUDIT" ]] && ARGS+=(--bank-structure-audit)
+        # shellcheck disable=SC2086
+        bash run.sh "${ARGS[@]}" "${extra[@]+"${extra[@]}"}" ${SMOKE}
+        done
+       done
+      done
     done
 done
-
-echo "Sweep complete: configs=${CONFIGS[*]}  T=$T_FROM..$T_TO"
+echo "=== sweep_run.sh complete ==="

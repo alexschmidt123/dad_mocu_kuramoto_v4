@@ -1,0 +1,185 @@
+# IEEE5 continuous-duration power-grid BOED (primary publication setting).
+#
+# Design:
+#   - fixed probe amplitude + fixed probe bus (bus 0; swing model has no slack node)
+#   - design ξ_t = duration only, continuous domain d ∈ [0.001, 0.400]
+#   - bank grid Δd = 0.001 → N_ξ = 400
+#   - scalar max-|ROCOF| observation (N_obs=0)
+#   - reset_after_probe: false → carry physical state between probes
+#   - chronological ξ1 < ξ2 < … < ξT
+#   - objective: MOCU (objective_based) or terminal EIG (eig_based)
+#
+# Generate bank + diagnostics:
+#   bash run.sh --config configs/ieee5_continuous_duration.yaml --force \
+#       --experiment_type objective_based -T 2 --N_obs 0 --noise_sigma 0.01 --seed 101
+#   python3 -m src.banks.diagnose_duration \
+#       --config configs/ieee5_continuous_duration.yaml
+#
+# Train/eval MOCU (after bank exists):
+#   bash run.sh --config configs/ieee5_continuous_duration.yaml \
+#       --experiment_type objective_based -T 3 --N_obs 0 --noise_sigma 0.01 --seed 101
+#
+# EIG-first (same bank / max-ROCOF obs, terminal EIG objective):
+#   bash sweep_run.sh --config configs/ieee5_continuous_duration.yaml \
+#       --experiment_type eig_based --T 2,3,4,5 --N_obs 0 \
+#       --noise_sigma 0.001,0.005 --seed 101
+#
+system:
+  name: ieee5
+
+N: 5
+
+data:
+  dataset_dir: data/ieee5_continuous_duration
+  generate_if_missing: true
+
+observation:
+  N_obs: 0
+  sampling: uniform
+  noise_sigma: 0.01
+  # Eval: carry-state ODE (no reset). Train may use bank lookups (see training).
+  true_source: carry_state
+
+oracle:
+  tolerance: 1.0e-4
+
+swing_equation:
+  topology: ieee5
+  coupling_strength: 1.0
+  damping: 0.1
+  base_power: 1.0
+  M_lower: 0.008
+  M_upper: 0.08
+  K_lower: 0.03
+  K_upper: 0.6
+  use_node_specific_damping: true
+  D_nodes: [0.08, 0.14, 0.1, 0.09, 0.11]
+  P_m_nodes: [0.55, -0.75, 0.35, 1.2, 0.6]
+  theta0_nodes: [0.0, -0.08, -0.05, -0.02, -0.1]
+  omega0_nodes: [0.0, 0.0, 0.0, 0.0, 0.0]
+  enforce_initial_equilibrium: true
+  # Fixed amp + fixed probe bus (designated "stack/slack" probe location).
+  probe_buses: [0]
+  probe_amplitudes: [0.15]
+  probe_duration: 0.2
+  # Continuous duration domain on a fine data-generation grid.
+  duration_min: 0.001
+  duration_max: 0.400
+  duration_step: 0.001
+  # Continuous sequential experiment: do NOT reset between probes.
+  reset_after_probe: false
+  T_obs_sec: 10.0
+  fs_hz: 12.0
+  sigma: 0.2
+
+prior:
+  mc_samples: 256
+  mc_support_seed: 1
+
+experiment:
+  mode: continuous_duration
+  step_number: 3
+  methods: [dad, rl_sboed, moe_sboed, myopic, fixed, random]
+  experiment_type: objective_based
+
+control:
+  # Yoon IBR (primary MOCU): ψ* = max{ψ_n* : w_n > 0}
+  # where ψ_n* = model-specific optimal operator for particle n (stored as psi_star.npy).
+  # Use robust_rule: quantile for legacy chance-constrained Q_{1-α}+margin.
+  robust_rule: ibr_max
+  alpha: 0.01
+  safety_margin: 0.0
+  rocof_limit_hz_s: 22.0
+  delta_f_nadir_hz: -0.2
+  T_obs_sec: 10.0
+  ode_dt: 0.00625
+  fs_hz: 12.0
+  contingency: {bus: 1, magnitude: -1.15, units: pu}
+  profile: {bus: 1, t_start: 0.0, duration: 10.0, shape: step, units: pu}
+  u_candidates: [0.0, 0.03, 0.06, 0.09, 0.12, 0.15, 0.18, 0.21, 0.24, 0.27, 0.3, 0.33, 0.36, 0.39, 0.42, 0.45, 0.48, 0.51, 0.54, 0.57, 0.6, 0.63, 0.66, 0.69, 0.72, 0.75, 0.78, 0.81, 0.84]
+  myopic_hypothetical: 64
+  # C(400,T) is huge — Fixed uses chronological greedy (+ restarts).
+  fixed_exhaustive_threshold: 0
+  fixed_noise_replicas: 2
+  fixed_greedy_restarts: 8
+
+data_generation:
+  backend: cuda
+  cuda_batch_size: 128
+  # Start modest; scale up after bank/diagnostics look informative.
+  theta_sample_size_train: 256
+  theta_sample_size_test: 64
+  train_seed: 101
+  test_seed: 202
+
+bank_quality:
+  enabled: false
+
+training:
+  use_bank_observations: true
+  device: auto
+  # Vector-EIG: same recipe as SIR ODE upgrades (soft two-step BC, PPO for RL,
+  # MoE CF/branching floor, soft unique floor).
+  eig_epochs: 200
+  eig_steps_per_epoch: 512
+  batch_size: 256
+  learning_rate: 0.0003
+  entropy_coef: 0.05
+  policy_hidden: 256
+  eig_validation_systems: 128
+  eig_bc_trajectories: 96
+  eig_bc_lookahead: two_step
+  eig_bc_temperature: 0.5
+  eig_bc_fantasies: 12
+  eig_rl_use_ppo: true
+  eig_moe_ppo_epochs: 4
+  eig_moe_ppo_clip: 0.2
+  eig_moe_critic_lr: 0.001
+  eig_moe_cf_coefficient: 0.25
+  eig_moe_cf_anneal_fraction: 0.4
+  eig_moe_cf_floor_fraction: 0.25
+  eig_moe_cf_rollouts_per_batch: 2
+  eig_moe_branching_coefficient: 0.25
+  eig_prefer_unique_sequence_floor: true
+  eig_min_unique_sequence_fraction: 0.08
+  eig_unique_floor_slack: 0.03
+  # MOCU / objective_based PPO knobs
+  updates: 1000
+  min_updates_per_horizon: 200
+  trajectories_per_update: 64
+  ppo_epochs: 4
+  validation_interval: 25
+  validation_rollouts: 64
+  patience: 0
+  entropy_coefficient: 0.15
+  checkpoint_diversity_weight: 0.08
+  min_unique_sequence_fraction: 0.10
+  prefer_unique_sequence_floor: true
+  unique_floor_mocu_slack: 0.008
+  open_loop_warn_after_updates: 100
+  actor_lr: 0.0003
+  critic_lr: 0.001
+  max_grad_norm: 1.0
+  undercontrol_penalty: 20.0
+  violation_penalty: 0.25
+  checkpoint_safety_penalty: 50.0
+  min_valid_safety_rate: 0.95
+  moe_counterfactual_coefficient: 0.0
+  moe_branching_coefficient: 0.35
+  moe_fixed_bc_coefficient: 0.0
+  moe_low_ess_residual_coefficient: 0.25
+  moe_low_ess_threshold: 0.4
+  moe_residual_scale_coefficient: 0.02
+  moe_logit_scale_init: 3.0
+  moe_redundancy_coefficient: 0.01
+
+control_safety_calibration:
+  enabled: false
+  mode: config
+  expected_alpha: 0.01
+  num_rollouts: 256
+  seed: 2468
+  alpha_grid: [0.01]
+  margin_grid: [0.0, 0.05, 0.1, 0.15, 0.2]
+  min_calibration_safety_rate: 0.95
+  min_validation_safety_rate: 0.95

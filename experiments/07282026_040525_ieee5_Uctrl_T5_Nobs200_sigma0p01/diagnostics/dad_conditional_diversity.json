@@ -1,0 +1,73 @@
+{
+  "n_records": 80,
+  "steps": [
+    {
+      "step": 0,
+      "n_states": 16,
+      "n_prefixes": 1,
+      "n_repeated_prefixes": 1,
+      "n_branching_prefixes": 0,
+      "branching_prefix_fraction": 0.0,
+      "conditional_action_entropy_nats": 0.0,
+      "n_unique_actions": 1,
+      "max_actions_for_same_prefix": 1,
+      "belief_vs_blind_action_disagreement": 0.0
+    },
+    {
+      "step": 1,
+      "n_states": 16,
+      "n_prefixes": 1,
+      "n_repeated_prefixes": 1,
+      "n_branching_prefixes": 1,
+      "branching_prefix_fraction": 1.0,
+      "conditional_action_entropy_nats": 0.8305236914828464,
+      "n_unique_actions": 3,
+      "max_actions_for_same_prefix": 3,
+      "belief_vs_blind_action_disagreement": 0.375
+    },
+    {
+      "step": 2,
+      "n_states": 16,
+      "n_prefixes": 3,
+      "n_repeated_prefixes": 2,
+      "n_branching_prefixes": 1,
+      "branching_prefix_fraction": 0.5,
+      "conditional_action_entropy_nats": 0.22433722233641884,
+      "n_unique_actions": 3,
+      "max_actions_for_same_prefix": 2,
+      "belief_vs_blind_action_disagreement": 0.8125
+    },
+    {
+      "step": 3,
+      "n_states": 16,
+      "n_prefixes": 4,
+      "n_repeated_prefixes": 3,
+      "n_branching_prefixes": 3,
+      "branching_prefix_fraction": 1.0,
+      "conditional_action_entropy_nats": 0.8486213859529813,
+      "n_unique_actions": 4,
+      "max_actions_for_same_prefix": 3,
+      "belief_vs_blind_action_disagreement": 0.5
+    },
+    {
+      "step": 4,
+      "n_states": 16,
+      "n_prefixes": 8,
+      "n_repeated_prefixes": 3,
+      "n_branching_prefixes": 1,
+      "branching_prefix_fraction": 0.3333333333333333,
+      "conditional_action_entropy_nats": 0.43194115419692486,
+      "n_unique_actions": 5,
+      "max_actions_for_same_prefix": 3,
+      "belief_vs_blind_action_disagreement": 0.1875
+    }
+  ],
+  "any_conditional_branching": true,
+  "mean_belief_vs_blind_action_disagreement": 0.46875,
+  "method": "DAD",
+  "n_rollouts": 16,
+  "horizon": 5,
+  "n_unique_sequences": 10,
+  "sequence_entropy_nats": 2.133381930264545,
+  "open_loop": false
+}

@@ -1,0 +1,95 @@
+{
+  "system": "ieee5",
+  "config_path": "/home/grads/g/g.lin/Documents/dad_mocu_kuramoto_v4/configs/ieee5.yaml",
+  "config_hash": "6a841d472ccea0b4",
+  "n_theta_train": 512,
+  "n_theta_val": 128,
+  "n_theta_test": 128,
+  "n_designs": 30,
+  "N_obs": 20,
+  "N_sim": 1600,
+  "observation_mode": "sampled_delta_f",
+  "compression_ratio": 0.0125,
+  "obs_indices": [
+    0,
+    84,
+    168,
+    252,
+    337,
+    421,
+    505,
+    589,
+    673,
+    757,
+    842,
+    926,
+    1010,
+    1094,
+    1178,
+    1262,
+    1347,
+    1431,
+    1515,
+    1599
+  ],
+  "sampling": "uniform",
+  "data_dir": "/home/grads/g/g.lin/Documents/dad_mocu_kuramoto_v4/data/ieee5",
+  "out_dir": "/home/grads/g/g.lin/Documents/dad_mocu_kuramoto_v4/experiments/07272026_164512_ieee5_Uctrl_T2_Nobs20_sigma0p01",
+  "methods": [
+    "MoE-sBOED"
+  ],
+  "primary_methods": [
+    "MoE-sBOED"
+  ],
+  "n_rollouts_per_method": 64,
+  "n_oracle_consistency_errors": 0,
+  "mean_oracle_u_ctrl": 0.09139334329744665,
+  "method_ranking": [
+    "MoE-sBOED"
+  ],
+  "minimum_valid_safety_rate": 0.95,
+  "invalid_methods": [],
+  "primary_metric": "mean_mocu",
+  "runtime_by_method": {
+    "MoE-sBOED": {
+      "n_rollouts": 64,
+      "total_seconds": 4.611408393015154,
+      "seconds_per_rollout": 0.07205325614086178,
+      "includes": "action selection + observation + posterior update + terminal decision"
+    }
+  },
+  "runtime_scope": "Per-method online evaluation only; training, fixed-search preprocessing, hybrid calibration, and oracle/safety evaluation are reported separately.",
+  "mocu_definition": "mean over held-out systems of (u_ctrl - u_ctrl_opt)",
+  "ranking_rule": "safety_rate >= 0.95 required; valid methods ranked by mean_mocu asc",
+  "summaries": [
+    {
+      "method": "MoE-sBOED",
+      "base_method": "MoE-sBOED",
+      "eval_mode": "deterministic",
+      "n": 64,
+      "mean_u_ctrl": 0.24468749999999997,
+      "median_u_ctrl": 0.24,
+      "mean_u_ctrl_opt": 0.09139334329744665,
+      "median_u_ctrl_opt": 0.08754763719512194,
+      "mean_gap": 0.15329415670255336,
+      "median_gap": 0.15257240853658538,
+      "mean_mocu": 0.15329415670255336,
+      "median_mocu": 0.15257240853658538,
+      "mocu_ci95_low": 0.13944426113221706,
+      "mocu_ci95_high": 0.1670599610863662,
+      "mean_excess": 0.15329415670255336,
+      "under_control_rate": 0.0,
+      "gap_ci95_low": 0.056309451219512204,
+      "gap_ci95_high": 0.24769664634146335,
+      "safety_rate": 1.0,
+      "valid": 1,
+      "validity_threshold": 0.95,
+      "n_unique_sequences": 1,
+      "sequence_entropy": -0.0,
+      "unique_frac": 0.015625,
+      "n_oracle_consistency_errors": 0,
+      "rank_by_mean_gap": 1
+    }
+  ],
+  "adaptivity_eval": "Policy methods use argmax rollouts; claim adaptivity from n_unique_sequences / sequence_entropy across \u03b8."
+}

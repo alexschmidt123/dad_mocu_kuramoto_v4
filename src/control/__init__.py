@@ -1,25 +1,12 @@
-"""Terminal control objective: U-bank, posterior-safe u_ctrl, control simulation.
+"""Terminal-control / MOCU math (u_req, posterior, rewards, myopic/fixed).
 
-Production modules live in this package. One-shot IEEE5 historical experiment
-runners are under ``src.control.legacy`` and are not manuscript methods.
+U-bank I/O lives in ``src.banks.control_u``. On-disk banks are under ``data/``.
+Experiment CLI: ``python -m src.experiment``.
+
+Import submodules directly (``src.control.u_req``, …) to avoid circular
+imports with ``src.banks.control_u``.
 """
 
-from src.control.banks import extract_U_bank, validate_control_invariants
-from src.control.posterior_ctrl import (
-    posterior_control_decision,
-    posterior_safe_u_ctrl,
-    posterior_u_raw,
-    weighted_quantile,
-)
-from src.control.u_req import ControlSpec, is_control_safe
+from __future__ import annotations
 
-__all__ = [
-    "ControlSpec",
-    "extract_U_bank",
-    "is_control_safe",
-    "posterior_control_decision",
-    "posterior_safe_u_ctrl",
-    "posterior_u_raw",
-    "validate_control_invariants",
-    "weighted_quantile",
-]
+__all__: list[str] = []

@@ -1,0 +1,19 @@
+{
+  "selected_action_ids": [
+    34,
+    46,
+    52
+  ],
+  "subset": [
+    34,
+    46,
+    52
+  ],
+  "horizon": 3,
+  "search_mode": "exhaustive_offline",
+  "n_actions": 54,
+  "objective_mean_u_ctrl": 0.21808593750000002,
+  "n_candidates_evaluated": 24804,
+  "elapsed_seconds": 728.268373966217,
+  "system": "ieee9"
+}

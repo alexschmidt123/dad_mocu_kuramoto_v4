@@ -1,0 +1,1486 @@
+{
+  "version": 2,
+  "rows": [
+    {
+      "theta_id": 0,
+      "u_ctrl_opt": 0.0645579268292683,
+      "feasible": true,
+      "monotonic": true,
+      "message": "bisection",
+      "bracket": [
+        0.06448170731707317,
+        0.0645579268292683
+      ],
+      "tolerance": 0.0001
+    },
+    {
+      "theta_id": 1,
+      "u_ctrl_opt": 0.1303658536585366,
+      "feasible": true,
+      "monotonic": true,
+      "message": "bisection",
+      "bracket": [
+        0.13030106707317074,
+        0.1303658536585366
+      ],
+      "tolerance": 0.0001
+    },
+    {
+      "theta_id": 2,
+      "u_ctrl_opt": 0.0,
+      "feasible": true,
+      "monotonic": true,
+      "message": "safe_at_zero"
+    },
+    {
+      "theta_id": 3,
+      "u_ctrl_opt": 0.3388719512195122,
+      "feasible": true,
+      "monotonic": true,
+      "message": "bisection",
+      "bracket": [
+        0.338795731707317,
+        0.3388719512195122
+      ],
+      "tolerance": 0.0001
+    },
+    {
+      "theta_id": 4,
+      "u_ctrl_opt": 0.007545731707317073,
+      "feasible": true,
+      "monotonic": true,
+      "message": "bisection",
+      "bracket": [
+        0.007469512195121951,
+        0.007545731707317073
+      ],
+      "tolerance": 0.0001
+    },
+    {
+      "theta_id": 5,
+      "u_ctrl_opt": 0.18696646341463413,
+      "feasible": true,
+      "monotonic": true,
+      "message": "bisection",
+      "bracket": [
+        0.18689024390243902,
+        0.18696646341463413
+      ],
+      "tolerance": 0.0001
+    },
+    {
+      "theta_id": 6,
+      "u_ctrl_opt": 0.09214176829268292,
+      "feasible": true,
+      "monotonic": true,
+      "message": "bisection",
+      "bracket": [
+        0.09207317073170732,
+        0.09214176829268292
+      ],
+      "tolerance": 0.0001
+    },
+    {
+      "theta_id": 7,
+      "u_ctrl_opt": 0.12498856707317074,
+      "feasible": true,
+      "monotonic": true,
+      "message": "bisection",
+      "bracket": [
+        0.12492378048780488,
+        0.12498856707317074
+      ],
+      "tolerance": 0.0001
+    },
+    {
+      "theta_id": 8,
+      "u_ctrl_opt": 0.0,
+      "feasible": true,
+      "monotonic": true,
+      "message": "safe_at_zero"
+    },
+    {
+      "theta_id": 9,
+      "u_ctrl_opt": 0.2268292682926829,
+      "feasible": true,
+      "monotonic": true,
+      "message": "bisection",
+      "bracket": [
+        0.2267530487804878,
+        0.2268292682926829
+      ],
+      "tolerance": 0.0001
+    },
+    {
+      "theta_id": 10,
+      "u_ctrl_opt": 0.0,
+      "feasible": true,
+      "monotonic": true,
+      "message": "safe_at_zero"
+    },
+    {
+      "theta_id": 11,
+      "u_ctrl_opt": 0.0,
+      "feasible": true,
+      "monotonic": true,
+      "message": "safe_at_zero"
+    },
+    {
+      "theta_id": 12,
+      "u_ctrl_opt": 0.23330792682926826,
+      "feasible": true,
+      "monotonic": true,
+      "message": "bisection",
+      "bracket": [
+        0.23323170731707316,
+        0.23330792682926826
+      ],
+      "tolerance": 0.0001
+    },
+    {
+      "theta_id": 13,
+      "u_ctrl_opt": 0.001524390243902439,
+      "feasible": true,
+      "monotonic": true,
+      "message": "bisection",
+      "bracket": [
+        0.001448170731707317,
+        0.001524390243902439
+      ],
+      "tolerance": 0.0001
+    },
+    {
+      "theta_id": 14,
+      "u_ctrl_opt": 0.06928353658536586,
+      "feasible": true,
+      "monotonic": true,
+      "message": "bisection",
+      "bracket": [
+        0.06920731707317074,
+        0.06928353658536586
+      ],
+      "tolerance": 0.0001
+    },
+    {
+      "theta_id": 15,
+      "u_ctrl_opt": 0.1529725609756098,
+      "feasible": true,
+      "monotonic": true,
+      "message": "bisection",
+      "bracket": [
+        0.15289634146341466,
+        0.1529725609756098
+      ],
+      "tolerance": 0.0001
+    },
+    {
+      "theta_id": 16,
+      "u_ctrl_opt": 0.06303353658536585,
+      "feasible": true,
+      "monotonic": true,
+      "message": "bisection",
+      "bracket": [
+        0.06295731707317073,
+        0.06303353658536585
+      ],
+      "tolerance": 0.0001
+    },
+    {
+      "theta_id": 17,
+      "u_ctrl_opt": 0.09529725609756098,
+      "feasible": true,
+      "monotonic": true,
+      "message": "bisection",
+      "bracket": [
+        0.09522865853658537,
+        0.09529725609756098
+      ],
+      "tolerance": 0.0001
+    },
+    {
+      "theta_id": 18,
+      "u_ctrl_opt": 0.2922865853658536,
+      "feasible": true,
+      "monotonic": true,
+      "message": "bisection",
+      "bracket": [
+        0.29218749999999993,
+        0.2922865853658536
+      ],
+      "tolerance": 0.0001
+    },
+    {
+      "theta_id": 19,
+      "u_ctrl_opt": 0.047168445121951216,
+      "feasible": true,
+      "monotonic": true,
+      "message": "bisection",
+      "bracket": [
+        0.047096036585365854,
+        0.047168445121951216
+      ],
+      "tolerance": 0.0001
+    },
+    {
+      "theta_id": 20,
+      "u_ctrl_opt": 0.09344512195121951,
+      "feasible": true,
+      "monotonic": true,
+      "message": "bisection",
+      "bracket": [
+        0.09337652439024391,
+        0.09344512195121951
+      ],
+      "tolerance": 0.0001
+    },
+    {
+      "theta_id": 21,
+      "u_ctrl_opt": 0.03681402439024391,
+      "feasible": true,
+      "monotonic": true,
+      "message": "bisection",
+      "bracket": [
+        0.036737804878048785,
+        0.03681402439024391
+      ],
+      "tolerance": 0.0001
+    },
+    {
+      "theta_id": 22,
+      "u_ctrl_opt": 0.05013719512195122,
+      "feasible": true,
+      "monotonic": true,
+      "message": "bisection",
+      "bracket": [
+        0.05006478658536585,
+        0.05013719512195122
+      ],
+      "tolerance": 0.0001
+    },
+    {
+      "theta_id": 23,
+      "u_ctrl_opt": 0.26882621951219515,
+      "feasible": true,
+      "monotonic": true,
+      "message": "bisection",
+      "bracket": [
+        0.26875000000000004,
+        0.26882621951219515
+      ],
+      "tolerance": 0.0001
+    },
+    {
+      "theta_id": 24,
+      "u_ctrl_opt": 0.1058689024390244,
+      "feasible": true,
+      "monotonic": true,
+      "message": "bisection",
+      "bracket": [
+        0.10579268292682928,
+        0.1058689024390244
+      ],
+      "tolerance": 0.0001
+    },
+    {
+      "theta_id": 25,
+      "u_ctrl_opt": 0.16091463414634144,
+      "feasible": true,
+      "monotonic": true,
+      "message": "bisection",
+      "bracket": [
+        0.16085365853658534,
+        0.16091463414634144
+      ],
+      "tolerance": 0.0001
+    },
+    {
+      "theta_id": 26,
+      "u_ctrl_opt": 0.3253963414634147,
+      "feasible": true,
+      "monotonic": true,
+      "message": "bisection",
+      "bracket": [
+        0.3253048780487805,
+        0.3253963414634147
+      ],
+      "tolerance": 0.0001
+    },
+    {
+      "theta_id": 27,
+      "u_ctrl_opt": 0.3898628048780488,
+      "feasible": true,
+      "monotonic": true,
+      "message": "bisection",
+      "bracket": [
+        0.38978658536585364,
+        0.3898628048780488
+      ],
+      "tolerance": 0.0001
+    },
+    {
+      "theta_id": 28,
+      "u_ctrl_opt": 0.2586890243902439,
+      "feasible": true,
+      "monotonic": true,
+      "message": "bisection",
+      "bracket": [
+        0.2586128048780488,
+        0.2586890243902439
+      ],
+      "tolerance": 0.0001
+    },
+    {
+      "theta_id": 29,
+      "u_ctrl_opt": 0.11059451219512194,
+      "feasible": true,
+      "monotonic": true,
+      "message": "bisection",
+      "bracket": [
+        0.11051829268292682,
+        0.11059451219512194
+      ],
+      "tolerance": 0.0001
+    },
+    {
+      "theta_id": 30,
+      "u_ctrl_opt": 0.2580792682926829,
+      "feasible": true,
+      "monotonic": true,
+      "message": "bisection",
+      "bracket": [
+        0.2580030487804878,
+        0.2580792682926829
+      ],
+      "tolerance": 0.0001
+    },
+    {
+      "theta_id": 31,
+      "u_ctrl_opt": 0.0364329268292683,
+      "feasible": true,
+      "monotonic": true,
+      "message": "bisection",
+      "bracket": [
+        0.036356707317073175,
+        0.0364329268292683
+      ],
+      "tolerance": 0.0001
+    },
+    {
+      "theta_id": 32,
+      "u_ctrl_opt": 0.17728658536585365,
+      "feasible": true,
+      "monotonic": true,
+      "message": "bisection",
+      "bracket": [
+        0.1772103658536585,
+        0.17728658536585365
+      ],
+      "tolerance": 0.0001
+    },
+    {
+      "theta_id": 33,
+      "u_ctrl_opt": 0.17637195121951219,
+      "feasible": true,
+      "monotonic": true,
+      "message": "bisection",
+      "bracket": [
+        0.17629573170731705,
+        0.17637195121951219
+      ],
+      "tolerance": 0.0001
+    },
+    {
+      "theta_id": 34,
+      "u_ctrl_opt": 0.14390243902439026,
+      "feasible": true,
+      "monotonic": true,
+      "message": "bisection",
+      "bracket": [
+        0.14382621951219515,
+        0.14390243902439026
+      ],
+      "tolerance": 0.0001
+    },
+    {
+      "theta_id": 35,
+      "u_ctrl_opt": 0.07969512195121951,
+      "feasible": true,
+      "monotonic": true,
+      "message": "bisection",
+      "bracket": [
+        0.07963414634146342,
+        0.07969512195121951
+      ],
+      "tolerance": 0.0001
+    },
+    {
+      "theta_id": 36,
+      "u_ctrl_opt": 0.08939786585365853,
+      "feasible": true,
+      "monotonic": true,
+      "message": "bisection",
+      "bracket": [
+        0.08932926829268292,
+        0.08939786585365853
+      ],
+      "tolerance": 0.0001
+    },
+    {
+      "theta_id": 37,
+      "u_ctrl_opt": 0.04600990853658536,
+      "feasible": true,
+      "monotonic": true,
+      "message": "bisection",
+      "bracket": [
+        0.0459375,
+        0.04600990853658536
+      ],
+      "tolerance": 0.0001
+    },
+    {
+      "theta_id": 38,
+      "u_ctrl_opt": 0.3369664634146341,
+      "feasible": true,
+      "monotonic": true,
+      "message": "bisection",
+      "bracket": [
+        0.336890243902439,
+        0.3369664634146341
+      ],
+      "tolerance": 0.0001
+    },
+    {
+      "theta_id": 39,
+      "u_ctrl_opt": 0.18483231707317072,
+      "feasible": true,
+      "monotonic": true,
+      "message": "bisection",
+      "bracket": [
+        0.1847560975609756,
+        0.18483231707317072
+      ],
+      "tolerance": 0.0001
+    },
+    {
+      "theta_id": 40,
+      "u_ctrl_opt": 0.05317835365853659,
+      "feasible": true,
+      "monotonic": true,
+      "message": "bisection",
+      "bracket": [
+        0.05310594512195123,
+        0.05317835365853659
+      ],
+      "tolerance": 0.0001
+    },
+    {
+      "theta_id": 41,
+      "u_ctrl_opt": 0.11105182926829267,
+      "feasible": true,
+      "monotonic": true,
+      "message": "bisection",
+      "bracket": [
+        0.11097560975609755,
+        0.11105182926829267
+      ],
+      "tolerance": 0.0001
+    },
+    {
+      "theta_id": 42,
+      "u_ctrl_opt": 0.02271341463414634,
+      "feasible": true,
+      "monotonic": true,
+      "message": "bisection",
+      "bracket": [
+        0.02263719512195122,
+        0.02271341463414634
+      ],
+      "tolerance": 0.0001
+    },
+    {
+      "theta_id": 43,
+      "u_ctrl_opt": 0.09794207317073171,
+      "feasible": true,
+      "monotonic": true,
+      "message": "bisection",
+      "bracket": [
+        0.09786585365853659,
+        0.09794207317073171
+      ],
+      "tolerance": 0.0001
+    },
+    {
+      "theta_id": 44,
+      "u_ctrl_opt": 0.2476295731707317,
+      "feasible": true,
+      "monotonic": true,
+      "message": "bisection",
+      "bracket": [
+        0.2475762195121951,
+        0.2476295731707317
+      ],
+      "tolerance": 0.0001
+    },
+    {
+      "theta_id": 45,
+      "u_ctrl_opt": 0.22789634146341461,
+      "feasible": true,
+      "monotonic": true,
+      "message": "bisection",
+      "bracket": [
+        0.22782012195121948,
+        0.22789634146341461
+      ],
+      "tolerance": 0.0001
+    },
+    {
+      "theta_id": 46,
+      "u_ctrl_opt": 0.11577743902439024,
+      "feasible": true,
+      "monotonic": true,
+      "message": "bisection",
+      "bracket": [
+        0.11570121951219511,
+        0.11577743902439024
+      ],
+      "tolerance": 0.0001
+    },
+    {
+      "theta_id": 47,
+      "u_ctrl_opt": 0.030716463414634146,
+      "feasible": true,
+      "monotonic": true,
+      "message": "bisection",
+      "bracket": [
+        0.030640243902439024,
+        0.030716463414634146
+      ],
+      "tolerance": 0.0001
+    },
+    {
+      "theta_id": 48,
+      "u_ctrl_opt": 0.2651676829268293,
+      "feasible": true,
+      "monotonic": true,
+      "message": "bisection",
+      "bracket": [
+        0.2650914634146342,
+        0.2651676829268293
+      ],
+      "tolerance": 0.0001
+    },
+    {
+      "theta_id": 49,
+      "u_ctrl_opt": 0.11036585365853657,
+      "feasible": true,
+      "monotonic": true,
+      "message": "bisection",
+      "bracket": [
+        0.11028963414634145,
+        0.11036585365853657
+      ],
+      "tolerance": 0.0001
+    },
+    {
+      "theta_id": 50,
+      "u_ctrl_opt": 0.031402439024390244,
+      "feasible": true,
+      "monotonic": true,
+      "message": "bisection",
+      "bracket": [
+        0.03132621951219512,
+        0.031402439024390244
+      ],
+      "tolerance": 0.0001
+    },
+    {
+      "theta_id": 51,
+      "u_ctrl_opt": 0.1723170731707317,
+      "feasible": true,
+      "monotonic": true,
+      "message": "bisection",
+      "bracket": [
+        0.1722560975609756,
+        0.1723170731707317
+      ],
+      "tolerance": 0.0001
+    },
+    {
+      "theta_id": 52,
+      "u_ctrl_opt": 0.05122332317073171,
+      "feasible": true,
+      "monotonic": true,
+      "message": "bisection",
+      "bracket": [
+        0.051150914634146345,
+        0.05122332317073171
+      ],
+      "tolerance": 0.0001
+    },
+    {
+      "theta_id": 53,
+      "u_ctrl_opt": 0.0,
+      "feasible": true,
+      "monotonic": true,
+      "message": "safe_at_zero"
+    },
+    {
+      "theta_id": 54,
+      "u_ctrl_opt": 0.0773628048780488,
+      "feasible": true,
+      "monotonic": true,
+      "message": "bisection",
+      "bracket": [
+        0.07728658536585367,
+        0.0773628048780488
+      ],
+      "tolerance": 0.0001
+    },
+    {
+      "theta_id": 55,
+      "u_ctrl_opt": 0.01638719512195122,
+      "feasible": true,
+      "monotonic": true,
+      "message": "bisection",
+      "bracket": [
+        0.016310975609756098,
+        0.01638719512195122
+      ],
+      "tolerance": 0.0001
+    },
+    {
+      "theta_id": 56,
+      "u_ctrl_opt": 0.17048780487804877,
+      "feasible": true,
+      "monotonic": true,
+      "message": "bisection",
+      "bracket": [
+        0.17042682926829267,
+        0.17048780487804877
+      ],
+      "tolerance": 0.0001
+    },
+    {
+      "theta_id": 57,
+      "u_ctrl_opt": 0.0,
+      "feasible": true,
+      "monotonic": true,
+      "message": "safe_at_zero"
+    },
+    {
+      "theta_id": 58,
+      "u_ctrl_opt": 0.1770579268292683,
+      "feasible": true,
+      "monotonic": true,
+      "message": "bisection",
+      "bracket": [
+        0.17698170731707316,
+        0.1770579268292683
+      ],
+      "tolerance": 0.0001
+    },
+    {
+      "theta_id": 59,
+      "u_ctrl_opt": 0.25876524390243905,
+      "feasible": true,
+      "monotonic": true,
+      "message": "bisection",
+      "bracket": [
+        0.2586890243902439,
+        0.25876524390243905
+      ],
+      "tolerance": 0.0001
+    },
+    {
+      "theta_id": 60,
+      "u_ctrl_opt": 0.03681402439024391,
+      "feasible": true,
+      "monotonic": true,
+      "message": "bisection",
+      "bracket": [
+        0.036737804878048785,
+        0.03681402439024391
+      ],
+      "tolerance": 0.0001
+    },
+    {
+      "theta_id": 61,
+      "u_ctrl_opt": 0.0,
+      "feasible": true,
+      "monotonic": true,
+      "message": "safe_at_zero"
+    },
+    {
+      "theta_id": 62,
+      "u_ctrl_opt": 0.05245426829268293,
+      "feasible": true,
+      "monotonic": true,
+      "message": "bisection",
+      "bracket": [
+        0.05238185975609756,
+        0.05245426829268293
+      ],
+      "tolerance": 0.0001
+    },
+    {
+      "theta_id": 63,
+      "u_ctrl_opt": 0.21149009146341463,
+      "feasible": true,
+      "monotonic": true,
+      "message": "bisection",
+      "bracket": [
+        0.21143292682926831,
+        0.21149009146341463
+      ],
+      "tolerance": 0.0001
+    },
+    {
+      "theta_id": 64,
+      "u_ctrl_opt": 0.03460365853658537,
+      "feasible": true,
+      "monotonic": true,
+      "message": "bisection",
+      "bracket": [
+        0.03452743902439025,
+        0.03460365853658537
+      ],
+      "tolerance": 0.0001
+    },
+    {
+      "theta_id": 65,
+      "u_ctrl_opt": 0.21394817073170733,
+      "feasible": true,
+      "monotonic": true,
+      "message": "bisection",
+      "bracket": [
+        0.213891006097561,
+        0.21394817073170733
+      ],
+      "tolerance": 0.0001
+    },
+    {
+      "theta_id": 66,
+      "u_ctrl_opt": 0.07492378048780489,
+      "feasible": true,
+      "monotonic": true,
+      "message": "bisection",
+      "bracket": [
+        0.07484756097560977,
+        0.07492378048780489
+      ],
+      "tolerance": 0.0001
+    },
+    {
+      "theta_id": 67,
+      "u_ctrl_opt": 0.22118902439024388,
+      "feasible": true,
+      "monotonic": true,
+      "message": "bisection",
+      "bracket": [
+        0.22111280487804874,
+        0.22118902439024388
+      ],
+      "tolerance": 0.0001
+    },
+    {
+      "theta_id": 68,
+      "u_ctrl_opt": 0.1041158536585366,
+      "feasible": true,
+      "monotonic": true,
+      "message": "bisection",
+      "bracket": [
+        0.10403963414634147,
+        0.1041158536585366
+      ],
+      "tolerance": 0.0001
+    },
+    {
+      "theta_id": 69,
+      "u_ctrl_opt": 0.14557926829268295,
+      "feasible": true,
+      "monotonic": true,
+      "message": "bisection",
+      "bracket": [
+        0.1455030487804878,
+        0.14557926829268295
+      ],
+      "tolerance": 0.0001
+    },
+    {
+      "theta_id": 70,
+      "u_ctrl_opt": 0.1482469512195122,
+      "feasible": true,
+      "monotonic": true,
+      "message": "bisection",
+      "bracket": [
+        0.1481707317073171,
+        0.1482469512195122
+      ],
+      "tolerance": 0.0001
+    },
+    {
+      "theta_id": 71,
+      "u_ctrl_opt": 0.09502286585365854,
+      "feasible": true,
+      "monotonic": true,
+      "message": "bisection",
+      "bracket": [
+        0.09495426829268293,
+        0.09502286585365854
+      ],
+      "tolerance": 0.0001
+    },
+    {
+      "theta_id": 72,
+      "u_ctrl_opt": 0.1670121951219512,
+      "feasible": true,
+      "monotonic": true,
+      "message": "bisection",
+      "bracket": [
+        0.1669512195121951,
+        0.1670121951219512
+      ],
+      "tolerance": 0.0001
+    },
+    {
+      "theta_id": 73,
+      "u_ctrl_opt": 0.03460365853658537,
+      "feasible": true,
+      "monotonic": true,
+      "message": "bisection",
+      "bracket": [
+        0.03452743902439025,
+        0.03460365853658537
+      ],
+      "tolerance": 0.0001
+    },
+    {
+      "theta_id": 74,
+      "u_ctrl_opt": 0.1902439024390244,
+      "feasible": true,
+      "monotonic": true,
+      "message": "bisection",
+      "bracket": [
+        0.19016768292682928,
+        0.1902439024390244
+      ],
+      "tolerance": 0.0001
+    },
+    {
+      "theta_id": 75,
+      "u_ctrl_opt": 0.06501524390243903,
+      "feasible": true,
+      "monotonic": true,
+      "message": "bisection",
+      "bracket": [
+        0.0649390243902439,
+        0.06501524390243903
+      ],
+      "tolerance": 0.0001
+    },
+    {
+      "theta_id": 76,
+      "u_ctrl_opt": 0.0,
+      "feasible": true,
+      "monotonic": true,
+      "message": "safe_at_zero"
+    },
+    {
+      "theta_id": 77,
+      "u_ctrl_opt": 0.13444740853658538,
+      "feasible": true,
+      "monotonic": true,
+      "message": "bisection",
+      "bracket": [
+        0.13438262195121953,
+        0.13444740853658538
+      ],
+      "tolerance": 0.0001
+    },
+    {
+      "theta_id": 78,
+      "u_ctrl_opt": 0.03475609756097561,
+      "feasible": true,
+      "monotonic": true,
+      "message": "bisection",
+      "bracket": [
+        0.03467987804878049,
+        0.03475609756097561
+      ],
+      "tolerance": 0.0001
+    },
+    {
+      "theta_id": 79,
+      "u_ctrl_opt": 0.05325076219512195,
+      "feasible": true,
+      "monotonic": true,
+      "message": "bisection",
+      "bracket": [
+        0.05317835365853659,
+        0.05325076219512195
+      ],
+      "tolerance": 0.0001
+    },
+    {
+      "theta_id": 80,
+      "u_ctrl_opt": 0.20463033536585368,
+      "feasible": true,
+      "monotonic": true,
+      "message": "bisection",
+      "bracket": [
+        0.20457317073170733,
+        0.20463033536585368
+      ],
+      "tolerance": 0.0001
+    },
+    {
+      "theta_id": 81,
+      "u_ctrl_opt": 0.2894131097560976,
+      "feasible": true,
+      "monotonic": true,
+      "message": "bisection",
+      "bracket": [
+        0.28931402439024395,
+        0.2894131097560976
+      ],
+      "tolerance": 0.0001
+    },
+    {
+      "theta_id": 82,
+      "u_ctrl_opt": 0.08322408536585366,
+      "feasible": true,
+      "monotonic": true,
+      "message": "bisection",
+      "bracket": [
+        0.08315548780487804,
+        0.08322408536585366
+      ],
+      "tolerance": 0.0001
+    },
+    {
+      "theta_id": 83,
+      "u_ctrl_opt": 0.296875,
+      "feasible": true,
+      "monotonic": true,
+      "message": "bisection",
+      "bracket": [
+        0.29679878048780484,
+        0.296875
+      ],
+      "tolerance": 0.0001
+    },
+    {
+      "theta_id": 84,
+      "u_ctrl_opt": 0.04202743902439024,
+      "feasible": true,
+      "monotonic": true,
+      "message": "bisection",
+      "bracket": [
+        0.04195503048780487,
+        0.04202743902439024
+      ],
+      "tolerance": 0.0001
+    },
+    {
+      "theta_id": 85,
+      "u_ctrl_opt": 0.16128048780487803,
+      "feasible": true,
+      "monotonic": true,
+      "message": "bisection",
+      "bracket": [
+        0.16121951219512193,
+        0.16128048780487803
+      ],
+      "tolerance": 0.0001
+    },
+    {
+      "theta_id": 86,
+      "u_ctrl_opt": 0.08548780487804877,
+      "feasible": true,
+      "monotonic": true,
+      "message": "bisection",
+      "bracket": [
+        0.08541920731707317,
+        0.08548780487804877
+      ],
+      "tolerance": 0.0001
+    },
+    {
+      "theta_id": 87,
+      "u_ctrl_opt": 0.10022865853658537,
+      "feasible": true,
+      "monotonic": true,
+      "message": "bisection",
+      "bracket": [
+        0.10015243902439025,
+        0.10022865853658537
+      ],
+      "tolerance": 0.0001
+    },
+    {
+      "theta_id": 88,
+      "u_ctrl_opt": 0.1723170731707317,
+      "feasible": true,
+      "monotonic": true,
+      "message": "bisection",
+      "bracket": [
+        0.1722560975609756,
+        0.1723170731707317
+      ],
+      "tolerance": 0.0001
+    },
+    {
+      "theta_id": 89,
+      "u_ctrl_opt": 0.21852134146341462,
+      "feasible": true,
+      "monotonic": true,
+      "message": "bisection",
+      "bracket": [
+        0.21844512195121948,
+        0.21852134146341462
+      ],
+      "tolerance": 0.0001
+    },
+    {
+      "theta_id": 90,
+      "u_ctrl_opt": 0.32667682926829267,
+      "feasible": true,
+      "monotonic": true,
+      "message": "bisection",
+      "bracket": [
+        0.32658536585365855,
+        0.32667682926829267
+      ],
+      "tolerance": 0.0001
+    },
+    {
+      "theta_id": 91,
+      "u_ctrl_opt": 0.1381859756097561,
+      "feasible": true,
+      "monotonic": true,
+      "message": "bisection",
+      "bracket": [
+        0.138109756097561,
+        0.1381859756097561
+      ],
+      "tolerance": 0.0001
+    },
+    {
+      "theta_id": 92,
+      "u_ctrl_opt": 0.18117378048780486,
+      "feasible": true,
+      "monotonic": true,
+      "message": "bisection",
+      "bracket": [
+        0.18109756097560975,
+        0.18117378048780486
+      ],
+      "tolerance": 0.0001
+    },
+    {
+      "theta_id": 93,
+      "u_ctrl_opt": 0.13166158536585365,
+      "feasible": true,
+      "monotonic": true,
+      "message": "bisection",
+      "bracket": [
+        0.1315967987804878,
+        0.13166158536585365
+      ],
+      "tolerance": 0.0001
+    },
+    {
+      "theta_id": 94,
+      "u_ctrl_opt": 0.18140243902439024,
+      "feasible": true,
+      "monotonic": true,
+      "message": "bisection",
+      "bracket": [
+        0.18132621951219513,
+        0.18140243902439024
+      ],
+      "tolerance": 0.0001
+    },
+    {
+      "theta_id": 95,
+      "u_ctrl_opt": 0.2998475609756097,
+      "feasible": true,
+      "monotonic": true,
+      "message": "bisection",
+      "bracket": [
+        0.2997713414634146,
+        0.2998475609756097
+      ],
+      "tolerance": 0.0001
+    },
+    {
+      "theta_id": 96,
+      "u_ctrl_opt": 0.1273856707317073,
+      "feasible": true,
+      "monotonic": true,
+      "message": "bisection",
+      "bracket": [
+        0.12732088414634146,
+        0.1273856707317073
+      ],
+      "tolerance": 0.0001
+    },
+    {
+      "theta_id": 97,
+      "u_ctrl_opt": 0.03849085365853659,
+      "feasible": true,
+      "monotonic": true,
+      "message": "bisection",
+      "bracket": [
+        0.03841463414634147,
+        0.03849085365853659
+      ],
+      "tolerance": 0.0001
+    },
+    {
+      "theta_id": 98,
+      "u_ctrl_opt": 0.0,
+      "feasible": true,
+      "monotonic": true,
+      "message": "safe_at_zero"
+    },
+    {
+      "theta_id": 99,
+      "u_ctrl_opt": 0.0,
+      "feasible": true,
+      "monotonic": true,
+      "message": "safe_at_zero"
+    },
+    {
+      "theta_id": 100,
+      "u_ctrl_opt": 0.15804878048780488,
+      "feasible": true,
+      "monotonic": true,
+      "message": "bisection",
+      "bracket": [
+        0.15798780487804878,
+        0.15804878048780488
+      ],
+      "tolerance": 0.0001
+    },
+    {
+      "theta_id": 101,
+      "u_ctrl_opt": 0.17888719512195123,
+      "feasible": true,
+      "monotonic": true,
+      "message": "bisection",
+      "bracket": [
+        0.1788109756097561,
+        0.17888719512195123
+      ],
+      "tolerance": 0.0001
+    },
+    {
+      "theta_id": 102,
+      "u_ctrl_opt": 0.006326219512195122,
+      "feasible": true,
+      "monotonic": true,
+      "message": "bisection",
+      "bracket": [
+        0.00625,
+        0.006326219512195122
+      ],
+      "tolerance": 0.0001
+    },
+    {
+      "theta_id": 103,
+      "u_ctrl_opt": 0.3073170731707317,
+      "feasible": true,
+      "monotonic": true,
+      "message": "bisection",
+      "bracket": [
+        0.3072408536585366,
+        0.3073170731707317
+      ],
+      "tolerance": 0.0001
+    },
+    {
+      "theta_id": 104,
+      "u_ctrl_opt": 0.06432926829268293,
+      "feasible": true,
+      "monotonic": true,
+      "message": "bisection",
+      "bracket": [
+        0.0642530487804878,
+        0.06432926829268293
+      ],
+      "tolerance": 0.0001
+    },
+    {
+      "theta_id": 105,
+      "u_ctrl_opt": 0.22774390243902437,
+      "feasible": true,
+      "monotonic": true,
+      "message": "bisection",
+      "bracket": [
+        0.22766768292682926,
+        0.22774390243902437
+      ],
+      "tolerance": 0.0001
+    },
+    {
+      "theta_id": 106,
+      "u_ctrl_opt": 0.35045731707317074,
+      "feasible": true,
+      "monotonic": true,
+      "message": "bisection",
+      "bracket": [
+        0.3503810975609756,
+        0.35045731707317074
+      ],
+      "tolerance": 0.0001
+    },
+    {
+      "theta_id": 107,
+      "u_ctrl_opt": 0.2424542682926829,
+      "feasible": true,
+      "monotonic": true,
+      "message": "bisection",
+      "bracket": [
+        0.24240091463414631,
+        0.2424542682926829
+      ],
+      "tolerance": 0.0001
+    },
+    {
+      "theta_id": 108,
+      "u_ctrl_opt": 0.12434070121951218,
+      "feasible": true,
+      "monotonic": true,
+      "message": "bisection",
+      "bracket": [
+        0.12427591463414633,
+        0.12434070121951218
+      ],
+      "tolerance": 0.0001
+    },
+    {
+      "theta_id": 109,
+      "u_ctrl_opt": 0.28723323170731707,
+      "feasible": true,
+      "monotonic": true,
+      "message": "bisection",
+      "bracket": [
+        0.28713414634146345,
+        0.28723323170731707
+      ],
+      "tolerance": 0.0001
+    },
+    {
+      "theta_id": 110,
+      "u_ctrl_opt": 0.0,
+      "feasible": true,
+      "monotonic": true,
+      "message": "safe_at_zero"
+    },
+    {
+      "theta_id": 111,
+      "u_ctrl_opt": 0.0777439024390244,
+      "feasible": true,
+      "monotonic": true,
+      "message": "bisection",
+      "bracket": [
+        0.07766768292682928,
+        0.0777439024390244
+      ],
+      "tolerance": 0.0001
+    },
+    {
+      "theta_id": 112,
+      "u_ctrl_opt": 0.3035060975609756,
+      "feasible": true,
+      "monotonic": true,
+      "message": "bisection",
+      "bracket": [
+        0.30342987804878047,
+        0.3035060975609756
+      ],
+      "tolerance": 0.0001
+    },
+    {
+      "theta_id": 113,
+      "u_ctrl_opt": 0.05238185975609756,
+      "feasible": true,
+      "monotonic": true,
+      "message": "bisection",
+      "bracket": [
+        0.0523094512195122,
+        0.05238185975609756
+      ],
+      "tolerance": 0.0001
+    },
+    {
+      "theta_id": 114,
+      "u_ctrl_opt": 0.22096036585365852,
+      "feasible": true,
+      "monotonic": true,
+      "message": "bisection",
+      "bracket": [
+        0.2208841463414634,
+        0.22096036585365852
+      ],
+      "tolerance": 0.0001
+    },
+    {
+      "theta_id": 115,
+      "u_ctrl_opt": 0.00022865853658536584,
+      "feasible": true,
+      "monotonic": true,
+      "message": "bisection",
+      "bracket": [
+        0.0001524390243902439,
+        0.00022865853658536584
+      ],
+      "tolerance": 0.0001
+    },
+    {
+      "theta_id": 116,
+      "u_ctrl_opt": 0.08370426829268292,
+      "feasible": true,
+      "monotonic": true,
+      "message": "bisection",
+      "bracket": [
+        0.0836356707317073,
+        0.08370426829268292
+      ],
+      "tolerance": 0.0001
+    },
+    {
+      "theta_id": 117,
+      "u_ctrl_opt": 0.05643673780487804,
+      "feasible": true,
+      "monotonic": true,
+      "message": "bisection",
+      "bracket": [
+        0.05636432926829268,
+        0.05643673780487804
+      ],
+      "tolerance": 0.0001
+    },
+    {
+      "theta_id": 118,
+      "u_ctrl_opt": 0.3117378048780488,
+      "feasible": true,
+      "monotonic": true,
+      "message": "bisection",
+      "bracket": [
+        0.31166158536585364,
+        0.3117378048780488
+      ],
+      "tolerance": 0.0001
+    },
+    {
+      "theta_id": 119,
+      "u_ctrl_opt": 0.02789634146341463,
+      "feasible": true,
+      "monotonic": true,
+      "message": "bisection",
+      "bracket": [
+        0.02782012195121951,
+        0.02789634146341463
+      ],
+      "tolerance": 0.0001
+    },
+    {
+      "theta_id": 120,
+      "u_ctrl_opt": 0.30083841463414634,
+      "feasible": true,
+      "monotonic": true,
+      "message": "bisection",
+      "bracket": [
+        0.30076219512195124,
+        0.30083841463414634
+      ],
+      "tolerance": 0.0001
+    },
+    {
+      "theta_id": 121,
+      "u_ctrl_opt": 0.23185975609756096,
+      "feasible": true,
+      "monotonic": true,
+      "message": "bisection",
+      "bracket": [
+        0.23178353658536582,
+        0.23185975609756096
+      ],
+      "tolerance": 0.0001
+    },
+    {
+      "theta_id": 122,
+      "u_ctrl_opt": 0.01753048780487805,
+      "feasible": true,
+      "monotonic": true,
+      "message": "bisection",
+      "bracket": [
+        0.01745426829268293,
+        0.01753048780487805
+      ],
+      "tolerance": 0.0001
+    },
+    {
+      "theta_id": 123,
+      "u_ctrl_opt": 0.23972560975609755,
+      "feasible": true,
+      "monotonic": true,
+      "message": "bisection",
+      "bracket": [
+        0.2396341463414634,
+        0.23972560975609755
+      ],
+      "tolerance": 0.0001
+    },
+    {
+      "theta_id": 124,
+      "u_ctrl_opt": 0.31105182926829267,
+      "feasible": true,
+      "monotonic": true,
+      "message": "bisection",
+      "bracket": [
+        0.31097560975609756,
+        0.31105182926829267
+      ],
+      "tolerance": 0.0001
+    },
+    {
+      "theta_id": 125,
+      "u_ctrl_opt": 0.09042682926829268,
+      "feasible": true,
+      "monotonic": true,
+      "message": "bisection",
+      "bracket": [
+        0.09035823170731708,
+        0.09042682926829268
+      ],
+      "tolerance": 0.0001
+    },
+    {
+      "theta_id": 126,
+      "u_ctrl_opt": 0.3304268292682927,
+      "feasible": true,
+      "monotonic": true,
+      "message": "bisection",
+      "bracket": [
+        0.3303353658536585,
+        0.3304268292682927
+      ],
+      "tolerance": 0.0001
+    },
+    {
+      "theta_id": 127,
+      "u_ctrl_opt": 0.14375000000000002,
+      "feasible": true,
+      "monotonic": true,
+      "message": "bisection",
+      "bracket": [
+        0.14367378048780488,
+        0.14375000000000002
+      ],
+      "tolerance": 0.0001
+    }
+  ]
+}

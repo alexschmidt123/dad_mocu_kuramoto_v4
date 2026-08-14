@@ -1,0 +1,18 @@
+{
+  "objective": "terminal_eig",
+  "device": "cuda",
+  "elapsed_seconds": 0.3093731020344421,
+  "epochs": 2,
+  "history": [
+    {
+      "epoch": 1.0,
+      "mean_terminal_eig": 0.8056965876314633,
+      "mean_loss": 2.4572288021445274
+    },
+    {
+      "epoch": 2.0,
+      "mean_terminal_eig": 0.7530445387080745,
+      "mean_loss": -0.20049995183944702
+    }
+  ]
+}

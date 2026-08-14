@@ -12,7 +12,7 @@ import math
 import numpy as np
 
 from src.control.posterior_ctrl import normalize_log_weights
-from src.table_scoring import TableThetaSupport, y_sim_last_step_from_tables
+from src.inference.scoring import TableThetaSupport, y_sim_last_step_from_tables
 
 
 def centres_matrix(table_support: TableThetaSupport, n_actions: int) -> np.ndarray:

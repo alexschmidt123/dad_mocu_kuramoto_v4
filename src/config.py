@@ -8,17 +8,19 @@ from typing import Any
 
 import yaml
 
-ALL_METHODS = ["dad", "myopic", "fixed", "random"]
+ALL_METHODS = ["dad", "rl_sboed", "myopic", "fixed", "random"]
 
 # Human-readable labels for built-in MATPOWER-style feeders.
 IEEE_SYSTEM_LABELS: dict[str, str] = {
     "ieee5": "IEEE-5",
     "ieee9": "IEEE-9",
     "ieee14": "IEEE-14",
+    "sir_ode": "SIR-ODE",
+    "sir": "SIR-ODE",
 }
 
 # Horizon when CLI does not pass ``-T`` (see ``run.sh`` / ``src.cli``).
-DEFAULT_STEP_NUMBER = 3
+DEFAULT_STEP_NUMBER = 5
 
 
 @dataclass
@@ -54,11 +56,87 @@ class SBOEDConfig:
         return list(self.raw.get("swing_equation", {}).get("probe_amplitudes", [0.05, 0.1, 0.2]))
 
     @property
+    def probe_buses(self) -> list[int] | None:
+        """Optional probe-bus subset (0-based). ``None`` → all buses ``0..N-1``."""
+        raw = self.raw.get("swing_equation", {}).get("probe_buses")
+        if raw is None:
+            return None
+        return [int(b) for b in raw]
+
+    @property
     def probe_duration(self) -> float:
         return float(self.raw.get("swing_equation", {}).get("probe_duration", 0.2))
 
     @property
+    def probe_durations(self) -> list[float] | None:
+        """Optional multi-duration catalog. ``None`` → single ``probe_duration``.
+
+        Prefer an explicit ``probe_durations`` list. Otherwise, if
+        ``duration_min`` / ``duration_max`` / ``duration_step`` are set, build
+        ``np.arange(min, max+ε, step)`` (inclusive of max when it lands on-grid).
+        """
+        sw = self.raw.get("swing_equation") or {}
+        raw = sw.get("probe_durations")
+        if raw is not None:
+            out = [float(d) for d in raw]
+            if not out:
+                raise ValueError(
+                    "swing_equation.probe_durations must be non-empty when set"
+                )
+            return out
+        if "duration_min" in sw and "duration_max" in sw and "duration_step" in sw:
+            d0 = float(sw["duration_min"])
+            d1 = float(sw["duration_max"])
+            step = float(sw["duration_step"])
+            if step <= 0:
+                raise ValueError(f"duration_step must be > 0, got {step}")
+            if d1 < d0:
+                raise ValueError(f"duration_max < duration_min ({d1} < {d0})")
+            # Inclusive upper bound when representable on the grid.
+            n = int(round((d1 - d0) / step)) + 1
+            out = [float(d0 + i * step) for i in range(max(n, 0))]
+            out = [d for d in out if d <= d1 + 0.5 * step]
+            if not out:
+                raise ValueError("duration grid is empty")
+            return out
+        return None
+
+    @property
+    def reset_after_probe(self) -> bool:
+        """Plan-2 default True; continuous-duration mode sets False."""
+        sw = self.raw.get("swing_equation") or {}
+        if "reset_after_probe" in sw:
+            return bool(sw["reset_after_probe"])
+        exp = self.raw.get("experiment") or {}
+        mode = str(exp.get("mode") or exp.get("problem_setting") or "").lower()
+        if mode in {"continuous_duration", "power_grid_continuous", "pg_continuous"}:
+            return False
+        return True
+
+    @property
+    def continuous_duration_mode(self) -> bool:
+        """Duration-only chronological designs (fixed amp/bus)."""
+        if not self.reset_after_probe:
+            return True
+        exp = self.raw.get("experiment") or {}
+        mode = str(exp.get("mode") or exp.get("problem_setting") or "").lower()
+        return mode in {"continuous_duration", "power_grid_continuous", "pg_continuous"}
+
+    @property
     def sigma_y(self) -> float:
+        obs = dict(self.raw.get("observation") or {})
+        if "noise_sigma" in obs:
+            return float(obs["noise_sigma"])
+        if self.raw.get("sir_sde"):
+            raise ValueError(
+                "Config key 'sir_sde' is removed. Use 'sir_ode' "
+                "(deterministic ODE + explicit Gaussian likelihood)."
+            )
+        sir = dict(self.raw.get("sir_ode") or self.raw.get("sir") or {})
+        if "noise_sigma" in sir:
+            return float(sir["noise_sigma"])
+        if "likelihood_sigma" in sir:
+            return float(sir["likelihood_sigma"])
         return float(self.raw.get("swing_equation", {}).get("sigma", 0.05))
 
     @property
@@ -109,14 +187,20 @@ class SBOEDConfig:
 
     @property
     def topology(self) -> str:
+        sys_name = (self.raw.get("system") or {}).get("name")
+        if sys_name:
+            return str(sys_name)
         return str(self.swing.get("topology", "ieee14"))
 
     @property
     def system_label(self) -> str:
-        """Display name for the grid, e.g. ``IEEE-14`` or ``ring (6-bus)``."""
-        label = IEEE_SYSTEM_LABELS.get(self.topology)
+        """Display name for the domain, e.g. ``IEEE-14`` or ``SIR-ODE``."""
+        sys_name = str((self.raw.get("system") or {}).get("name") or self.topology)
+        label = IEEE_SYSTEM_LABELS.get(sys_name) or IEEE_SYSTEM_LABELS.get(self.topology)
         if label is not None:
             return label
+        if self.N <= 1:
+            return sys_name
         return f"{self.topology} ({self.N}-bus)"
 
     @property
@@ -152,7 +236,7 @@ def load_config(path: str | Path) -> SBOEDConfig:
 
 
 def effective_step_number(cli_T: int | None, *, default: int = DEFAULT_STEP_NUMBER) -> int:
-    """Probe horizon: ``-T`` on CLI, else ``default`` (3)."""
+    """Probe horizon: ``-T`` / ``--T`` on CLI, else ``default`` (5)."""
     return int(cli_T) if cli_T is not None else int(default)
 
 
@@ -176,6 +260,8 @@ def apply_data_meta_to_cfg(cfg: SBOEDConfig, meta) -> SBOEDConfig:
     sw["sigma"] = float(meta.sigma_y)
     sw["probe_amplitudes"] = list(meta.probe_amplitudes)
     sw["probe_duration"] = float(meta.probe_duration)
+    if getattr(meta, "probe_buses", None) is not None:
+        sw["probe_buses"] = list(meta.probe_buses)
     cfg.raw["swing_equation"] = sw
     dg = dict(cfg.raw.get("data_generation") or {})
     dg["train_seed"] = int(meta.train_seed)
@@ -196,7 +282,7 @@ def config_from_data_meta(meta: "DataRunMeta") -> SBOEDConfig:
 
 def load_config_for_experiment(exp_dir: Path, project_root: Path | None = None) -> SBOEDConfig:
     """Backward-compatible: cfg synced to the experiment's linked data tables."""
-    from src.run_context import load_experiment_run
+    from src.reporting.run_context import load_experiment_run
 
     return load_experiment_run(exp_dir, project_root).cfg
 
@@ -207,7 +293,7 @@ def load_config_for_run(
     *,
     step_number: int | None = None,
 ) -> SBOEDConfig:
-    """Load YAML and apply CLI horizon (default $T=3$ when ``step_number`` is None)."""
+    """Load YAML and apply CLI horizon (default ``DEFAULT_STEP_NUMBER`` when omitted)."""
     root = project_root or repo_root()
     path = Path(name_or_path)
     if path.suffix in (".yaml", ".yml") and path.is_file():
@@ -220,6 +306,15 @@ def load_config_for_run(
 def repo_root() -> Path:
     """Repository root (parent of ``src/``)."""
     return Path(__file__).resolve().parents[1]
+
+
+# Canonical study-system config stems under configs/ (no experiment package import).
+SYSTEM_CONFIGS = {
+    "ieee5": "ieee5",
+    "ieee9": "ieee9",
+    "ieee14": "ieee14",
+}
+DEFAULT_N_OBS = 5
 
 
 def resolve_exp_dir(project_root: Path, exp_dir_arg: str | None) -> Path | None:
@@ -235,17 +330,21 @@ def resolve_exp_dir(project_root: Path, exp_dir_arg: str | None) -> Path | None:
 
 
 def resolve_config_path(name_or_path: str, project_root: Path | None = None) -> Path:
-    """Resolve ``ieee14`` or ``ieee14_config`` → YAML under ``config/``."""
+    """Resolve config name/path under ``configs/``."""
     root = project_root or repo_root()
     p = Path(name_or_path)
     if p.suffix in (".yaml", ".yml") and p.exists():
         return p.resolve()
+    for base in (Path.cwd(), root):
+        cand = (base / name_or_path).resolve()
+        if cand.is_file():
+            return cand
     if not p.suffix:
         for stem in (name_or_path, f"{name_or_path}_config"):
-            candidate = root / "config" / f"{stem}.yaml"
+            candidate = root / "configs" / f"{stem}.yaml"
             if candidate.exists():
                 return candidate.resolve()
-    candidate = root / "config" / name_or_path
+    candidate = root / "configs" / name_or_path
     if candidate.exists():
         return candidate.resolve()
-    raise FileNotFoundError(f"Config not found: {name_or_path}")
+    raise FileNotFoundError(f"Config not found: {name_or_path} (looked under configs/)")

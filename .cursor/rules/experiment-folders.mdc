@@ -1,0 +1,44 @@
+---
+description: Valid experiments/ result folder naming and src layout
+alwaysApply: true
+---
+
+# Experiment folders and src layout
+
+## Result folders
+
+Under `experiments/` only stamped result dirs are allowed:
+
+`MMDDYYYY_HHMMSS_<config>_Uctrl|EIG_T#_Nobs#_sigmaX`
+
+Never create:
+
+- `experiments/_…` (smoke/scratch)
+- `experiments/*_logs` or `experiments/*sweep_logs*`
+- top-level `logs/` (invalid)
+
+Run / nohup logs belong under the stamped result folder:
+`experiments/<stamp_…>/logs/run_log.log`.
+Use `/tmp/…` only for scratch or multi-cell sweep coordinator output.
+
+Allocate via `python -m src.experiment allocate-dir` or `run.sh` (never hand-mkdir ad-hoc names under `experiments/`).
+
+## Package roles
+
+- Shared architecture: `domains/`, `banks/`, `observations/`, `control/`, `inference/`, `policies/`, `reporting/`
+- Top-level `data/` is on-disk banks only; code for them is `src/banks/`
+- `src/policies/` — policy **networks only** (`dad.py`, `rl_sboed.py`, `moe.py`)
+- `src/objectives/` — optimization goals only; not architecture
+  - `objectives/mocu/` — MOCU / `objective_based`
+  - `objectives/eig/` — EIG / `eig_based`
+  - add further goals as sibling packages under `objectives/`
+
+Do not put objective-family trainers under `policies/` or as top-level `src/<goal>/`.
+Keep `src/experiment.py` as the CLI (do not rename to `main.py`).
+
+## Audits vs tests
+
+- Audits / diagnostic harnesses → `tools/` **or** core `src/` if wired into
+  `src.experiment` / bank generation (`src.banks.audit`, `src.banks.diagnose_*`).
+- Core must not import from `tools/` or `tests/`.
+- `tests/` is optional; deleting it must not break the project.

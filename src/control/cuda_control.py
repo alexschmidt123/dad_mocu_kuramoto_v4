@@ -16,7 +16,7 @@ import numpy as np
 from src.control.u_req import ControlSpec, is_control_safe, metrics_from_omega_traj
 
 if TYPE_CHECKING:
-    from src.swing_equation_ode.simulator import SwingSimulator
+    from src.domains.swing.simulator import SwingSimulator
 
 try:
     # Do not use pycuda.autoinit: share Torch's primary context via retain_primary_context.

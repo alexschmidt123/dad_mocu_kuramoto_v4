@@ -1,0 +1,23 @@
+{
+  "selected_action_ids": [
+    45,
+    46,
+    47,
+    52
+  ],
+  "subset": [
+    45,
+    46,
+    47,
+    52
+  ],
+  "horizon": 4,
+  "search_mode": "greedy_multirestart_offline",
+  "n_actions": 54,
+  "objective_mean_u_ctrl": 0.15029296875,
+  "n_candidates_evaluated": 9,
+  "elapsed_seconds": 157.07038402557373,
+  "system": "ieee9",
+  "N_obs": 200,
+  "noise_sigma": 0.01
+}

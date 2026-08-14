@@ -1,0 +1,6 @@
+comparison,mean_diff,ci95_low,ci95_high
+DAD - Random,0.0,0.0,0.0
+RL-sBOED - Random,0.0,0.0,0.0
+RL-sBOED - DAD,0.0,0.0,0.0
+Myopic - Fixed,0.0,0.0,0.0
+DAD - Myopic,0.0,0.0,0.0

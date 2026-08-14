@@ -1,0 +1,35 @@
+# Summary — ieee14 (objective_based)
+
+Observation: 20 evenly spaced probe-bus Δf samples (`observation_mode=sampled_delta_f`).
+
+- system: `ieee14`
+- experiment_type: `objective_based`
+- observation_mode: `sampled_delta_f`
+- N_obs: 20
+- N_sim: 1600
+- T: 3
+- config: `/home/grads/g/g.lin/Documents/dad_mocu_kuramoto_v4/configs/ieee14.yaml`
+
+## Comparison
+
+| Method | mean_MOCU | mean_u_ctrl | safety_rate | valid | n_unique_sequences |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Oracle | 0.000000 | 0.124920 | 1.000 | VALID | — |
+| DAD | 0.148205 | 0.273125 | 0.953 | VALID | 4 |
+| RL-sBOED | 0.169455 | 0.294375 | 0.969 | VALID | 4 |
+| Myopic | 0.151955 | 0.276875 | 0.984 | VALID | 48 |
+| Fixed | 0.154455 | 0.279375 | 0.969 | VALID | 1 |
+| Random | 0.218830 | 0.343750 | 0.969 | VALID | 64 |
+
+Notes:
+
+- `mean_MOCU` = mean(u_ctrl − u_ctrl_optimal) on common held-out systems.
+- `u_ctrl < u_ctrl_opt` is under-control (often unsafe); it does not improve ranking.
+- Methods with safety rate below 0.95 are INVALID and receive no rank.
+- Valid methods are ranked by lower mean_MOCU.
+- `mean_u_ctrl` remains a secondary physical-control metric.
+- Policies use argmax actions only (no `*_stochastic` rows).
+
+## Ranking (safety ≥ 0.95; mean_MOCU ↓)
+
+DAD, Myopic, Fixed, RL-sBOED, Random
