@@ -223,12 +223,22 @@ def cmd_generate_data(args: argparse.Namespace) -> None:
                 "SIR ODE supports --experiment-type eig_based only "
                 "(no MOCU/control track yet)."
             )
-        from src.domains.sir.banks import generate_sir_bank
+        from src.domains.sir.banks import generate_sir_bank, sir_bank_is_complete
 
         data_dir = resolve_dataset_dir(cfg)
         print(f"[generate-data] SIR ODE dataset_dir={data_dir}")
+        if force:
+            raise SystemExit(
+                "SIR experiments are databank-only: --force regeneration is "
+                "disabled. Reuse the existing data/sir_ode bank."
+            )
+        if not sir_bank_is_complete(data_dir):
+            raise SystemExit(
+                f"SIR databank missing or incomplete at {data_dir}. "
+                "The experiment pipeline will not simulate trajectories on the fly."
+            )
         rep = generate_sir_bank(
-            cfg, smoke=args.smoke, force=force
+            cfg, smoke=args.smoke, force=False
         )
         write_run_config(
             exp_dir,
@@ -260,9 +270,27 @@ def cmd_generate_data(args: argparse.Namespace) -> None:
     if exp_type == "objective_based" or _use_vector_eig_pipeline(
         cfg, exp_type, int(args.n_obs)
     ):
+        from src.banks.power_grid import bank_has_max_rocof, bank_is_complete
+
         data_dir = resolve_dataset_dir(cfg)
         print(f"[generate-data] dataset_dir={data_dir}")
-        rep = generate_physical_bank(cfg, smoke=args.smoke, force=force)
+        if force:
+            raise SystemExit(
+                "Experiments are databank-only: --force regeneration is disabled. "
+                "Reuse the existing physical bank."
+            )
+        if not bank_is_complete(data_dir):
+            raise SystemExit(
+                f"Physical databank missing or incomplete at {data_dir}. "
+                "The experiment pipeline will not simulate trajectories on the fly."
+            )
+        if not bank_has_max_rocof(data_dir):
+            raise SystemExit(
+                f"Physical databank at {data_dir} is missing max_rocof arrays "
+                "required by the shared bank contract. Complete the bank "
+                "offline first."
+            )
+        rep = generate_physical_bank(cfg, smoke=args.smoke, force=False)
         if exp_type == "eig_based" and int(args.n_obs) == 0:
             obs_model = "continuous_duration_max_rocof"
         elif exp_type == "eig_based":
@@ -401,9 +429,13 @@ def cmd_train(args: argparse.Namespace) -> None:
                 smoke=bool(args.smoke),
                 seed=int(args.seed),
             )
-        else:
+        elif key == "moe_sboed":
             result = train_vector_eig_policy(
                 ctx, method="moe_sboed", smoke=bool(args.smoke), seed=int(args.seed)
+            )
+        else:
+            result = train_vector_eig_policy(
+                ctx, method="matched_dense", smoke=bool(args.smoke), seed=int(args.seed)
             )
         print(json.dumps(result, indent=2))
         print(f"EXP_DIR={exp_dir}")
@@ -527,6 +559,18 @@ def cmd_evaluate(args: argparse.Namespace) -> None:
     if _use_vector_eig_pipeline(cfg, exp_type, int(args.n_obs)):
         from src.objectives.eig.vector import evaluate_vector_eig
 
+        method_map = {
+            "dad": "dad_eig",
+            "rl_sboed": "rl_sboed_eig",
+            "moe_sboed": "moe_sboed",
+            "matched_dense": "matched_dense",
+            "myopic": "myopic_delta_h",
+            "fixed": "fixed_open_loop",
+            "random": "random",
+        }
+        requested = methods_from_args(cfg, args.method)
+        vector_methods = tuple(method_map[key] for key in requested)
+
         ctx = build_context_from_config(
             cfg,
             ensure_bank=True,
@@ -546,10 +590,14 @@ def cmd_evaluate(args: argparse.Namespace) -> None:
                     else "sampled_delta_f_vector"
                 ),
                 "N_obs": ctx.n_obs,
-                "methods": list(ALL_METHOD_KEYS),
+                "methods": list(vector_methods),
             },
         )
-        result = evaluate_vector_eig(ctx, smoke=bool(args.smoke))
+        result = evaluate_vector_eig(
+            ctx,
+            smoke=bool(args.smoke),
+            methods=vector_methods,
+        )
         print(json.dumps(result, indent=2))
         print(f"EXP_DIR={exp_dir}")
         return
@@ -618,6 +666,32 @@ def cmd_diagnose_collapse(args: argparse.Namespace) -> None:
 
 
 def cmd_moe_mechanism(args: argparse.Namespace) -> None:
+    exp_type = resolve_experiment_type(args.experiment_type)
+    if exp_type == "eig_based":
+        cfg = load_experiment_config(
+            args.config,
+            step_number=args.step_number,
+            n_obs=args.n_obs,
+            noise_sigma=args.noise_sigma,
+        )
+        exp_dir = _resolve_exp_dir(cfg, exp_type, args.exp_dir, create_new=False)
+        ctx = build_context_from_config(
+            cfg,
+            ensure_bank=True,
+            smoke=False,
+            out_dir=exp_dir,
+            experiment_type=exp_type,
+        )
+        from src.objectives.eig.vector import diagnose_vector_eig_moe
+
+        report = diagnose_vector_eig_moe(
+            ctx,
+            n_rollouts=int(args.rollouts),
+            device_name=str(args.device),
+        )
+        print(json.dumps(report, indent=2))
+        print(f"EXP_DIR={exp_dir}")
+        return
     from src.objectives.mocu.moe_diagnostics import moe_mechanism_report
 
     ctx, exp_dir = _diagnostic_context(args)
@@ -802,7 +876,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--method",
         "-m",
         default=None,
-        help=f"Optional ({', '.join(ALL_METHOD_KEYS)}). Omit = all. Ignored for eig_based.",
+        help=f"Optional ({', '.join(ALL_METHOD_KEYS)}). Omit = configured methods.",
     )
     _add_experiment_type(ev)
     _add_exp_dir(ev)

@@ -626,8 +626,10 @@ def load_bank_from_path(
             f"Generate with: ./scripts/data_generation.sh --config <config.yaml>"
         )
     if cfg is not None and not bank_has_max_rocof(path):
-        _ensure_max_rocof(
-            path, cfg, batch=int(cfg.data.get("cuda_batch_size", 128))
+        raise FileNotFoundError(
+            f"Physical databank at {path} is missing train/test max_rocof.npy. "
+            "Experiment loading is databank-only and will not backfill it by "
+            "running the simulator. Complete the bank offline first."
         )
     with (path / "meta" / "bank.yaml").open(encoding="utf-8") as f:
         meta = yaml.safe_load(f) or {}

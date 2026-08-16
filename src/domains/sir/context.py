@@ -9,18 +9,14 @@ import numpy as np
 
 from src.config import SBOEDConfig, repo_root
 from src.inference.spce import log_prior_uniform_discrete
-from src.banks.power_grid import (
-    generate_if_missing_flag,
-    resolve_dataset_dir,
-    system_name_from_cfg,
-)
+from src.banks.power_grid import resolve_dataset_dir, system_name_from_cfg
 from src.objectives.mocu.context import (
     ExperimentContext,
     config_sha256,
     resolve_oracle_tolerance,
     resolve_sigma_y,
 )
-from src.domains.sir.banks import generate_sir_bank, load_sir_bank, sir_bank_is_complete
+from src.domains.sir.banks import load_sir_bank, sir_bank_is_complete
 
 
 def is_sir_config(cfg: SBOEDConfig) -> bool:
@@ -59,17 +55,13 @@ def build_sir_context(
     system = system_name_from_cfg(cfg)
     data_dir = resolve_dataset_dir(cfg, root)
 
-    if ensure_bank:
-        if not sir_bank_is_complete(data_dir):
-            if generate_if_missing_flag(cfg) or smoke:
-                generate_sir_bank(cfg, project_root=root, smoke=smoke, force=False)
-            else:
-                raise FileNotFoundError(
-                    f"SIR bank missing at {data_dir}. Run:\n"
-                    f"  bash run.sh --config {cfg.config_path}"
-                )
-        elif smoke:
-            pass
+    if ensure_bank and not sir_bank_is_complete(data_dir):
+        raise FileNotFoundError(
+            f"SIR databank missing or incomplete at {data_dir}. "
+            "SIR training/evaluation is databank-only and will not simulate "
+            "trajectories on the fly. Restore the complete databank before "
+            "running the experiment."
+        )
 
     bank = load_sir_bank(data_dir)
     centres_train = np.asarray(bank["centres_train"], dtype=np.float64)  # Tθ,A,D

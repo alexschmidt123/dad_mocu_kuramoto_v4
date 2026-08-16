@@ -31,7 +31,8 @@ N: 5
 
 data:
   dataset_dir: data/ieee5_continuous_duration
-  generate_if_missing: true
+  # All experiment runs are databank-only; missing files are a hard error.
+  generate_if_missing: false
 
 observation:
   N_obs: 0

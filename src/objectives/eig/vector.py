@@ -22,6 +22,7 @@ from src.policies.rl_sboed import (
     BeliefConditionedMoEPolicy,
     PolicyConfig,
     StateValueCritic,
+    parameter_matched_expert_hidden,
 )
 from src.reporting.run_context import model_dir
 from src.domains.sir.design import chronological_feasible
@@ -77,10 +78,16 @@ def _soft_bc_loss(
     """
     if logits.dim() == 1:
         logits = logits.unsqueeze(0)
+    feasible_scores = np.asarray(scores, dtype=np.float64)[feasible]
+    if feasible_scores.size == 0 or not np.all(np.isfinite(feasible_scores)):
+        raise RuntimeError(
+            "Non-finite EIG scores reached behavioral cloning for feasible "
+            f"actions {np.asarray(feasible, dtype=int).tolist()}"
+        )
     temp = max(float(temperature), 1e-3)
     feas = torch.as_tensor(np.asarray(feasible, dtype=int), device=logits.device)
     raw = torch.as_tensor(
-        np.asarray(scores, dtype=np.float64)[feasible],
+        feasible_scores,
         dtype=torch.float32,
         device=logits.device,
     )
@@ -169,6 +176,11 @@ class VectorEIGEngine:
             ll = -0.5 * quad / self.sigma2
             post_h = self.entropy(log_w[None, None, :] + ll)
             gains = h0 - post_h.mean(dim=1)
+            if not bool(torch.isfinite(gains).all()):
+                raise RuntimeError(
+                    "Non-finite one-step EIG encountered; refusing to train on "
+                    f"invalid targets (actions={acts_np.tolist()}, seed={seed})."
+                )
             out[acts_np] = gains.detach().cpu().numpy()
         return out
 
@@ -221,8 +233,25 @@ class VectorEIGEngine:
                     n_fantasies=max(2, int(n_fantasies) // 2),
                     seed=int(seed) + 1009 * (int(action) + 1) + fantasy_id,
                 )
-                continuation.append(float(np.max(next_scores[next_feasible])))
-            out[int(action)] += float(np.mean(continuation))
+                best_next = float(np.max(next_scores[next_feasible]))
+                if not np.isfinite(best_next):
+                    raise RuntimeError(
+                        "Non-finite two-step EIG continuation encountered "
+                        f"(action={int(action)}, seed={seed})."
+                    )
+                continuation.append(best_next)
+            continuation_mean = float(np.mean(continuation))
+            if not np.isfinite(continuation_mean):
+                raise RuntimeError(
+                    "Non-finite mean two-step EIG continuation encountered "
+                    f"(action={int(action)}, seed={seed})."
+                )
+            out[int(action)] += continuation_mean
+        if not np.all(np.isfinite(out[feasible])):
+            raise RuntimeError(
+                "Non-finite two-step EIG scores encountered for feasible actions "
+                f"(seed={seed})."
+            )
         return out
 
 
@@ -290,26 +319,35 @@ def _load_policy(
 ) -> AdaptiveExperimentPolicy:
     path = model_dir(ctx.out_dir) / f"{name}.pth"
     payload = torch.load(path, map_location=device, weights_only=False)
+    meta = dict(payload.get("meta", {}))
     policy_cls = (
         BeliefConditionedMoEPolicy
-        if payload.get("meta", {}).get("architecture") == "belief_conditioned_top2_moe"
-        or name == "moe_sboed"
+        if "moe" in str(meta.get("architecture", ""))
+        or "matched_dense" in str(meta.get("architecture", ""))
+        or name in {"moe_sboed", "matched_dense"}
         else AdaptiveExperimentPolicy
     )
     training = dict(ctx.cfg.raw.get("training") or {})
     hidden = int(
-        payload.get("meta", {}).get("policy_hidden")
+        meta.get("policy_hidden")
         or training.get("policy_hidden", 128)
     )
-    policy = policy_cls(
-        ctx.n_actions,
-        PolicyConfig(
-            max_steps=ctx.horizon,
-            obs_dim=ctx.obs_dim,
-            summary_dim=33,
-            hidden=hidden,
-        ),
-    ).to(device)
+    config = PolicyConfig(
+        max_steps=ctx.horizon,
+        obs_dim=ctx.obs_dim,
+        summary_dim=33,
+        hidden=hidden,
+    )
+    if policy_cls is BeliefConditionedMoEPolicy:
+        policy = policy_cls(
+            ctx.n_actions,
+            config,
+            n_experts=int(meta.get("n_experts", 4)),
+            top_k=int(meta.get("top_k", 2)),
+            expert_hidden=int(meta.get("expert_hidden", hidden)),
+        ).to(device)
+    else:
+        policy = policy_cls(ctx.n_actions, config).to(device)
     sd = payload["state_dict"]
     # Older MoE checkpoints lack belief residual_gate; load non-strictly.
     if isinstance(policy, BeliefConditionedMoEPolicy) and not any(
@@ -330,7 +368,7 @@ def train_vector_eig_policy(
     seed: int,
 ) -> dict[str, Any]:
     """Train a dense or belief-conditioned MoE policy for vector EIG."""
-    if method not in {"dad_eig", "rl_sboed_eig", "moe_sboed"}:
+    if method not in {"dad_eig", "rl_sboed_eig", "moe_sboed", "matched_dense"}:
         raise ValueError(method)
     torch.manual_seed(int(seed))
     if torch.cuda.is_available():
@@ -339,16 +377,42 @@ def train_vector_eig_policy(
     engine = VectorEIGEngine(ctx, device)
     training = dict(ctx.cfg.raw.get("training") or {})
     hidden = int(training.get("policy_hidden", 128))
-    policy_cls = BeliefConditionedMoEPolicy if method == "moe_sboed" else AdaptiveExperimentPolicy
-    policy = policy_cls(
-        ctx.n_actions,
-        PolicyConfig(
-            max_steps=ctx.horizon,
-            obs_dim=ctx.obs_dim,
-            summary_dim=33,
-            hidden=hidden,
-        ),
-    ).to(device)
+    config = PolicyConfig(
+        max_steps=ctx.horizon,
+        obs_dim=ctx.obs_dim,
+        summary_dim=33,
+        hidden=hidden,
+    )
+    is_residual_policy = method in {"moe_sboed", "matched_dense"}
+    if is_residual_policy:
+        reference_experts = int(training.get("eig_moe_n_experts", 4))
+        matched = method == "matched_dense"
+        expert_hidden = (
+            parameter_matched_expert_hidden(
+                hidden=hidden,
+                n_actions=ctx.n_actions,
+                reference_experts=reference_experts,
+                reference_expert_hidden=hidden,
+            )
+            if matched
+            else hidden
+        )
+        policy = BeliefConditionedMoEPolicy(
+            ctx.n_actions,
+            config,
+            n_experts=1 if matched else reference_experts,
+            top_k=1 if matched else int(training.get("eig_moe_top_k", 2)),
+            expert_hidden=expert_hidden,
+            logit_scale_init=float(training.get("eig_moe_logit_scale_init", 3.0)),
+            balance_coefficient=float(
+                training.get("eig_moe_balance_coefficient", 0.001)
+            ),
+            redundancy_coefficient=float(
+                training.get("eig_moe_redundancy_coefficient", 0.01)
+            ),
+        ).to(device)
+    else:
+        policy = AdaptiveExperimentPolicy(ctx.n_actions, config).to(device)
     epochs = 2 if smoke else int(training.get("eig_epochs", 20))
     steps_per_epoch = 16 if smoke else int(
         training.get("eig_steps_per_epoch", len(ctx.train_systems))
@@ -462,11 +526,6 @@ def train_vector_eig_policy(
                     n_fantasies=bc_fantasies,
                     seed=int(seed) + bc_id * 1009 + step,
                 )
-            # Guard against non-finite continuation values (-inf/NaN) before
-            # they enter MoE counterfactual fingerprints / CE labels.
-            scores = np.nan_to_num(
-                scores, nan=-1e30, posinf=1e30, neginf=-1e30
-            )
             label = int(np.argmax(scores))
             tensors = _policy_tensors(
                 ctx,
@@ -864,6 +923,7 @@ def train_vector_eig_policy(
                     if method == "rl_sboed_eig"
                     else "terminal_eig"
                 ),
+                "training_seed": int(seed),
                 "policy_hidden": hidden,
                 "obs_dim": ctx.obs_dim,
                 "n_obs": ctx.n_obs,
@@ -877,10 +937,15 @@ def train_vector_eig_policy(
                 ),
                 "experiment_dir": str(ctx.out_dir.resolve()),
                 "architecture": (
-                    "counterfactual_decision_regime_top2_moe_v1"
-                    if isinstance(policy, BeliefConditionedMoEPolicy)
+                    "parameter_matched_dense_control_v1"
+                    if method == "matched_dense"
+                    else "counterfactual_decision_regime_top2_moe_v1"
+                    if method == "moe_sboed"
                     else "dense_policy"
                 ),
+                "n_experts": int(getattr(policy, "n_experts", 0)),
+                "top_k": int(getattr(policy, "top_k", 0)),
+                "expert_hidden": int(getattr(policy, "expert_hidden", 0)),
                 "optimizer": (
                     "ppo_actor_critic" if use_actor_critic else "reinforce"
                 ),
@@ -891,7 +956,7 @@ def train_vector_eig_policy(
                 # restoring per-step credit assignment.
                 "returns": (
                     "stepwise_returns_to_go"
-                    if method in {"rl_sboed_eig", "moe_sboed"}
+                    if method in {"rl_sboed_eig", "moe_sboed", "matched_dense"}
                     else "terminal_broadcast"
                 ),
                 "eig_bc_lookahead": bc_lookahead,
@@ -921,6 +986,12 @@ def train_vector_eig_policy(
                     branching_coefficient
                     if isinstance(policy, BeliefConditionedMoEPolicy)
                     else 0.0
+                ),
+                "eig_moe_balance_coefficient": float(
+                    getattr(policy, "balance_coefficient", 0.0)
+                ),
+                "eig_moe_redundancy_coefficient": float(
+                    getattr(policy, "redundancy_coefficient", 0.0)
                 ),
                 "eig_moe_prototype_reset_after_warm_start": isinstance(
                     policy, BeliefConditionedMoEPolicy
@@ -1069,42 +1140,99 @@ def _rollout(
 
 
 def evaluate_vector_eig(
-    ctx: ExperimentContext, *, smoke: bool
+    ctx: ExperimentContext,
+    *,
+    smoke: bool,
+    methods: tuple[str, ...] | None = None,
 ) -> dict[str, Any]:
-    """Evaluate all six methods with common vector noise and write compact tables."""
+    """Evaluate selected methods with common vector noise and write compact tables."""
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     engine = VectorEIGEngine(ctx, device)
-    dad = _load_policy(ctx, "dad_eig", device)
-    rl = _load_policy(ctx, "rl_sboed_eig", device)
-    moe = _load_policy(ctx, "moe_sboed", device)
+    matched_path = model_dir(ctx.out_dir) / "matched_dense.pth"
+    available_methods = METHODS + (
+        ("matched_dense",) if matched_path.exists() else ()
+    )
+    selected_methods = available_methods if methods is None else tuple(methods)
+    unknown = sorted(set(selected_methods) - set(available_methods))
+    if unknown:
+        raise ValueError(f"Unavailable vector-EIG methods: {unknown}")
+    dad = (
+        _load_policy(ctx, "dad_eig", device)
+        if "dad_eig" in selected_methods
+        else None
+    )
+    rl = (
+        _load_policy(ctx, "rl_sboed_eig", device)
+        if "rl_sboed_eig" in selected_methods
+        else None
+    )
+    moe = (
+        _load_policy(ctx, "moe_sboed", device)
+        if "moe_sboed" in selected_methods
+        else None
+    )
+    matched = (
+        _load_policy(ctx, "matched_dense", device)
+        if "matched_dense" in selected_methods
+        else None
+    )
     if device.type == "cuda":
         torch.cuda.synchronize(device)
-    fixed_started = time.perf_counter()
-    fixed = _fixed_sequence(ctx, engine, n_fantasies=4 if smoke else 16)
-    if device.type == "cuda":
-        torch.cuda.synchronize(device)
-    fixed_preparation_seconds = float(time.perf_counter() - fixed_started)
+    fixed: tuple[int, ...] = ()
+    fixed_preparation_seconds = 0.0
+    if "fixed_open_loop" in selected_methods:
+        fixed_started = time.perf_counter()
+        fixed = _fixed_sequence(ctx, engine, n_fantasies=4 if smoke else 16)
+        if device.type == "cuda":
+            torch.cuda.synchronize(device)
+        fixed_preparation_seconds = float(time.perf_counter() - fixed_started)
     training_seconds = {}
     for method_name, checkpoint_name in (
         ("dad_eig", "dad_eig"),
         ("rl_sboed_eig", "rl_sboed_eig"),
     ):
-        payload = torch.load(
-            model_dir(ctx.out_dir) / f"{checkpoint_name}.pth",
+        if method_name in selected_methods:
+            payload = torch.load(
+                model_dir(ctx.out_dir) / f"{checkpoint_name}.pth",
+                map_location="cpu",
+                weights_only=False,
+            )
+            training_seconds[method_name] = float(payload.get("elapsed_seconds", 0.0))
+    if "moe_sboed" in selected_methods:
+        moe_payload = torch.load(
+            model_dir(ctx.out_dir) / "moe_sboed.pth",
             map_location="cpu",
             weights_only=False,
         )
-        training_seconds[method_name] = float(payload.get("elapsed_seconds", 0.0))
-    moe_payload = torch.load(
-        model_dir(ctx.out_dir) / "moe_sboed.pth", map_location="cpu", weights_only=False
+        training_seconds["moe_sboed"] = float(
+            moe_payload.get("elapsed_seconds", 0.0)
+        )
+    if matched is not None:
+        matched_payload = torch.load(
+            matched_path, map_location="cpu", weights_only=False
+        )
+        training_seconds["matched_dense"] = float(
+            matched_payload.get("elapsed_seconds", 0.0)
+        )
+    if "fixed_open_loop" in selected_methods:
+        training_seconds["fixed_open_loop"] = fixed_preparation_seconds
+    evaluation = dict(ctx.cfg.raw.get("evaluation") or {})
+    n = min(
+        4 if smoke else int(evaluation.get("eig_test_systems", 128)),
+        len(ctx.test_systems),
     )
-    training_seconds["moe_sboed"] = float(moe_payload.get("elapsed_seconds", 0.0))
-    training_seconds["fixed_open_loop"] = fixed_preparation_seconds
-    n = min(4 if smoke else 128, len(ctx.test_systems))
     summaries = []
     all_rows = []
-    for method in METHODS:
-        policy = rl if method == "rl_sboed_eig" else moe if method == "moe_sboed" else dad
+    for method in selected_methods:
+        policy = (
+            rl
+            if method == "rl_sboed_eig"
+            else moe
+            if method == "moe_sboed"
+            else matched
+            if method == "matched_dense"
+            else dad
+        )
         if device.type == "cuda":
             torch.cuda.synchronize(device)
         started = time.perf_counter()
@@ -1187,10 +1315,15 @@ def evaluate_vector_eig(
         writer = csv.DictWriter(f, fieldnames=list(summaries[0]))
         writer.writeheader()
         writer.writerows(summaries)
+    observation_name = (
+        "sir_infected_count"
+        if str(getattr(ctx, "observation_mode", "")).startswith("sir_")
+        else "sampled_delta_f_vector"
+    )
     (eval_dir / "vector_eig_results.json").write_text(
         json.dumps(
             {
-                "observation": "sampled_delta_f_vector",
+                "observation": observation_name,
                 "n_obs": ctx.n_obs,
                 "device": str(device),
                 "summaries": summaries,
@@ -1202,8 +1335,147 @@ def evaluate_vector_eig(
         encoding="utf-8",
     )
     return {
-        "observation": "sampled_delta_f_vector",
+        "observation": observation_name,
         "n_obs": ctx.n_obs,
         "device": str(device),
         "summaries": summaries,
     }
+
+
+@torch.no_grad()
+def diagnose_vector_eig_moe(
+    ctx: ExperimentContext,
+    *,
+    n_rollouts: int = 128,
+    device_name: str = "auto",
+) -> dict[str, Any]:
+    """Measure whether the EIG MoE uses belief-conditioned residual regimes."""
+    if device_name == "auto":
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    else:
+        device = torch.device(device_name)
+    engine = VectorEIGEngine(ctx, device)
+    policy = _load_policy(ctx, "moe_sboed", device)
+    if not isinstance(policy, BeliefConditionedMoEPolicy):
+        raise RuntimeError("moe_sboed checkpoint is not a belief-conditioned MoE")
+    policy.eval()
+    records: list[dict[str, Any]] = []
+    sequences: list[tuple[int, ...]] = []
+    systems = ctx.test_systems[: min(int(n_rollouts), len(ctx.test_systems))]
+    global_scale = float(
+        torch.nn.functional.softplus(policy.logit_scale).clamp(max=20.0).item()
+    )
+    for rollout_id, system in enumerate(systems):
+        actions: list[int] = []
+        observations: list[np.ndarray] = []
+        log_w = engine.log_p0.clone()
+        for step in range(ctx.horizon):
+            tensors = _policy_tensors(
+                ctx,
+                actions,
+                observations,
+                log_w,
+                step=step,
+                device=device,
+            )
+            feasible = tensors[-1]
+            fused, router, experts, scale, base = policy._components(*tensors[:-1])
+            fused = fused.masked_fill(~feasible, -1e9)
+            base = base.masked_fill(~feasible, -1e9)
+            experts = experts.masked_fill(~feasible[:, None, :], -1e9)
+            fused_action = int(fused.argmax(-1).item())
+            base_action = int(base.argmax(-1).item())
+            expert_actions = experts.argmax(-1).squeeze(0).cpu().tolist()
+            weights = torch.softmax(log_w, dim=-1)
+            ess = float(1.0 / weights.square().sum().item())
+            router_row = router.squeeze(0)
+            router_entropy = float(
+                -(router_row * router_row.clamp_min(1e-8).log()).sum().item()
+            )
+            top2_mass = float(
+                router_row.topk(min(2, policy.n_experts)).values.sum().item()
+            )
+            pair_disagree = []
+            for left in range(policy.n_experts):
+                for right in range(left + 1, policy.n_experts):
+                    pair_disagree.append(
+                        float(expert_actions[left] != expert_actions[right])
+                    )
+            records.append(
+                {
+                    "rollout_id": rollout_id,
+                    "step": step,
+                    "ess": ess,
+                    "router_entropy": router_entropy,
+                    "top2_router_mass": top2_mass,
+                    "dominant_expert": int(router_row.argmax().item()),
+                    "residual_gate": float(scale.item() / max(global_scale, 1e-8)),
+                    "base_action": base_action,
+                    "fused_action": fused_action,
+                    "base_fused_disagree": int(base_action != fused_action),
+                    "n_distinct_expert_actions": len(set(expert_actions)),
+                    "pairwise_expert_disagreement": (
+                        float(np.mean(pair_disagree)) if pair_disagree else 0.0
+                    ),
+                    **{
+                        f"router_weight_{i}": float(router_row[i].item())
+                        for i in range(policy.n_experts)
+                    },
+                    **{
+                        f"expert_action_{i}": int(expert_actions[i])
+                        for i in range(policy.n_experts)
+                    },
+                }
+            )
+            y_np = _observe(
+                system,
+                fused_action,
+                sigma=ctx.sigma_y,
+                rollout_id=rollout_id,
+                step=step,
+            )
+            log_w = engine.update(
+                log_w, fused_action, torch.as_tensor(y_np, device=device)
+            )
+            actions.append(fused_action)
+            observations.append(y_np)
+        sequences.append(tuple(actions))
+    usage = np.bincount(
+        [int(row["dominant_expert"]) for row in records],
+        minlength=policy.n_experts,
+    )
+    summary = {
+        "method": "moe_sboed",
+        "experiment_type": "eig_based",
+        "n_rollouts": len(systems),
+        "n_records": len(records),
+        "n_experts": policy.n_experts,
+        "top_k": policy.top_k,
+        "active_dominant_experts": int((usage > 0).sum()),
+        "dominant_expert_counts": usage.tolist(),
+        "mean_router_entropy": float(np.mean([r["router_entropy"] for r in records])),
+        "mean_top2_router_mass": float(np.mean([r["top2_router_mass"] for r in records])),
+        "mean_residual_gate": float(np.mean([r["residual_gate"] for r in records])),
+        "base_fused_disagreement_rate": float(
+            np.mean([r["base_fused_disagree"] for r in records])
+        ),
+        "mean_pairwise_expert_disagreement": float(
+            np.mean([r["pairwise_expert_disagreement"] for r in records])
+        ),
+        "mean_distinct_expert_actions": float(
+            np.mean([r["n_distinct_expert_actions"] for r in records])
+        ),
+        "n_unique_fused_sequences": len(set(sequences)),
+    }
+    diagnostics_dir = ctx.out_dir / "diagnostics"
+    diagnostics_dir.mkdir(parents=True, exist_ok=True)
+    with (diagnostics_dir / "eig_moe_router_records.csv").open(
+        "w", newline="", encoding="utf-8"
+    ) as handle:
+        writer = csv.DictWriter(handle, fieldnames=list(records[0]))
+        writer.writeheader()
+        writer.writerows(records)
+    (diagnostics_dir / "eig_moe_mechanism_report.json").write_text(
+        json.dumps(summary, indent=2) + "\n", encoding="utf-8"
+    )
+    return summary

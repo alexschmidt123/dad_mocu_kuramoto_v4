@@ -16,8 +16,6 @@ _EXPECTED_U_TORCH_CACHE: dict[tuple, tuple[torch.Tensor, ...]] = {}
 from src.config import SBOEDConfig, load_config, repo_root, resolve_config_path
 from src.inference.spce import log_prior_uniform_discrete
 from src.banks.power_grid import (
-    generate_if_missing_flag,
-    generate_physical_bank,
     load_bank_from_path,
     resolve_dataset_dir,
     system_name_from_cfg,
@@ -704,19 +702,13 @@ def build_context_from_config(
     data_dir = resolve_dataset_dir(cfg, root)
     from src.banks.power_grid import bank_is_complete
 
-    if ensure_bank:
-        if not bank_is_complete(data_dir):
-            if generate_if_missing_flag(cfg) or smoke:
-                generate_physical_bank(cfg, project_root=root, smoke=smoke)
-            else:
-                raise FileNotFoundError(
-                    f"Physical bank missing at {data_dir}.\n"
-                    f"Set data.generate_if_missing: true in the config, or run:\n"
-                    f"  ./scripts/data_generation.sh --config {cfg.config_path}"
-                )
-        else:
-            # May backfill max_rocof without regenerating Δf.
-            generate_physical_bank(cfg, project_root=root, smoke=False)
+    if ensure_bank and not bank_is_complete(data_dir):
+        raise FileNotFoundError(
+            f"Physical databank missing or incomplete at {data_dir}. "
+            "Training/evaluation is databank-only and will not run the power-grid "
+            "simulator on the fly. Restore the complete bank before running the "
+            "experiment."
+        )
 
     bank = load_bank_from_path(data_dir, project_root=root, cfg=cfg, smoke=smoke)
     n_sim = int(bank["meta"]["N_sim"])

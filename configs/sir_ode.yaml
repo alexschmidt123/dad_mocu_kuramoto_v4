@@ -21,7 +21,9 @@ N: 1
 
 data:
   dataset_dir: data/sir_ode
-  generate_if_missing: true
+  # Experiments are databank-only. Missing files are a hard error; the
+  # train/evaluate pipeline never runs the ODE simulator on the fly.
+  generate_if_missing: false
 
 observation:
   # Scalar infected count I(τ) at the chosen time (not an IEEE trajectory length).
@@ -47,7 +49,8 @@ sir_ode:
   likelihood_sigma: 1.0
 
 prior:
-  mc_samples: 512
+  # Poster package posterior resolution; fitted from the fixed databank only.
+  mc_samples: 1024
   mc_support_seed: 1
 
 experiment:
@@ -84,8 +87,13 @@ training:
   eig_moe_cf_coefficient: 0.25
   eig_moe_cf_anneal_fraction: 0.4
   eig_moe_cf_floor_fraction: 0.25
-  eig_moe_cf_rollouts_per_batch: 2
+  # Cover enough same-step posterior regimes for the router/branching losses.
+  eig_moe_cf_rollouts_per_batch: 8
   eig_moe_branching_coefficient: 0.25
+  # Prevent dead router branches; 0.005 still produced 82% mean usage on one
+  # expert in the independent 128-rollout mechanism audit.
+  eig_moe_balance_coefficient: 0.05
+  eig_moe_redundancy_coefficient: 0.01
   # Soft unique floor for checkpoint selection.
   eig_prefer_unique_sequence_floor: true
   eig_min_unique_sequence_fraction: 0.08
@@ -111,9 +119,14 @@ training:
   moe_prototype_reset_fraction: 0.2
   moe_branching_coefficient: 0.0
   moe_balance_coefficient: 0.001
+
   moe_redundancy_coefficient: 0.01
   moe_logit_scale_init: 3.0
   moe_fixed_bc_coefficient: 0.0
+
+evaluation:
+  # Development evaluation size; all systems come from the fixed test bank.
+  eig_test_systems: 512
 
 bank_quality:
   enabled: false
