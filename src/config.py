@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import yaml
 
 ALL_METHODS = ["dad", "rl_sboed", "myopic", "fixed", "random"]
@@ -84,6 +85,15 @@ class SBOEDConfig:
                     "swing_equation.probe_durations must be non-empty when set"
                 )
             return out
+        if "duration_min" in sw and "duration_max" in sw and "duration_count" in sw:
+            d0 = float(sw["duration_min"])
+            d1 = float(sw["duration_max"])
+            count = int(sw["duration_count"])
+            if d1 < d0:
+                raise ValueError(f"duration_max < duration_min ({d1} < {d0})")
+            if count < 2:
+                raise ValueError(f"duration_count must be >= 2, got {count}")
+            return [float(x) for x in np.linspace(d0, d1, count)]
         if "duration_min" in sw and "duration_max" in sw and "duration_step" in sw:
             d0 = float(sw["duration_min"])
             d1 = float(sw["duration_max"])
@@ -115,7 +125,7 @@ class SBOEDConfig:
 
     @property
     def continuous_duration_mode(self) -> bool:
-        """Duration-only chronological designs (fixed amp/bus)."""
+        """Legacy carry-state duration experiment, not reset duration sweeps."""
         if not self.reset_after_probe:
             return True
         exp = self.raw.get("experiment") or {}

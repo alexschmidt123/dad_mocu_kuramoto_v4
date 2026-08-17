@@ -684,11 +684,10 @@ def _tensors_from_state(
         np.exp(log_w - np.max(log_w))[None, :], dtype=torch.float32, device=device
     )
     weights = weights / weights.sum(dim=-1, keepdim=True).clamp_min(1e-8)
-    chrono = (
-        str(getattr(ctx, "observation_mode", "")).startswith("sir_")
-        or bool(getattr(ctx, "continuous_duration_mode", False))
-        or str(getattr(ctx, "observation_mode", "")).startswith("continuous_duration")
-    )
+    # Measurement times in SIR are chronological. Power-grid duration probes
+    # are independent experiments and may be selected in any order; selected
+    # durations are simply removed below by the non-chronological mask.
+    chrono = str(getattr(ctx, "observation_mode", "")).startswith("sir_")
     if chrono:
         from src.domains.sir.design import chronological_feasible
 

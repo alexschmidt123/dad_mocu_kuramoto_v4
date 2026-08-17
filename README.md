@@ -34,14 +34,13 @@ Two primary families share the same method set (DAD, RL-sBOED, MoE-sBOED, Myopic
 
 | Family | Config | Objective | Notes |
 |---|---|---|---|
-| Continuous duration (IEEE5) | `configs/ieee5_continuous_duration.yaml` | MOCU / EIG | fixed amp/bus, duration-only ξ, `N_obs=0` max-RoCoF, **no reset**, chronological ξ₁<ξ₂<…ξ_T |
+| IEEE5 power grid | `configs/ieee5.yaml` | MOCU / EIG | canonical IEEE5 configuration; fixed Hann duration with amplitude actions |
 | SIR ODE (iDAD-style) | `configs/sir_ode.yaml` | vector EIG | chronological measurement times, `y=I(τ)+ε`, see Ivanova et al. NeurIPS 2021 App. D.6 |
 
 ```bash
-# Continuous-duration power-grid (default publication path)
-bash run.sh --config configs/ieee5_continuous_duration.yaml --force \
+# IEEE5 power grid (offline bank must already exist)
+bash run.sh --config configs/ieee5.yaml \
   --experiment_type objective_based -T 3 --N_obs 0 --noise_sigma 0.01 --seed 101
-python3 -m src.banks.diagnose_duration --config configs/ieee5_continuous_duration.yaml
 
 # SIR ODE EIG (T=4 and T=5)
 bash run.sh --config configs/sir_ode.yaml --experiment_type eig_based -T 4 --seed 101
@@ -83,7 +82,7 @@ and `conference_poster_report.md` (plus `papers/` / `images/` assets).
 
 ## Run
 
-Primary power-grid config is `configs/ieee5_continuous_duration.yaml`. Runtime options are:
+Primary power-grid config is `configs/ieee5.yaml`. Runtime options are:
 
 - `--T`: probe horizon (default **5**).
 - `--N_obs`: observations retained per experiment (optional, default **0**). Aliases: `--n-obs`, `--n_obs`.

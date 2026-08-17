@@ -553,9 +553,9 @@ def _resolve_fixed_sequence(
     threshold = int(ctrl.get("fixed_exhaustive_threshold", 5000))
     n_comb = math.comb(n_actions, horizon)
     want_exhaustive = n_comb <= threshold
-    chronological = bool(getattr(cfg, "continuous_duration_mode", False))
-    if chronological:
-        want_exhaustive = False
+    # Power-grid duration probes are independent experiments. Fixed chooses an
+    # unordered nonrepeated subset; chronological ordering is reserved for SIR.
+    chronological = False
     candidates = [
         save_path,
         shared_path,
@@ -824,7 +824,19 @@ def build_context_from_config(
     K_mean_full = np.asarray(bank["K_train"], dtype=np.float64).mean(axis=1)
     M_mean = M_mean_full[pick]
     K_mean = K_mean_full[pick]
-    raw_particles = np.column_stack([M_mean, K_mean, U_support]).astype(np.float64)
+    if str(experiment_type).lower() == "eig_based":
+        # Pure EIG must retain the spatial latent state.  Collapsing an IEEE
+        # system to mean(M), mean(K) makes distinct machine-wise hypotheses
+        # indistinguishable to every learned policy, even though the Bayesian
+        # likelihood still distinguishes them.  U is a MOCU-only latent and is
+        # deliberately excluded from the EIG particle representation.
+        M_nodes = np.asarray(bank["M_train"], dtype=np.float64)[pick]
+        K_nodes = np.asarray(bank["K_train"], dtype=np.float64)[pick]
+        raw_particles = np.concatenate([M_nodes, K_nodes], axis=1)
+    else:
+        raw_particles = np.column_stack([M_mean, K_mean, U_support]).astype(
+            np.float64
+        )
     p_mean = raw_particles.mean(axis=0)
     p_std = np.maximum(raw_particles.std(axis=0), 1e-8)
     particles = ((raw_particles - p_mean) / p_std).astype(np.float32)

@@ -1,46 +1,75 @@
-# IEEE9 objective sBOED (publication defaults).
-# Topology: MATPOWER case9 (Chow 9-bus).
-#   bash run.sh --config configs/ieee9.yaml --experiment_type objective_based --force
+# WSCC/IEEE 9-bus EIG: fixed amplitude, discrete duration and bus actions.
+#
+# The physical 9-bus lossless network is Kron-reduced onto its three dynamic
+# generator buses (physical buses 1, 2, 3).  In this reduced ODE, indices
+# [0,1,2] map to physical buses [1,2,3]. Every probe is a separate experiment
+# starting from equilibrium.
 
 system:
   name: ieee9
 
-N: 9
+# Number of retained dynamic buses, not the number of physical network buses.
+N: 3
 
 data:
-  dataset_dir: data/ieee9
+  dataset_dir: data/ieee9_duration_bus
   generate_if_missing: false
 
 observation:
-  # Manuscript: scalar max-|ROCOF| (uses max_rocof.npy)
-  N_obs: 0
+  # Use sampled frequency trajectories; scalar max-ROCOF was too compressed.
+  N_obs: 200
   sampling: uniform
+  noise_sigma: 0.005
 
 oracle:
   tolerance: 1.0e-4
 
 swing_equation:
   topology: ieee9
+  physical_bus_count: 9
+  dynamic_machine_buses: [1, 2, 3]
+  retained_bus_map: [1, 2, 3]
+  # Probe may be injected at any physical bus; frequency is measured by a
+  # fixed PMU at physical generator/slack bus 1.
+  observation_bus: 1
+  base_frequency_hz: 60.0
+  base_power_mva: 100.0
   coupling_strength: 1.0
-  damping: 0.1
-  base_power: 1.0
-  M_lower: 0.01
-  M_upper: 0.06
-  K_lower: 0.05
-  K_upper: 0.5
+  damping: 0.0
+
+  # Six-dimensional latent state on the three physical generator buses:
+  # theta=(M_1,M_2,M_3,K_1,K_2,K_3). Each coordinate is sampled independently.
+  # Nominal inertia uses H=[23.64,6.40,3.01] s and M=2H/(2*pi*60);
+  # the bounds are +/-30% around each machine's nominal M.
+  latent_model: machinewise_mk
+  M_lower_nodes: [0.0877898665, 0.0237671385, 0.0111779822]
+  M_upper_nodes: [0.1630383235, 0.0441389715, 0.0207591098]
+  # Preserve the established IEEE9 fast-response scale and nominal spatial
+  # participation, but make K_1, K_2, and K_3 independent latent coordinates.
+  K_lower_nodes: [0.029375, 0.013125, 0.007500]
+  K_upper_nodes: [0.293750, 0.131250, 0.075000]
   use_node_specific_damping: true
-  D_nodes: [0.08, 0.09, 0.09, 0.12, 0.14, 0.11, 0.15, 0.1, 0.16]
-  P_m_nodes: [1.2, 0.55, 0.4, -0.1, -0.35, -0.05, -0.4, -0.08, -0.5]
-  theta0_nodes: [0.0, -0.03, -0.06, -0.08, -0.1, -0.09, -0.12, -0.11, -0.14]
-  omega0_nodes: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
-  # P_m_nodes are rough MATPOWER injections and are not an equilibrium of the
-  # reduced unit-coupling lossless model. Derive the effective baseline P_m from
-  # B and theta0 before applying probes or the terminal contingency.
+  D_nodes: [0.012541410, 0.003395306, 0.001596855]
+
+  # Exact equilibrium is derived from the reduced network and theta0.
+  P_m_nodes: [0.0, 0.0, 0.0]
+  theta0_nodes: [0.0, 0.0, 0.0]
+  omega0_nodes: [0.0, 0.0, 0.0]
   enforce_initial_equilibrium: true
-  probe_amplitudes: [0.05, 0.075, 0.1, 0.15, 0.2, 0.3]
-  probe_duration: 0.2
-  T_obs_sec: 10.0
-  fs_hz: 12.0
+
+  # Fixed-amplitude, discrete-duration design at all 9 physical buses.
+  # Code indices 0..8 map to physical bus numbers 1..9.
+  probe_buses: [0, 1, 2, 3, 4, 5, 6, 7, 8]
+  probe_amplitudes: [0.05]
+  probe_durations: [0.5, 1.0, 1.5, 2.0, 2.5, 3.0]
+  # Shared-code fallback when probe_durations is absent; not used by this catalog.
+  probe_duration: 2.0
+  reset_after_probe: true
+  T_obs_sec: 4.0
+  # Short 0.2 s pulses need 640 Hz integration for <1% CPU/CUDA discrepancy.
+  ode_dt: 0.0015625
+  # 40 Hz divides the 160 Hz ODE rate exactly (four solver steps/sample).
+  fs_hz: 40.0
   sigma: 0.2
 
 prior:
@@ -48,31 +77,25 @@ prior:
   mc_support_seed: 1
 
 experiment:
-  # Horizon T is set by CLI ``--T`` (run.sh default 5). This field is a fallback only.
-  step_number: 5
-  methods: [dad, rl_sboed, myopic, fixed, random]
+  mode: duration_bus_reset
+  step_number: 3
+  methods: [dad, rl_sboed, moe_sboed, myopic, fixed, random]
+  experiment_type: eig_based
 
+# Retained for the shared code path; EIG does not optimize this terminal MOCU.
 control:
-  # Fixed across every horizon: 99% posterior safety target.  Evaluation still
-  # requires >=95% empirical safety; the buffer avoids boundary-driven failures.
   alpha: 0.01
-  # Pooled off-support calibration over T=2,3,4,5 at N_obs=120, sigma=0.005.
-  safety_margin: 0.045
+  safety_margin: 0.0
   rocof_limit_hz_s: 22.0
-  # Balanced-scenario search: 100% feasible and monotone on 128 held-out theta,
-  # with 10 occupied U levels and 98.4% positive requirements.
   delta_f_nadir_hz: -0.2
   T_obs_sec: 10.0
   ode_dt: 0.00625
-  fs_hz: 12.0
-  contingency: {bus: 1, magnitude: -0.45, units: pu}
-  profile: {bus: 1, t_start: 0.0, duration: 10.0, shape: step, units: pu}
-  # u_max exactly cancels the loss event; values above 0.45 would be
-  # over-injection rather than restorative control.
-  u_candidates: [0.0, 0.0225, 0.045, 0.0675, 0.09, 0.1125, 0.135, 0.1575, 0.18, 0.2025, 0.225, 0.2475, 0.27, 0.2925, 0.315, 0.3375, 0.36, 0.3825, 0.405, 0.4275, 0.45]
+  fs_hz: 40.0
+  contingency: {bus: 0, magnitude: -0.45, units: pu}
+  profile: {bus: 0, t_start: 0.0, duration: 10.0, shape: step, units: pu}
+  u_candidates: [0.0, 0.045, 0.09, 0.135, 0.18, 0.225, 0.27, 0.315, 0.36, 0.405, 0.45]
   myopic_hypothetical: 64
-  # C(54,4)=316251 — multi-restart greedy Fixed
-  fixed_exhaustive_threshold: 30000
+  fixed_exhaustive_threshold: 0
   fixed_noise_replicas: 2
   fixed_greedy_restarts: 8
 
@@ -84,69 +107,42 @@ data_generation:
   train_seed: 101
   test_seed: 202
 
-# Default sBOED bank gates (also applied on reuse / train / eval load).
-# Fail → stop generation and block later stages.
 bank_quality:
-  enabled: true
-  min_u_positive_frac: 0.50
-  min_u_q95: 0.05
-  min_u_headroom: 0.05
-  min_max_abs_corr_rocof_u: 0.30
-
+  enabled: false
 
 training:
+  use_bank_observations: true
   device: auto
-  updates: 1000
-  # Keeps T<=5 unchanged; gives T=10 at least 2000 updates.
-  min_updates_per_horizon: 200
-  trajectories_per_update: 64
-  ppo_epochs: 4
-  validation_interval: 25
-  validation_rollouts: 128
-  patience: 0
-  entropy_coefficient: 0.10
-  checkpoint_diversity_weight: 0.3
-  min_unique_sequence_fraction: 0.25
-  open_loop_warn_after_updates: 100
-  actor_lr: 0.0003
-  critic_lr: 0.001
-  max_grad_norm: 1.0
-  # Safety-first checkpointing for abstract/journal claims.  Methods below
-  # 0.95 safety are invalid; reject unsafe checkpoints more aggressively.
-  undercontrol_penalty: 20.0
-  violation_penalty: 0.25
-  checkpoint_safety_penalty: 50.0
-  min_valid_safety_rate: 0.95
-  # Ablation-driven default: pure PPO (CF off). Re-enable CF only if needed.
-  moe_counterfactual_coefficient: 0.0
-  moe_branching_coefficient: 0.0
-  moe_counterfactual_floor_fraction: 0.0
-  moe_counterfactual_anneal_fraction: 0.33
-  moe_counterfactual_bootstrap: true
-  moe_prototype_reset_fraction: 0.2
-  moe_balance_coefficient: 0.001
-  moe_redundancy_coefficient: 0.005
-  moe_logit_scale_init: 3.0
-  # Belief-gated Fixed anchor on shared base (high ESS only).
-  moe_fixed_bc_coefficient: 0.25
-  moe_fixed_bc_anneal_fraction: 0.5
-  moe_fixed_bc_floor_fraction: 0.0
-  moe_fixed_bc_ess_threshold: 0.4
-  # After BC anneals: push residual influence on low-ESS beliefs.
-  moe_low_ess_residual_coefficient: 0.05
-  moe_low_ess_threshold: 0.4
-  moe_residual_scale_coefficient: 0.01
-  moe_logit_scale_target: 3.5
+  eig_epochs: 200
+  eig_steps_per_epoch: 512
+  batch_size: 256
+  learning_rate: 0.0003
+  entropy_coef: 0.05
+  policy_hidden: 256
+  eig_validation_systems: 128
+  eig_bc_trajectories: 96
+  eig_bc_lookahead: two_step
+  eig_bc_temperature: 0.5
+  eig_bc_fantasies: 12
+  eig_rl_use_ppo: true
+  eig_moe_ppo_epochs: 4
+  eig_moe_ppo_clip: 0.2
+  eig_moe_critic_lr: 0.001
+  eig_moe_cf_coefficient: 0.25
+  eig_moe_cf_anneal_fraction: 0.4
+  eig_moe_cf_floor_fraction: 0.25
+  eig_moe_cf_rollouts_per_batch: 2
+  eig_moe_branching_coefficient: 0.25
+  # Encourage confident, belief-dependent expert selection while the balance
+  # term prevents one-expert collapse. This operates only inside MoE-sBOED.
+  eig_moe_balance_coefficient: 0.005
+  eig_moe_routing_information_coefficient: 0.01
+  eig_moe_redundancy_coefficient: 0.01
+  eig_prefer_unique_sequence_floor: true
+  eig_min_unique_sequence_fraction: 0.08
+  eig_unique_floor_slack: 0.03
 
 control_safety_calibration:
-  # Do not recalibrate by T: that changes the definition of u_ctrl and makes
-  # cross-horizon comparisons invalid.
   enabled: false
   mode: config
   expected_alpha: 0.01
-  num_rollouts: 512
-  seed: 2468
-  alpha_grid: [0.01]
-  margin_grid: [0.0, 0.05, 0.1, 0.15, 0.2, 0.25, 0.3]
-  min_calibration_safety_rate: 0.95
-  min_validation_safety_rate: 0.95

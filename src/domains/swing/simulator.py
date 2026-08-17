@@ -45,82 +45,76 @@ def mk_to_json(M: np.ndarray, K: np.ndarray) -> tuple[list[float], list[float]]:
     return [float(x) for x in M], [float(x) for x in K]
 
 
+def _kron_reduction(
+    n_full: int,
+    branches: list[tuple[int, int, float]],
+    retained: list[int],
+) -> tuple[np.ndarray, np.ndarray]:
+    """Return reduced coupling and physical-bus injection mapping."""
+    lap = np.zeros((n_full, n_full), dtype=np.float64)
+    for i, j, x_pu in branches:
+        b = 1.0 / float(x_pu)
+        lap[i, i] += b
+        lap[j, j] += b
+        lap[i, j] -= b
+        lap[j, i] -= b
+    eliminated = [i for i in range(n_full) if i not in retained]
+    Lgg = lap[np.ix_(retained, retained)]
+    input_map = np.zeros((n_full, len(retained)), dtype=np.float64)
+    for reduced_i, physical_i in enumerate(retained):
+        input_map[physical_i, reduced_i] = 1.0
+    if eliminated:
+        Lgl = lap[np.ix_(retained, eliminated)]
+        Lll = lap[np.ix_(eliminated, eliminated)]
+        reduced = Lgg - Lgl @ np.linalg.solve(Lll, Lgl.T)
+        # A positive injection at an eliminated bus is distributed onto the
+        # retained dynamic buses by the exact linear Kron map.
+        eliminated_map = -Lgl @ np.linalg.inv(Lll)
+        for eliminated_i, physical_i in enumerate(eliminated):
+            input_map[physical_i] = eliminated_map[:, eliminated_i]
+    else:
+        reduced = Lgg
+    coupling = -reduced
+    np.fill_diagonal(coupling, 0.0)
+    coupling[np.abs(coupling) < 1.0e-12] = 0.0
+    return coupling, input_map
+
+
 def generate_ieee14_coupling_matrix(coupling_strength: float = 1.0) -> np.ndarray:
-    """
-    Coupling graph for IEEE 14-bus (MATPOWER ``case14`` / UW PSTCA).
-
-    Branch list matches
-    https://github.com/MATPOWER/matpower/blob/master/data/case14.m
-    (20 lines/transformers; 0-indexed bus ids below).
-    """
-    N = 14
-    B = np.zeros((N, N))
-    # MATPOWER case14 branches (fbus,tbus) → 0-indexed
-    connections = [
-        (0, 1),   # 1-2
-        (0, 4),   # 1-5
-        (1, 2),   # 2-3
-        (1, 3),   # 2-4
-        (1, 4),   # 2-5
-        (2, 3),   # 3-4
-        (3, 4),   # 4-5
-        (3, 6),   # 4-7
-        (3, 8),   # 4-9
-        (4, 5),   # 5-6
-        (5, 10),  # 6-11
-        (5, 11),  # 6-12
-        (5, 12),  # 6-13
-        (6, 7),   # 7-8
-        (6, 8),   # 7-9
-        (8, 9),   # 9-10
-        (8, 13),  # 9-14
-        (9, 10),  # 10-11
-        (11, 12), # 12-13
-        (12, 13), # 13-14
+    """IEEE-14 lossless network reduced to physical buses 1, 2, 3, 6, 8."""
+    branches = [
+        (0, 1, .05917), (0, 4, .22304), (1, 2, .19797),
+        (1, 3, .17632), (1, 4, .17388), (2, 3, .17103),
+        (3, 4, .04211), (3, 6, .20912), (3, 8, .55618),
+        (4, 5, .25202), (5, 10, .19890), (5, 11, .25581),
+        (5, 12, .13027), (6, 7, .17615), (6, 8, .11001),
+        (8, 9, .08450), (8, 13, .27038), (9, 10, .19207),
+        (11, 12, .19988), (12, 13, .34802),
     ]
-    for i, j in connections:
-        B[i, j] = coupling_strength
-        B[j, i] = coupling_strength
-    return B
-
-
-def generate_ieee5_coupling_matrix(coupling_strength: float = 1.0) -> np.ndarray:
-    """MATPOWER ``case5`` (modified PJM 5-bus) line graph."""
-    N = 5
-    B = np.zeros((N, N))
-    connections = [
-        (0, 1),  # 1-2
-        (0, 3),  # 1-4
-        (0, 4),  # 1-5
-        (1, 2),  # 2-3
-        (2, 3),  # 3-4
-        (3, 4),  # 4-5
-    ]
-    for i, j in connections:
-        B[i, j] = coupling_strength
-        B[j, i] = coupling_strength
-    return B
+    coupling, _ = _kron_reduction(14, branches, [0, 1, 2, 5, 7])
+    return coupling_strength * coupling
 
 
 def generate_ieee9_coupling_matrix(coupling_strength: float = 1.0) -> np.ndarray:
-    """MATPOWER ``case9`` (Chow 9-bus) line graph."""
-    N = 9
-    B = np.zeros((N, N))
-    connections = [
-        (0, 3),  # 1-4
-        (3, 4),  # 4-5
-        (4, 5),  # 5-6
-        (2, 5),  # 3-6
-        (5, 6),  # 6-7
-        (6, 7),  # 7-8
-        (7, 1),  # 8-2
-        (7, 8),  # 8-9
-        (8, 3),  # 9-4
+    """WSCC-9 lossless network reduced to generator/IBR buses 1, 2, 3."""
+    branches = [
+        (0, 3, .0576), (3, 4, .0920), (4, 5, .1700),
+        (2, 5, .0586), (5, 6, .1008), (6, 7, .0720),
+        (7, 1, .0625), (7, 8, .1610), (8, 3, .0850),
     ]
-    for i, j in connections:
-        B[i, j] = coupling_strength
-        B[j, i] = coupling_strength
-    return B
+    coupling, _ = _kron_reduction(9, branches, [0, 1, 2])
+    return coupling_strength * coupling
+
+
+def ieee9_physical_input_map() -> np.ndarray:
+    """Map injections at physical buses 1..9 onto dynamic buses 1,2,3."""
+    branches = [
+        (0, 3, .0576), (3, 4, .0920), (4, 5, .1700),
+        (2, 5, .0586), (5, 6, .1008), (6, 7, .0720),
+        (7, 1, .0625), (7, 8, .1610), (8, 3, .0850),
+    ]
+    _, input_map = _kron_reduction(9, branches, [0, 1, 2])
+    return input_map
 
 
 def generate_default_coupling_matrix(N: int, topology: str = 'fully_connected', 
@@ -131,23 +125,19 @@ def generate_default_coupling_matrix(N: int, topology: str = 'fully_connected',
     Args:
         N: Number of buses/oscillators
         topology: Network topology ('fully_connected', 'ring', 'star', 'random',
-            'ieee5', 'ieee9', 'ieee14')
+            'ieee9', 'ieee14')
         coupling_strength: Base coupling strength (float)
     
     Returns:
         B: Coupling matrix [N, N] (numpy array, symmetric)
     """
-    if topology == 'ieee5':
-        if N != 5:
-            raise ValueError(f"IEEE-5 topology requires N=5, got N={N}")
-        return generate_ieee5_coupling_matrix(coupling_strength)
     if topology == 'ieee9':
-        if N != 9:
-            raise ValueError(f"IEEE-9 topology requires N=9, got N={N}")
+        if N != 3:
+            raise ValueError(f"Kron-reduced IEEE-9 requires N=3 dynamic buses, got N={N}")
         return generate_ieee9_coupling_matrix(coupling_strength)
     if topology == 'ieee14':
-        if N != 14:
-            raise ValueError(f"IEEE-14 topology requires N=14, got N={N}")
+        if N != 5:
+            raise ValueError(f"Kron-reduced IEEE-14 requires N=5 dynamic buses, got N={N}")
         return generate_ieee14_coupling_matrix(coupling_strength)
     
     B = np.zeros((N, N))
@@ -598,6 +588,19 @@ def _build_system_params(config_swing: dict[str, Any] | None = None) -> dict[str
     params["enforce_initial_equilibrium"] = bool(
         cfg.get("enforce_initial_equilibrium", False)
     )
+    topology = str(cfg.get("topology", ""))
+    if topology == "ieee9":
+        params["physical_input_map"] = ieee9_physical_input_map()
+        physical_obs = int(cfg.get("observation_bus", 1))
+        retained = [1, 2, 3]
+        if physical_obs not in retained:
+            raise ValueError(
+                "IEEE9 observation_bus must be a dynamic PMU bus in [1,2,3]"
+            )
+        params["observation_bus_reduced"] = retained.index(physical_obs)
+    else:
+        params["physical_input_map"] = np.eye(N, dtype=np.float64)
+        params["observation_bus_reduced"] = int(cfg.get("observation_bus", 1)) - 1
     return params
 
 
@@ -637,6 +640,10 @@ class SwingSimulator:
             self.params.get("omega0", np.zeros(self.N)),
             dtype=np.float64,
         )
+        self.physical_input_map = np.asarray(
+            self.params.get("physical_input_map", np.eye(self.N)), dtype=np.float64
+        )
+        self.observation_bus = int(self.params.get("observation_bus_reduced", 0))
         self.configured_P_m = self.P_m.copy()
         self.initial_equilibrium_injections = equilibrium_power_injections(
             self.B, self.theta0
@@ -673,8 +680,9 @@ class SwingSimulator:
                 if self.B[i, j] != 0:
                     coupling[i] += self.B[i, j] * np.sin(theta[i] - theta[j])
 
-        u = np.zeros(N, dtype=np.float64)
-        u[design.bus] = probe_input(t, design)
+        if design.bus < 0 or design.bus >= self.physical_input_map.shape[0]:
+            raise ValueError(f"physical probe bus index {design.bus} out of range")
+        u = self.physical_input_map[design.bus] * probe_input(t, design)
 
         dtheta = domega
         ddomega = (self.P_m - coupling - decay * domega + u) / M_v
@@ -723,7 +731,7 @@ class SwingSimulator:
             format="rocof_only",
             rocof_method="full_window",
             T_obs_sec=self.T_obs_sec,
-            probe_bus=design.bus,
+            probe_bus=self.observation_bus,
         )
         if add_noise is not None and add_noise > 0:
             if rng is None:

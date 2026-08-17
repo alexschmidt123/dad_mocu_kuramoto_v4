@@ -173,8 +173,8 @@ b=0,
 \qquad
 N_\xi=400,
 \]
-with chronological constraint \(\xi_1<\xi_2<\cdots<\xi_T\) on successive
-durations. Larger feeders reuse the same construction (fixed amp/bus, duration
+with durations selected in any order and without exact repetition within a
+rollout. Larger feeders reuse the same construction (fixed amp/bus, duration
 library). The sequential horizon \(T\) is a configurable experimental parameter
 and is not fixed by the definition of the design space. The injected Hann pulse of
 duration \(d_t\) is
@@ -220,10 +220,10 @@ The probe and terminal control are evaluated in separate simulations. During eve
 \[
 u_{\mathrm{ctrl}}=0.
 \]
-In the primary continuous-duration track, successive probes
-\emph{do not} reset to equilibrium: the physical state carries forward, so the
-observation at step \(t\) depends on the ordered probe sequence
-\(\xi_{1:t}\). The experimenter still adapts only through belief,
+In the primary continuous-duration track, every diagnostic probe starts from
+the same equilibrium state. The physical response is therefore conditionally
+independent of earlier probes given \(\theta\) and \(\xi_t\), while the design
+policy remains adaptive through the accumulated belief,
 \[
 \mathbf y_{\mathrm{obs},t}
 \longrightarrow
@@ -231,77 +231,68 @@ p(\theta\mid h_t)
 \longrightarrow
 \xi_{t+1},
 \]
-but the likelihood is sequential rather than conditionally independent across
-probes. (A reset-to-equilibrium variant remains available for diagnostics; it is
-not the publication default.)
+and no simulator call is made during training or evaluation: all clean
+responses are read from the offline databank.
 
 \subsection{Sampled Frequency-Deviation Observation Model}
 
-Let \(f_i^{\,p}(s;\theta,\xi_{1:t})\) denote the simulated frequency at monitored
-bus \(i\) after the ordered probe sequence \(\xi_{1:t}\) (carry-state
-dynamics). Define
+Let \(f_i^{\,p}(s;\theta,\xi_t)\) denote the simulated frequency at monitored
+bus \(i\) during the independent probe \(\xi_t\). Define
 \[
-\Delta f_i^{\,p}(s;\theta,\xi_{1:t})
+\Delta f_i^{\,p}(s;\theta,\xi_t)
 =
-f_i^{\,p}(s;\theta,\xi_{1:t})-f_i^{\,p}(0;\theta,\xi_1).
+f_i^{\,p}(s;\theta,\xi_t)-f_i^{\,p}(0;\theta,\xi_t).
 \]
 The simulator produces \(N_{\mathrm{sim}}\) time samples on the current probe
 window. In the primary continuous-duration experiments the method-visible
-observation is the scalar maximum absolute ROCOF at the (fixed) probe bus,
+observation is a fixed uniform subsample of the frequency-deviation trajectory
+at the probe bus. With \(N_{\mathrm{obs}}=24\) and indices
+\(q_1,\ldots,q_{24}\),
 \[
 \boxed{
-y_{\mathrm{clean}}(\theta,\xi_{1:t})
+\mathbf y_{\mathrm{clean}}(\theta,\xi_t)
 =
-\max_k
-\left|
-\frac{
-\Delta f_{b}^{\,p}(s_{k+1};\theta,\xi_{1:t})
--
-\Delta f_{b}^{\,p}(s_k;\theta,\xi_{1:t})
-}{
-s_{k+1}-s_k
-}
-\right|,
+\left[
+\Delta f_b^{\,p}(s_{q_1};\theta,\xi_t),\ldots,
+\Delta f_b^{\,p}(s_{q_{24}};\theta,\xi_t)
+\right]^{\!\top},
 }
 \label{eq:y_clean}
 \]
-equivalently written \(N_{\mathrm{obs}}=0\) in configuration files. The measured
-scalar is
+and the measured vector is
 \[
 \boxed{
-y_{\mathrm{obs},t}
+\mathbf y_{\mathrm{obs},t}
 =
-y_{\mathrm{clean}}(\theta^\star,\xi_{1:t})
+\mathbf y_{\mathrm{clean}}(\theta^\star,\xi_t)
 +
-\epsilon_t,
+\boldsymbol\epsilon_t,
 \qquad
-\epsilon_t
+\boldsymbol\epsilon_t
 \sim
-\mathcal N\!\left(0,\sigma_y^2\right).
+\mathcal N\!\left(\mathbf 0,\sigma_y^2\mathbf I_{24}\right).
 }
 \label{eq:y_obs}
 \]
-The physical bank may still retain full \(\Delta f\) trajectories for
-diagnostics. A vector \(\Delta f\) subsample with \(N_{\mathrm{obs}}>0\) remains
-available as an optional richer observation mode; it is not the publication
-default.
+The physical bank retains the full clean \(\Delta f\) trajectory and scalar
+maximum absolute ROCOF. Thus \(N_{\mathrm{obs}}\) and \(\sigma_y\) can be selected
+by a validation-only information-saturation audit without regenerating physics.
 
 \subsection{Bayesian Belief Update}
 
-The likelihood for probe \(t\) under the primary scalar max-|ROCOF|
-observation is
+The likelihood for probe \(t\) under the sampled-trajectory observation is
 \[
-p(y_{\mathrm{obs},t}\mid\theta,\xi_{1:t})
+p(\mathbf y_{\mathrm{obs},t}\mid\theta,\xi_t)
 =
 \mathcal N
 \left(
-y_{\mathrm{obs},t};
-y_{\mathrm{clean}}(\theta,\xi_{1:t}),
-\sigma_y^2
+\mathbf y_{\mathrm{obs},t};
+\mathbf y_{\mathrm{clean}}(\theta,\xi_t),
+\sigma_y^2\mathbf I_{24}
 \right).
 \]
-Because the observation errors are conditionally independent given the
-ordered probe sequence, the posterior after \(T\) probes is
+Because independent probes reset to the common equilibrium and observation
+errors are conditionally independent, the posterior after \(T\) probes is
 \[
 \boxed{
 p(\theta\mid h_T)
@@ -309,13 +300,13 @@ p(\theta\mid h_T)
 \frac{
 p_0(\theta)
 \displaystyle\prod_{t=1}^{T}
-p(y_{\mathrm{obs},t}\mid\theta,\xi_{1:t})
+p(\mathbf y_{\mathrm{obs},t}\mid\theta,\xi_t)
 }{
 \displaystyle
 \int_{\Theta}
 p_0(\vartheta)
 \prod_{t=1}^{T}
-p(y_{\mathrm{obs},t}\mid\vartheta,\xi_{1:t})
+p(\mathbf y_{\mathrm{obs},t}\mid\vartheta,\xi_t)
 \,d\vartheta
 }.
 }
@@ -770,7 +761,11 @@ The final comparison contains six methods:
 \textsc{Random}
 \}.
 \]
-All six use the same action space, carry-state probe simulator, noisy observation model, posterior update, control-requirement bank, Yoon IBR terminal control selector~\eqref{eq:u_ctrl}, and terminal evaluation. They differ in how probe designs are chosen and, for the learned components, how policy improvement is estimated. Table~\ref{tab:methods} summarizes their defining logic.
+All six use the same action space, independent reset-to-equilibrium probe bank,
+noisy observation model, posterior update, control-requirement bank, Yoon IBR
+terminal control selector~\eqref{eq:u_ctrl}, and terminal evaluation. They differ
+in how probe designs are chosen and, for the learned components, how policy
+improvement is estimated. Table~\ref{tab:methods} summarizes their defining logic.
 
 \begin{table}[ht]
 \centering
@@ -1176,14 +1171,14 @@ Common random numbers should be used across candidate probes when feasible. The 
 
 The Fixed method is nonadaptive: all \(T\) probes are chosen before any
 observations are available. Under the primary continuous-duration track,
-probes are chronological (\(d_1<d_2<\cdots<d_T\)) and the physical state
-carries forward, so an ordered duration tuple is the natural Fixed object
+probes are independent and exact repetition is prohibited, so an unordered
+duration subset is the natural Fixed object
 \[
 \mathfrak X_T
 =
 \left\{
-(d_1,\ldots,d_T)\in\mathcal D^{T}:
-d_1<d_2<\cdots<d_T
+\{d_1,\ldots,d_T\}\subset\mathcal D:
+d_i\ne d_j\ \text{for}\ i\ne j
 \right\}.
 \]
 The optimized fixed design is
@@ -1210,7 +1205,7 @@ For \(B_{\mathrm{fix}}\) offline Monte Carlo rollouts,
 and the tuple with the smallest estimate is selected. No fixed design is removed for producing a large control; a large value simply gives that design a worse objective score.
 
 With catalog size \(N_\xi=|\mathcal D|\) from Eq.~\eqref{eq:design_space},
-the number of strictly increasing duration \(T\)-tuples is
+the number of nonrepeated duration subsets is
 \[
 \boxed{
 |\mathfrak X_T|
@@ -1228,8 +1223,8 @@ For the IEEE~5 continuous-duration setting (\(N_\xi=400\)),
 so exhaustive Fixed search is impractical for the primary horizons
 \(T\in\{2,3,4,5\}\). A documented approximation such as beam search, coarse
 duration subsample, or Monte Carlo subset search must be used and reported.
-A canonical sorted order may be used to execute and store the selected
-tuple; under the chronological constraint this order is part of the design.
+A canonical sorted order is used only to store and report the selected subset;
+conditional independence makes its execution order irrelevant for Fixed.
 
 \subsubsection{Random Reference}
 
@@ -1244,8 +1239,8 @@ The Random method samples uniformly without replacement from the currently avail
 }
 \label{eq:random_policy}
 \]
-Sequential uniform sampling without replacement over the remaining longer
-durations induces a uniform distribution over chronological \(T\)-tuples.
+Sequential uniform sampling without replacement induces a uniform distribution
+over size-\(T\) duration subsets.
 Random uses the same posterior update and terminal control rule as the other methods. It does not optimize Eq.~\eqref{eq:policy_objective}; it is included only as an uninformed reference showing whether objective-guided probe selection improves the final engineering action beyond chance selection.
 
 \subsection{Offline Computation}
@@ -1511,8 +1506,8 @@ The algorithms preserve the central engineering distinction: the probes are diag
 Consider an IEEE test system with an unknown but time-invariant parameter
 vector \(\theta=(\mathbf M,\mathbf K)\). Before choosing one scalar
 supplementary-control magnitude, the operator may perform \(T\) sequential,
-carry-state diagnostic probes of increasing duration at a fixed bus and
-amplitude. The selected magnitude must protect the system
+independent diagnostic probes of adaptively selected, nonrepeated duration at a
+fixed bus and amplitude. The selected magnitude must protect the system
 against every contingency in a prespecified N--1 set \(\mathcal C\), so the
 particle-specific Yoon model-optimal operator is
 \[

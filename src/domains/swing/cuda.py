@@ -43,7 +43,8 @@ extern "C" __global__ void simulate_trajectories(
     const double *theta0,
     const double *omega0,
     const double *amp,
-    const int *probe_bus,
+    const double *input_map,
+    const int observation_bus,
     const double *duration,
     const double dt,
     const double fs_hz,
@@ -64,7 +65,7 @@ extern "C" __global__ void simulate_trajectories(
     for (int step = 0; step < T; ++step) {
         const int a = sequences[idx * T + step];
         const double A = amp[a];
-        const int pb = probe_bus[a];
+        const int pb = observation_bus;
         const double Tp = duration[a];
         double rocof_max = 0.0;
         double omega_prev = y[N + pb];
@@ -82,9 +83,7 @@ extern "C" __global__ void simulate_trajectories(
                     if (Bij != 0.0) coupling += Bij * sin(th - y[j]);
                 }
                 double u = 0.0;
-                if (i == pb && t <= Tp) {
-                    u = A * 0.5 * (1.0 - cos(2.0 * pi * t / Tp));
-                }
+                if (t <= Tp) u = input_map[a * N + i] * A * 0.5 * (1.0 - cos(2.0 * pi * t / Tp));
                 const double decay = K_bus[idx * N + i] / (2.0 * pi) + D_nodes[i];
                 k1[i] = dw;
                 k1[N + i] = (P_m[i] - coupling - decay * dw + u) / M_bus[idx * N + i];
@@ -100,10 +99,8 @@ extern "C" __global__ void simulate_trajectories(
                     if (Bij != 0.0) coupling += Bij * sin(th - yt[j]);
                 }
                 double u = 0.0;
-                if (i == pb) {
-                    const double tt = t + 0.5 * dt;
-                    if (tt <= Tp) u = A * 0.5 * (1.0 - cos(2.0 * pi * tt / Tp));
-                }
+                const double tt2 = t + 0.5 * dt;
+                if (tt2 <= Tp) u = input_map[a * N + i] * A * 0.5 * (1.0 - cos(2.0 * pi * tt2 / Tp));
                 const double decay = K_bus[idx * N + i] / (2.0 * pi) + D_nodes[i];
                 k2[i] = dw;
                 k2[N + i] = (P_m[i] - coupling - decay * dw + u) / M_bus[idx * N + i];
@@ -119,10 +116,8 @@ extern "C" __global__ void simulate_trajectories(
                     if (Bij != 0.0) coupling += Bij * sin(th - yt[j]);
                 }
                 double u = 0.0;
-                if (i == pb) {
-                    const double tt = t + 0.5 * dt;
-                    if (tt <= Tp) u = A * 0.5 * (1.0 - cos(2.0 * pi * tt / Tp));
-                }
+                const double tt3 = t + 0.5 * dt;
+                if (tt3 <= Tp) u = input_map[a * N + i] * A * 0.5 * (1.0 - cos(2.0 * pi * tt3 / Tp));
                 const double decay = K_bus[idx * N + i] / (2.0 * pi) + D_nodes[i];
                 k3[i] = dw;
                 k3[N + i] = (P_m[i] - coupling - decay * dw + u) / M_bus[idx * N + i];
@@ -138,10 +133,8 @@ extern "C" __global__ void simulate_trajectories(
                     if (Bij != 0.0) coupling += Bij * sin(th - yt[j]);
                 }
                 double u = 0.0;
-                if (i == pb) {
-                    const double tt = t + dt;
-                    if (tt <= Tp) u = A * 0.5 * (1.0 - cos(2.0 * pi * tt / Tp));
-                }
+                const double tt4 = t + dt;
+                if (tt4 <= Tp) u = input_map[a * N + i] * A * 0.5 * (1.0 - cos(2.0 * pi * tt4 / Tp));
                 const double decay = K_bus[idx * N + i] / (2.0 * pi) + D_nodes[i];
                 k4[i] = dw;
                 k4[N + i] = (P_m[i] - coupling - decay * dw + u) / M_bus[idx * N + i];
@@ -182,7 +175,8 @@ extern "C" __global__ void simulate_delta_f_trajectories(
     const double *theta0,
     const double *omega0,
     const double *amp,
-    const int *probe_bus,
+    const double *input_map,
+    const int observation_bus,
     const double *duration,
     const double dt,
     double *out_df
@@ -201,7 +195,7 @@ extern "C" __global__ void simulate_delta_f_trajectories(
 
     const int a = actions[idx];
     const double A = amp[a];
-    const int pb = probe_bus[a];
+    const int pb = observation_bus;
     const double Tp = duration[a];
 
     for (int s = 0; s < n_steps; ++s) {
@@ -216,9 +210,7 @@ extern "C" __global__ void simulate_delta_f_trajectories(
                 if (Bij != 0.0) coupling += Bij * sin(th - y[j]);
             }
             double u = 0.0;
-            if (i == pb && t <= Tp) {
-                u = A * 0.5 * (1.0 - cos(2.0 * pi * t / Tp));
-            }
+            if (t <= Tp) u = input_map[a * N + i] * A * 0.5 * (1.0 - cos(2.0 * pi * t / Tp));
             const double decay = K_bus[idx * N + i] / (2.0 * pi) + D_nodes[i];
             k1[i] = dw;
             k1[N + i] = (P_m[i] - coupling - decay * dw + u) / M_bus[idx * N + i];
@@ -234,10 +226,8 @@ extern "C" __global__ void simulate_delta_f_trajectories(
                 if (Bij != 0.0) coupling += Bij * sin(th - yt[j]);
             }
             double u = 0.0;
-            if (i == pb) {
-                const double tt = t + 0.5 * dt;
-                if (tt <= Tp) u = A * 0.5 * (1.0 - cos(2.0 * pi * tt / Tp));
-            }
+            const double tt2 = t + 0.5 * dt;
+            if (tt2 <= Tp) u = input_map[a * N + i] * A * 0.5 * (1.0 - cos(2.0 * pi * tt2 / Tp));
             const double decay = K_bus[idx * N + i] / (2.0 * pi) + D_nodes[i];
             k2[i] = dw;
             k2[N + i] = (P_m[i] - coupling - decay * dw + u) / M_bus[idx * N + i];
@@ -253,10 +243,8 @@ extern "C" __global__ void simulate_delta_f_trajectories(
                 if (Bij != 0.0) coupling += Bij * sin(th - yt[j]);
             }
             double u = 0.0;
-            if (i == pb) {
-                const double tt = t + 0.5 * dt;
-                if (tt <= Tp) u = A * 0.5 * (1.0 - cos(2.0 * pi * tt / Tp));
-            }
+            const double tt3 = t + 0.5 * dt;
+            if (tt3 <= Tp) u = input_map[a * N + i] * A * 0.5 * (1.0 - cos(2.0 * pi * tt3 / Tp));
             const double decay = K_bus[idx * N + i] / (2.0 * pi) + D_nodes[i];
             k3[i] = dw;
             k3[N + i] = (P_m[i] - coupling - decay * dw + u) / M_bus[idx * N + i];
@@ -272,10 +260,8 @@ extern "C" __global__ void simulate_delta_f_trajectories(
                 if (Bij != 0.0) coupling += Bij * sin(th - yt[j]);
             }
             double u = 0.0;
-            if (i == pb) {
-                const double tt = t + dt;
-                if (tt <= Tp) u = A * 0.5 * (1.0 - cos(2.0 * pi * tt / Tp));
-            }
+            const double tt4 = t + dt;
+            if (tt4 <= Tp) u = input_map[a * N + i] * A * 0.5 * (1.0 - cos(2.0 * pi * tt4 / Tp));
             const double decay = K_bus[idx * N + i] / (2.0 * pi) + D_nodes[i];
             k4[i] = dw;
             k4[N + i] = (P_m[i] - coupling - decay * dw + u) / M_bus[idx * N + i];
@@ -313,9 +299,11 @@ class CudaTrajectoryEngine:
         self._amp = np.ascontiguousarray(
             np.array([d.amplitude for d in catalog], dtype=np.float64)
         )
-        self._bus = np.ascontiguousarray(
-            np.array([d.bus for d in catalog], dtype=np.int32)
+        self._input_map = np.ascontiguousarray(
+            np.stack([sim.physical_input_map[d.bus] for d in catalog]),
+            dtype=np.float64,
         )
+        self._observation_bus = int(sim.observation_bus)
         self._dur = np.ascontiguousarray(
             np.array([d.duration for d in catalog], dtype=np.float64)
         )
@@ -375,7 +363,8 @@ class CudaTrajectoryEngine:
                 cuda.In(self._theta0),
                 cuda.In(self._omega0),
                 cuda.In(self._amp),
-                cuda.In(self._bus),
+                cuda.In(self._input_map),
+                np.int32(self._observation_bus),
                 cuda.In(self._dur),
                 np.float64(self.ode_dt),
                 np.float64(self.fs_hz),
@@ -443,7 +432,8 @@ class CudaTrajectoryEngine:
                 cuda.In(self._theta0),
                 cuda.In(self._omega0),
                 cuda.In(self._amp),
-                cuda.In(self._bus),
+                cuda.In(self._input_map),
+                np.int32(self._observation_bus),
                 cuda.In(self._dur),
                 np.float64(self.ode_dt),
                 cuda.Out(out_batch),
@@ -504,7 +494,8 @@ class CudaTrajectoryEngine:
                 cuda.In(self._theta0),
                 cuda.In(self._omega0),
                 cuda.In(self._amp),
-                cuda.In(self._bus),
+                cuda.In(self._input_map),
+                np.int32(self._observation_bus),
                 cuda.In(self._dur),
                 np.float64(self.ode_dt),
                 np.float64(self.fs_hz),

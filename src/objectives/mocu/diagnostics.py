@@ -39,19 +39,9 @@ def select_myopic_action(
     idx = rng.choice(len(w), size=min(n_hyp, len(w)), p=w, replace=True)
     noise = rng.normal(0.0, ctx.sigma_y, size=(len(idx), ctx.obs_dim))
 
-    if bool(getattr(ctx, "continuous_duration_mode", False)) or str(
-        getattr(ctx, "observation_mode", "")
-    ).startswith("continuous_duration"):
-        from src.domains.sir.design import chronological_feasible
-
-        remaining = max(int(ctx.horizon) - len(used), 1)
-        feasible = chronological_feasible(
-            ctx.n_actions, list(used), remaining_steps=remaining
-        )
-    else:
-        feasible = np.asarray(
-            [a for a in range(ctx.n_actions) if a not in used], dtype=int
-        )
+    feasible = np.asarray(
+        [a for a in range(ctx.n_actions) if a not in used], dtype=int
+    )
     if feasible.size == 0:
         raise RuntimeError("No feasible action remains for myopic selection")
 

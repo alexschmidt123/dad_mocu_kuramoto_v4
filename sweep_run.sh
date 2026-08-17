@@ -10,11 +10,6 @@
 # Cartesian product (every config × every T):
 #   bash sweep_run.sh --configs ieee5,ieee9 --T 4,8
 #
-# Plan-2 trap objective grid (replaces obsolete scripts/plan2_*.sh):
-#   bash sweep_run.sh --config configs/ieee5_plan2_trap.yaml \
-#       --experiment_type objective_based --T 2,3,4,5 \
-#       --N_obs 200 --noise_sigma 0.01,0.001 --seed 101
-#
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -49,8 +44,6 @@ usage() {
     echo "  $0 --configs ieee5,ieee9 --T 8          # same T, multiple yaml" >&2
     echo "  $0 --configs ieee5 --T 4,5,8            # same yaml, multiple T" >&2
     echo "  $0 --configs ieee5,ieee9 --T 4,8        # product of both" >&2
-    echo "  $0 --config configs/ieee5_plan2_trap.yaml --experiment_type objective_based \\" >&2
-    echo "      --T 2,3,4,5 --N_obs 200 --noise_sigma 0.01,0.001 --seed 101" >&2
 }
 
 resolve_cfg() {

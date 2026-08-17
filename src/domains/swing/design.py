@@ -171,8 +171,9 @@ def random_valid_sequence(
 
 def build_catalog(cfg: SBOEDConfig) -> list[Design]:
     durations = getattr(cfg, "probe_durations", None)
+    design_bus_count = int(cfg.swing.get("physical_bus_count", cfg.N))
     return build_design_catalog(
-        cfg.N,
+        design_bus_count,
         cfg.probe_amplitudes,
         cfg.probe_duration,
         buses=cfg.probe_buses,
@@ -183,4 +184,9 @@ def build_catalog(cfg: SBOEDConfig) -> list[Design]:
 def build_simulator(cfg: SBOEDConfig):
     from src.domains.swing.simulator import SwingSimulator
 
-    return SwingSimulator(cfg.swing, fs_hz=cfg.fs_hz, T_obs_sec=cfg.T_obs_sec)
+    return SwingSimulator(
+        cfg.swing,
+        fs_hz=cfg.fs_hz,
+        T_obs_sec=cfg.T_obs_sec,
+        ode_dt=float(cfg.swing.get("ode_dt", 1.0 / 160.0)),
+    )

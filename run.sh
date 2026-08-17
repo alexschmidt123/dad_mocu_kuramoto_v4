@@ -6,8 +6,6 @@
 #   bash run.sh --config configs/ieee5.yaml --experiment_type eig_based
 #   bash run.sh --config configs/sir_ode.yaml
 #   bash run.sh --config configs/ieee9.yaml --method dad --force
-#   bash run.sh --config configs/ieee5_plan2_trap.yaml --bank-structure-audit \
-#       --experiment_type objective_based -T 3 --N_obs 200 --noise_sigma 0.01
 #
 # Result folder (allocated once, reused for all steps):
 #   experiments/date_time_configname_Uctrl|EIG_Tnum_NobsN_sigmaX
@@ -100,7 +98,6 @@ usage() {
     echo "  bash run.sh --config configs/ieee5.yaml" >&2
     echo "  bash run.sh --config configs/ieee5.yaml --T 8" >&2
     echo "  bash run.sh --config configs/sir_ode.yaml" >&2
-    echo "  bash run.sh --config configs/ieee5_plan2_trap.yaml --bank-structure-audit -T 3 --N_obs 200 --noise_sigma 0.01" >&2
 }
 
 while [[ $# -gt 0 ]]; do

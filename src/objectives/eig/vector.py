@@ -34,12 +34,17 @@ def _eig_feasible(
     *,
     remaining_steps: int | None = None,
 ) -> np.ndarray:
-    """No-repeat actions; SIR also requires strictly increasing measurement times.
+    """Return actions allowed by the domain's sequential-design constraints.
+
+    SIR measurement times are chronological. Power-grid probe durations are
+    independent experimental designs: they may be selected in any order, but
+    an already-used duration is masked.
 
     ``remaining_steps`` counts actions still to choose *including* the current
     step (defaults to ``horizon - len(actions)``).
     """
-    if str(getattr(ctx, "observation_mode", "")).startswith("sir_"):
+    chronological = str(getattr(ctx, "observation_mode", "")).startswith("sir_")
+    if chronological:
         rem = (
             int(remaining_steps)
             if remaining_steps is not None
@@ -86,6 +91,12 @@ def _soft_bc_loss(
         )
     temp = max(float(temperature), 1e-3)
     feas = torch.as_tensor(np.asarray(feasible, dtype=int), device=logits.device)
+    feasible_logits = logits[:, feas]
+    if bool((feasible_logits <= -1e8).any()):
+        raise RuntimeError(
+            "EIG behavioral-cloning feasible actions disagree with the policy "
+            "feasible-action mask; refusing to optimize invalid targets."
+        )
     raw = torch.as_tensor(
         feasible_scores,
         dtype=torch.float32,
@@ -99,7 +110,7 @@ def _soft_bc_loss(
         device=logits.device,
         dtype=logits.dtype,
     )
-    masked[:, feas] = logits[:, feas]
+    masked[:, feas] = feasible_logits
     log_p = torch.log_softmax(masked, dim=-1)[:, feas]
     return torch.sum(
         target * (torch.log(target.clamp_min(1e-8)) - log_p.squeeze(0))
@@ -272,7 +283,10 @@ def _policy_tensors(
     common tensor shapes, while masking every objective-specific feature:
 
     * belief[7:29] -- U quantiles, u_ctrl, and U-level posterior masses;
-    * particles[..., 2] -- standardized U attached to each (M, K) particle.
+    * legacy 3-column particles[..., 2] -- standardized MOCU-only U.
+
+    New EIG contexts contain only the full machine-wise [M..., K...] latent
+    vector, so no particle coordinate is masked in that representation.
 
     EIG policies retain history, ESS, maximum posterior mass, M/K summaries,
     posterior particle weights, and the feasible-action mask.
@@ -288,14 +302,26 @@ def _policy_tensors(
         device=device,
     )
     action_idx, obs, mask, belief, steps, particles, weights, feasible = tensors
+    expected_actions = _eig_feasible(
+        ctx,
+        actions,
+        remaining_steps=max(int(ctx.horizon) - int(step), 0),
+    )
+    expected_feasible = torch.zeros_like(feasible)
+    expected_feasible[
+        0, torch.as_tensor(expected_actions, dtype=torch.long, device=device)
+    ] = True
+    if not torch.equal(feasible, expected_feasible):
+        raise RuntimeError(
+            "EIG scoring and policy feasible-action masks disagree "
+            f"at step={step}, history={actions}."
+        )
     belief = belief.clone()
     belief[..., 7:29] = 0.0
     particles = particles.clone()
-    if particles.shape[-1] < 3:
-        raise RuntimeError(
-            "EIG particle features must contain [M, K, U] before U masking"
-        )
-    particles[..., 2] = 0.0
+    if particles.shape[-1] == 3:
+        # Backward compatibility for legacy/SIR contexts built as [M, K, U].
+        particles[..., 2] = 0.0
     return action_idx, obs, mask, belief, steps, particles, weights, feasible
 
 
@@ -337,6 +363,7 @@ def _load_policy(
         obs_dim=ctx.obs_dim,
         summary_dim=33,
         hidden=hidden,
+        particle_dim=int(ctx.particle_features.shape[1]),
     )
     if policy_cls is BeliefConditionedMoEPolicy:
         policy = policy_cls(
@@ -382,6 +409,7 @@ def train_vector_eig_policy(
         obs_dim=ctx.obs_dim,
         summary_dim=33,
         hidden=hidden,
+        particle_dim=int(ctx.particle_features.shape[1]),
     )
     is_residual_policy = method in {"moe_sboed", "matched_dense"}
     if is_residual_policy:
@@ -406,6 +434,9 @@ def train_vector_eig_policy(
             logit_scale_init=float(training.get("eig_moe_logit_scale_init", 3.0)),
             balance_coefficient=float(
                 training.get("eig_moe_balance_coefficient", 0.001)
+            ),
+            routing_information_coefficient=float(
+                training.get("eig_moe_routing_information_coefficient", 0.0)
             ),
             redundancy_coefficient=float(
                 training.get("eig_moe_redundancy_coefficient", 0.01)
@@ -449,10 +480,15 @@ def train_vector_eig_policy(
     bc_temperature = float(training.get("eig_bc_temperature", 0.5))
     bc_lookahead = str(training.get("eig_bc_lookahead", "two_step")).lower()
     bc_fantasies = int(training.get("eig_bc_fantasies", 16 if not smoke else 4))
-    # RL-sBOED uses PPO by default (stepwise returns); DAD keeps REINFORCE.
+    # RL-sBOED uses PPO with stepwise reward-to-go.  DAD may use the same
+    # variance-reduction machinery while retaining its distinct terminal-EIG
+    # return at every step; this changes the estimator, not DAD's objective.
     rl_use_ppo = bool(training.get("eig_rl_use_ppo", True))
+    dad_use_ppo = bool(training.get("eig_dad_use_ppo", False))
     use_actor_critic = isinstance(policy, BeliefConditionedMoEPolicy) or (
         method == "rl_sboed_eig" and rl_use_ppo
+    ) or (
+        method == "dad_eig" and dad_use_ppo
     )
     if use_actor_critic:
         critic = StateValueCritic(
@@ -462,6 +498,7 @@ def train_vector_eig_policy(
                 obs_dim=ctx.obs_dim,
                 summary_dim=33,
                 hidden=hidden,
+                particle_dim=int(ctx.particle_features.shape[1]),
             ),
         ).to(device)
         critic_optimizer = torch.optim.AdamW(
@@ -925,15 +962,16 @@ def train_vector_eig_policy(
                 ),
                 "training_seed": int(seed),
                 "policy_hidden": hidden,
+                "particle_dim": int(ctx.particle_features.shape[1]),
                 "obs_dim": ctx.obs_dim,
                 "n_obs": ctx.n_obs,
-                "policy_input": "eig_information_only_v1",
+                "policy_input": "eig_information_only_spatial_latent_v2",
                 "policy_input_retained": (
                     "history,ESS,max_weight,M_summary,K_summary,"
-                    "posterior_weights,feasible_actions"
+                    "machinewise_MK_particles,posterior_weights,feasible_actions"
                 ),
                 "policy_input_masked": (
-                    "U_quantiles,u_ctrl,U_level_masses,particle_U"
+                    "U_quantiles,u_ctrl,U_level_masses"
                 ),
                 "experiment_dir": str(ctx.out_dir.resolve()),
                 "architecture": (
@@ -962,6 +1000,7 @@ def train_vector_eig_policy(
                 "eig_bc_lookahead": bc_lookahead,
                 "eig_bc_temperature": bc_temperature,
                 "eig_rl_use_ppo": bool(use_actor_critic and method == "rl_sboed_eig"),
+                "eig_dad_use_ppo": bool(use_actor_critic and method == "dad_eig"),
                 "eig_moe_cf_coefficient": (
                     cf_coefficient
                     if isinstance(policy, BeliefConditionedMoEPolicy)
@@ -989,6 +1028,9 @@ def train_vector_eig_policy(
                 ),
                 "eig_moe_balance_coefficient": float(
                     getattr(policy, "balance_coefficient", 0.0)
+                ),
+                "eig_moe_routing_information_coefficient": float(
+                    getattr(policy, "routing_information_coefficient", 0.0)
                 ),
                 "eig_moe_redundancy_coefficient": float(
                     getattr(policy, "redundancy_coefficient", 0.0)

@@ -404,6 +404,7 @@ class BeliefConditionedMoEPolicy(nn.Module):
         expert_hidden: int | None = None,
         logit_scale_init: float = 3.0,
         balance_coefficient: float = 0.001,
+        routing_information_coefficient: float = 0.0,
         redundancy_coefficient: float = 0.01,
     ):
         super().__init__()
@@ -417,6 +418,9 @@ class BeliefConditionedMoEPolicy(nn.Module):
         # dense control sets it larger so its capacity matches the mixture.
         self.expert_hidden = int(expert_hidden) if expert_hidden else hidden
         self.balance_coefficient = float(balance_coefficient)
+        self.routing_information_coefficient = float(
+            routing_information_coefficient
+        )
         self.redundancy_coefficient = float(redundancy_coefficient)
         self.backbone = _PolicyBackbone(self.n_actions, self.config)
         self.base_head = nn.Sequential(
@@ -579,22 +583,40 @@ class BeliefConditionedMoEPolicy(nn.Module):
             redundancy = similarity.sum() * 0.0
         else:
             redundancy = F.relu(similarity[:, off_diagonal]).square().mean()
-        router_entropy = -(weights * weights.clamp_min(1e-8).log()).sum(-1).mean()
-        # Weak load balancing prevents dead experts without forcing a uniform
-        # router when one posterior regime legitimately dominates.
+        conditional_entropy = -(
+            weights * weights.clamp_min(1e-8).log()
+        ).sum(-1).mean()
+        marginal_entropy = -(
+            mean_usage * mean_usage.clamp_min(1e-8).log()
+        ).sum()
+        # H(E|belief)-H(E) is the negative routing mutual information.  Its
+        # minimum is attained by confident, belief-dependent assignments that
+        # use several experts; both one-expert collapse and uniform routing
+        # have zero mutual information.  The separate load term supplies a
+        # gradient when a saturated router has already collapsed.
+        negative_routing_information = conditional_entropy - marginal_entropy
         loss = (
             float(self.balance_coefficient) * balance
+            + float(self.routing_information_coefficient)
+            * negative_routing_information
             + float(self.redundancy_coefficient) * redundancy
         )
         global_scale = float(F.softplus(self.logit_scale).clamp(max=20.0).detach())
         gate_mean = float((scale.detach().reshape(-1) / max(global_scale, 1e-6)).mean())
         stats = {
-            "router_entropy": float(router_entropy.detach()),
+            "router_entropy": float(conditional_entropy.detach()),
+            "router_marginal_entropy": float(marginal_entropy.detach()),
+            "router_mutual_information": float(
+                (-negative_routing_information).detach()
+            ),
             "expert_redundancy": float(redundancy.detach()),
             "max_expert_usage": float(mean_usage.max().detach()),
             "expert_logit_scale": global_scale,
             "belief_residual_gate_mean": gate_mean,
             "moe_balance_coefficient": float(self.balance_coefficient),
+            "moe_routing_information_coefficient": float(
+                self.routing_information_coefficient
+            ),
             "moe_redundancy_coefficient": float(self.redundancy_coefficient),
         }
         return loss, stats
@@ -610,9 +632,31 @@ class BeliefConditionedMoEPolicy(nn.Module):
         target = self._fingerprint(target_utility.detach(), feasible_mask)
         self._initialize_prototypes(target)
         distance = torch.cdist(target, self.regime_prototypes).square()
-        responsibilities = torch.softmax(
-            -distance / self.prototype_temperature, dim=-1
-        )
+        # Balanced soft clustering prevents the decision-regime targets from
+        # silently assigning every posterior state to one prototype.  This is
+        # an entropic optimal-transport assignment over the current batch,
+        # not supervision from any external BOED method.
+        assignment_logits = -distance / self.prototype_temperature
+        responsibilities = torch.exp(
+            assignment_logits - assignment_logits.max()
+        ).transpose(0, 1)
+        responsibilities = responsibilities.clamp_min(1e-8)
+        responsibilities = responsibilities / responsibilities.sum()
+        for _ in range(3):
+            responsibilities = responsibilities / responsibilities.sum(
+                dim=1, keepdim=True
+            ).clamp_min(1e-8)
+            responsibilities = responsibilities / self.n_experts
+            responsibilities = responsibilities / responsibilities.sum(
+                dim=0, keepdim=True
+            ).clamp_min(1e-8)
+            responsibilities = responsibilities / max(
+                int(assignment_logits.shape[0]), 1
+            )
+        responsibilities = (
+            responsibilities
+            * max(int(assignment_logits.shape[0]), 1)
+        ).transpose(0, 1).detach()
         if self.training:
             self._update_prototypes(target, responsibilities)
 

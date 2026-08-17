@@ -108,6 +108,97 @@ def _swing_bounds(cfg) -> tuple[float, float, float, float]:
     )
 
 
+def _sample_power_grid_prior(
+    cfg: SBOEDConfig,
+    n: int,
+    rng: np.random.Generator,
+) -> tuple[np.ndarray, np.ndarray, dict[str, Any]]:
+    """Sample a machine-wise, legacy buswise, or aggregate M/K prior.
+
+    ``machinewise_mk`` samples a distinct inertia and fast-response value for
+    every retained dynamic machine.  Per-machine bounds are required so the
+    six IEEE-9 latent coordinates retain their physical bus identities.
+
+    ``aggregate_mk`` keeps the nominal inertia shape fixed and makes only its
+    global scale and the aggregate fast-response magnitude uncertain.  The
+    simulator still receives one M/K value per retained dynamic bus.
+    """
+    sw = cfg.swing
+    model = str(sw.get("latent_model", "buswise_mk")).lower()
+    if model == "machinewise_mk":
+        m_lo = np.asarray(sw.get("M_lower_nodes"), dtype=np.float64)
+        m_hi = np.asarray(sw.get("M_upper_nodes"), dtype=np.float64)
+        k_lo = np.asarray(sw.get("K_lower_nodes"), dtype=np.float64)
+        k_hi = np.asarray(sw.get("K_upper_nodes"), dtype=np.float64)
+        for name, values in (
+            ("M_lower_nodes", m_lo),
+            ("M_upper_nodes", m_hi),
+            ("K_lower_nodes", k_lo),
+            ("K_upper_nodes", k_hi),
+        ):
+            if values.shape != (cfg.N,) or not np.all(np.isfinite(values)):
+                raise ValueError(f"{name} must contain {cfg.N} finite values")
+        if np.any(m_lo <= 0.0) or np.any(m_hi <= m_lo):
+            raise ValueError("machine-wise inertia bounds require 0 < lower < upper")
+        if np.any(k_lo < 0.0) or np.any(k_hi <= k_lo):
+            raise ValueError("machine-wise K bounds require 0 <= lower < upper")
+
+        M = rng.uniform(m_lo, m_hi, size=(n, cfg.N))
+        K = rng.uniform(k_lo, k_hi, size=(n, cfg.N))
+        dynamic_buses = list(sw.get("dynamic_machine_buses", range(1, cfg.N + 1)))
+        if len(dynamic_buses) != cfg.N:
+            raise ValueError(
+                f"dynamic_machine_buses must contain {cfg.N} physical bus numbers"
+            )
+        return M, K, {
+            "latent_model": "machinewise_mk",
+            "latent_dimension": 2 * cfg.N,
+            "latent_names": [
+                *(f"M_{bus}" for bus in dynamic_buses),
+                *(f"K_{bus}" for bus in dynamic_buses),
+            ],
+            "M_lower_nodes": m_lo.tolist(),
+            "M_upper_nodes": m_hi.tolist(),
+            "K_lower_nodes": k_lo.tolist(),
+            "K_upper_nodes": k_hi.tolist(),
+        }
+    if model != "aggregate_mk":
+        M_lo, M_hi, K_lo, K_hi = _swing_bounds(cfg)
+        M, K = sample_mk_prior(M_lo, M_hi, K_lo, K_hi, n, rng, n_buses=cfg.N)
+        return M, K, {"latent_model": "buswise_mk", "latent_dimension": 2 * cfg.N}
+
+    nominal_M = np.asarray(sw.get("M_nominal_nodes"), dtype=np.float64)
+    participation = np.asarray(sw.get("K_participation_nodes"), dtype=np.float64)
+    if nominal_M.shape != (cfg.N,) or np.any(nominal_M <= 0.0):
+        raise ValueError(f"M_nominal_nodes must contain {cfg.N} positive values")
+    if participation.shape != (cfg.N,) or np.any(participation < 0.0):
+        raise ValueError(f"K_participation_nodes must contain {cfg.N} nonnegative values")
+    part_sum = float(participation.sum())
+    if part_sum <= 0.0:
+        raise ValueError("K_participation_nodes must have positive sum")
+    participation = participation / part_sum
+
+    m_lo = float(sw["M_scale_lower"])
+    m_hi = float(sw["M_scale_upper"])
+    k_lo = float(sw["K_total_lower"])
+    k_hi = float(sw["K_total_upper"])
+    if not (0.0 < m_lo < m_hi and 0.0 <= k_lo < k_hi):
+        raise ValueError("invalid aggregate M/K prior bounds")
+    m_scale = rng.uniform(m_lo, m_hi, size=n)
+    k_total = rng.uniform(k_lo, k_hi, size=n)
+    M = m_scale[:, None] * nominal_M[None, :]
+    K = k_total[:, None] * participation[None, :]
+    return M, K, {
+        "latent_model": "aggregate_mk",
+        "latent_dimension": 2,
+        "latent_names": ["M_scale", "K_total"],
+        "M_scale_bounds": [m_lo, m_hi],
+        "K_total_bounds": [k_lo, k_hi],
+        "M_nominal_nodes": nominal_M.tolist(),
+        "K_participation_nodes": participation.tolist(),
+    }
+
+
 def bank_is_neat(path: Path) -> bool:
     path = Path(path)
     if not path.is_dir() or not all((path / rel).is_file() for rel in NEAT_BANK_RELPATHS):
@@ -407,27 +498,35 @@ def generate_physical_bank(
     sim = build_simulator(cfg)
     engine = CudaTrajectoryEngine(sim, catalog)
     continuous = bool(getattr(cfg, "continuous_duration_mode", False))
-    # Continuous-duration banks only need R(θ,d)=max|RoCoF|; store a stub Δf
-    # of length 1 so neat-layout completeness checks still pass.
-    n_sim = 1 if continuous else engine.n_sim_steps()
+    duration_only = (
+        cfg.probe_durations is not None
+        and len(cfg.probe_amplitudes) == 1
+        and cfg.probe_buses is not None
+        and len(cfg.probe_buses) == 1
+    )
+    # Store the full clean trajectory for every design, including the
+    # duration-only setting.  This keeps N_obs an observation-layer choice:
+    # N_obs=0 can reuse max_rocof.npy, while N_obs>0 samples delta_f.npy.
+    n_sim = engine.n_sim_steps()
     n_train = 8 if smoke else int(cfg.theta_sample_size("train"))
     n_test = 4 if smoke else int(cfg.theta_sample_size("test"))
     train_seed = int(cfg.data.get("train_seed", 101))
     test_seed = int(cfg.data.get("test_seed", 202))
-    M_lo, M_hi, K_lo, K_hi = _swing_bounds(cfg)
     batch = int(cfg.data.get("cuda_batch_size", 128))
+    _, _, latent_meta = _sample_power_grid_prior(
+        cfg, 1, np.random.default_rng(0)
+    )
     t_gen0 = time.time()
     print(
         f"[{system}] generating physical banks: "
         f"train={n_train} test={n_test} actions={n_actions} N_sim={n_sim}"
-        + (" (rocof_only continuous-duration)" if continuous else "")
     )
 
     def _gen_split(split: str, n: int, seed: int) -> dict[str, Any]:
         split_dir = path / split
         split_dir.mkdir(parents=True, exist_ok=True)
         rng = np.random.default_rng(seed)
-        M, K = sample_mk_prior(M_lo, M_hi, K_lo, K_hi, n, rng, n_buses=cfg.N)
+        M, K, latent_meta = _sample_power_grid_prior(cfg, n, rng)
         bank = np.lib.format.open_memmap(
             split_dir / "delta_f.npy",
             mode="w+",
@@ -440,39 +539,23 @@ def generate_physical_bank(
             dtype=np.float64,
             shape=(n, n_actions),
         )
-        if continuous:
-            print(
-                f"[{system}] generating {split}: {n} θ × {n_actions} "
-                f"(max |ROCOF| only; stub Δf shape (*,*,1))"
+        print(
+            f"[{system}] generating {split}: {n} θ × {n_actions} × N_sim={n_sim} "
+            f"(full Δf + max |ROCOF|)"
+        )
+        for i in range(n):
+            M_rows = np.tile(M[i][None, :], (n_actions, 1))
+            K_rows = np.tile(K[i][None, :], (n_actions, 1))
+            actions = np.arange(n_actions, dtype=np.int32)
+            df = engine.simulate_delta_f_batch(
+                M_rows, K_rows, actions, batch_size=batch
             )
-            for i in range(n):
-                M_rows = np.tile(M[i][None, :], (n_actions, 1))
-                K_rows = np.tile(K[i][None, :], (n_actions, 1))
-                actions = np.arange(n_actions, dtype=np.int32)
-                rocof_bank[i] = engine.simulate_one_step_f_batch(
-                    M_rows, K_rows, actions, batch_size=batch
-                )
-                bank[i, :, 0] = 0.0
-                if (i + 1) % max(1, n // 10) == 0 or i + 1 == n:
-                    print(f"  {split} θ {i + 1}/{n}")
-        else:
-            print(
-                f"[{system}] generating {split}: {n} θ × {n_actions} × N_sim={n_sim} "
-                f"(full Δf + max |ROCOF|)"
+            bank[i] = df
+            rocof_bank[i] = engine.simulate_one_step_f_batch(
+                M_rows, K_rows, actions, batch_size=batch
             )
-            for i in range(n):
-                M_rows = np.tile(M[i][None, :], (n_actions, 1))
-                K_rows = np.tile(K[i][None, :], (n_actions, 1))
-                actions = np.arange(n_actions, dtype=np.int32)
-                df = engine.simulate_delta_f_batch(
-                    M_rows, K_rows, actions, batch_size=batch
-                )
-                bank[i] = df
-                rocof_bank[i] = engine.simulate_one_step_f_batch(
-                    M_rows, K_rows, actions, batch_size=batch
-                )
-                if (i + 1) % max(1, n // 10) == 0 or i + 1 == n:
-                    print(f"  {split} θ {i + 1}/{n}")
+            if (i + 1) % max(1, n // 10) == 0 or i + 1 == n:
+                print(f"  {split} θ {i + 1}/{n}")
         bank.flush()
         rocof_bank.flush()
         np.save(split_dir / "theta_M.npy", M)
@@ -505,14 +588,20 @@ def generate_physical_bank(
     catalog_doc: dict[str, Any] = {
         "designs": designs,
         "ordering": (
-            "duration_grid_fixed_amp_bus" if continuous else "outer_amplitude_inner_bus"
+            "duration_grid_fixed_amp_bus"
+            if duration_only
+            else "outer_amplitude_inner_bus"
         ),
         "n_actions": n_actions,
         "amplitudes": list(cfg.probe_amplitudes),
-        "buses": list(cfg.probe_buses) if continuous else list(range(cfg.N)),
+        "buses": (
+            list(cfg.probe_buses)
+            if cfg.probe_buses is not None
+            else list(range(cfg.N))
+        ),
         "duration_s": float(cfg.probe_duration),
     }
-    if continuous:
+    if duration_only:
         catalog_doc["durations_s"] = durations
     (path / "meta" / "catalog.json").write_text(
         json.dumps(catalog_doc, indent=2),
@@ -523,22 +612,33 @@ def generate_physical_bank(
         "system": system,
         "layout": "meta_train_test_v1",
         "physical_observation": (
-            "max_abs_rocof_stub_delta_f"
-            if continuous
-            else "full_delta_f_plus_max_abs_rocof"
+            "full_delta_f_plus_max_abs_rocof"
         ),
         "delta_f_definition": (
-            "stub zeros (N_sim=1); observation is max_rocof"
-            if continuous
+            f"fixed physical PMU bus {int(cfg.swing.get('observation_bus', 1))} "
+            "omega/(2*pi) [Hz deviation] at every ODE step; physical probe "
+            "injections mapped through Kron reduction"
+            if cfg.swing.get("physical_bus_count") is not None
             else "probe_bus omega/(2*pi) [Hz deviation] at every ODE step"
         ),
         "max_rocof_definition": "max |ROCOF| from fs-downsampled probe simulation",
         "nominal_frequency_hz": 60.0,
         "n_buses": int(cfg.N),
-        "latent_dimension": 2 * int(cfg.N),
+        "physical_bus_count": int(cfg.swing.get("physical_bus_count", cfg.N)),
+        "dynamic_machine_buses": list(cfg.swing.get("dynamic_machine_buses", [])),
+        "observation_bus_physical": int(cfg.swing.get("observation_bus", 1)),
+        "physical_probe_mapping": (
+            "lossless_linear_kron_to_dynamic_buses"
+            if cfg.swing.get("physical_bus_count") is not None
+            else "direct"
+        ),
+        **latent_meta,
         "n_actions": n_actions,
         "N_sim": n_sim,
         "continuous_duration_mode": continuous,
+        "design_mode": "duration_only_reset" if duration_only and not continuous else (
+            "duration_only_carry_state" if duration_only else "catalog"
+        ),
         "ode_dt": float(sim.ode_dt),
         "T_obs_sec": float(sim.T_obs_sec),
         "fs_hz": float(sim.fs_hz),
@@ -633,7 +733,29 @@ def load_bank_from_path(
         )
     with (path / "meta" / "bank.yaml").open(encoding="utf-8") as f:
         meta = yaml.safe_load(f) or {}
+    if cfg is not None:
+        expected_model = str(cfg.swing.get("latent_model", "buswise_mk")).lower()
+        bank_model = str(meta.get("latent_model", "buswise_mk")).lower()
+        expected_dim = 2 if expected_model == "aggregate_mk" else 2 * int(cfg.N)
+        bank_dim = int(meta.get("latent_dimension", expected_dim))
+        if bank_model != expected_model or bank_dim != expected_dim:
+            raise ValueError(
+                f"Physical databank latent model is incompatible with {cfg.config_path}: "
+                f"bank has {bank_model!r} dimension {bank_dim}, config requires "
+                f"{expected_model!r} dimension {expected_dim}. Regenerate the offline "
+                "databank before training or evaluation."
+            )
     catalog = json.loads((path / "meta" / "catalog.json").read_text(encoding="utf-8"))
+    if cfg is not None:
+        expected_catalog = [list(d.as_tuple()) for d in build_catalog(cfg)]
+        bank_catalog = list(catalog.get("designs") or [])
+        if bank_catalog != expected_catalog:
+            raise ValueError(
+                f"Physical databank action catalog is incompatible with {cfg.config_path}: "
+                f"bank has {len(bank_catalog)} actions but its amplitude/bus/duration "
+                f"tuples do not match the config's {len(expected_catalog)} actions. "
+                "Regenerate the offline databank before training or evaluation."
+            )
     psi_train = load_psi_star(path / "train")
     psi_test = load_psi_star(path / "test")
     out: dict[str, Any] = {

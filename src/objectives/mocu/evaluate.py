@@ -160,9 +160,7 @@ def evaluate_random(
         for replicate in range(int(replicates_per_system)):
             rid = tid * int(replicates_per_system) + replicate
             rng = np.random.default_rng(seed + rid * 17)
-            chrono = bool(getattr(ctx, "continuous_duration_mode", False)) or str(
-                getattr(ctx, "observation_mode", "")
-            ).startswith("continuous_duration")
+            chrono = False
 
             def choose(log_w, used, step, rng=rng, chrono=chrono):
                 if chrono:
