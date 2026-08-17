@@ -375,38 +375,11 @@ def low_ess_residual_influence_loss(
     ess_threshold: float,
 ) -> tuple[torch.Tensor, dict[str, float]]:
     """Encourage residual experts to move π away from the base when ESS is low."""
-    logits, _, _, scale, base = policy._components(*inputs)
-    belief = inputs[3]
-    ess = belief.reshape(belief.shape[0], -1)[:, 1]
-    thr = float(ess_threshold)
-    if thr <= 0.0:
-        zero = logits.sum() * 0.0
-        return zero, {
-            "low_ess_residual_kl": 0.0,
-            "low_ess_gate_mean": 0.0,
-            "expert_logit_scale": float(scale.detach().reshape(-1).mean()),
-        }
-    gate = ((thr - ess) / max(thr, 1e-6)).clamp(0.0, 1.0)
-    if float(gate.sum()) <= 1e-8:
-        zero = logits.sum() * 0.0
-        return zero, {
-            "low_ess_residual_kl": 0.0,
-            "low_ess_gate_mean": 0.0,
-            "expert_logit_scale": float(scale.detach().reshape(-1).mean()),
-        }
-    masked_final = logits.clamp(-50.0, 50.0).masked_fill(~feasible_mask, -1e9)
-    masked_base = base.clamp(-50.0, 50.0).masked_fill(~feasible_mask, -1e9)
-    log_p = F.log_softmax(masked_final, dim=-1)
-    log_q = F.log_softmax(masked_base, dim=-1)
-    kl = (log_p.exp() * (log_p - log_q)).sum(dim=-1)
-    w_sum = gate.sum().clamp_min(1e-8)
-    # Maximize KL on low-ESS states → minimize negative weighted KL.
-    loss = -(gate * kl).sum() / w_sum
-    return loss, {
-        "low_ess_residual_kl": float((gate * kl).sum().detach() / w_sum.detach()),
-        "low_ess_gate_mean": float(gate.mean().detach()),
-        "expert_logit_scale": float(scale.detach().reshape(-1).mean()),
-    }
+    return policy.low_ess_residual_loss(
+        *inputs,
+        feasible_mask=feasible_mask,
+        ess_threshold=ess_threshold,
+    )
 
 
 def residual_scale_floor_loss(
@@ -415,14 +388,7 @@ def residual_scale_floor_loss(
     target: float,
 ) -> tuple[torch.Tensor, dict[str, float]]:
     """Hinge penalty if softplus(logit_scale) falls below ``target``."""
-    scale = F.softplus(policy.logit_scale).clamp(max=20.0)
-    gap = F.relu(float(target) - scale)
-    loss = gap.square()
-    return loss, {
-        "residual_scale": float(scale.detach()),
-        "residual_scale_target": float(target),
-        "residual_scale_gap": float(gap.detach()),
-    }
+    return policy.residual_scale_floor_loss(target=target)
 
 
 def fixed_sequence_bc_loss(

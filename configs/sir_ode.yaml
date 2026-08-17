@@ -83,20 +83,24 @@ training:
   eig_moe_ppo_epochs: 4
   eig_moe_ppo_clip: 0.2
   eig_moe_critic_lr: 0.001
-  # Keep a CF floor so MoE regimes do not decay to a single sequence.
-  eig_moe_cf_coefficient: 0.25
-  eig_moe_cf_anneal_fraction: 0.4
-  eig_moe_cf_floor_fraction: 0.25
-  # Cover enough same-step posterior regimes for the router/branching losses.
-  eig_moe_cf_rollouts_per_batch: 8
-  eig_moe_branching_coefficient: 0.25
-  # Prevent dead router branches; 0.005 still produced 82% mean usage on one
-  # expert in the independent 128-rollout mechanism audit.
+  # Real MoE: residuals/router only after base BC. No teacher ranking CE.
+  eig_moe_cf_coefficient: 0.0
+  eig_moe_cf_anneal_fraction: 0.0
+  eig_moe_cf_floor_fraction: 0.0
+  eig_moe_cf_rollouts_per_batch: 0
+  eig_moe_freeze_base_after_bc: false
+  eig_moe_leave_base_coefficient: 0.0
+  eig_moe_leave_base_margin: 0.5
+  eig_moe_branching_coefficient: 0.15
+  eig_moe_low_ess_residual_coefficient: 0.10
+  eig_moe_low_ess_threshold: 0.4
+  eig_moe_residual_scale_coefficient: 0.05
+  eig_moe_logit_scale_target: 3.5
   eig_moe_balance_coefficient: 0.05
   # Encourage confident expert choices that change with the posterior belief;
   # balancing above prevents this objective from collapsing to one expert.
   eig_moe_routing_information_coefficient: 0.01
-  eig_moe_redundancy_coefficient: 0.01
+  eig_moe_redundancy_coefficient: 0.02
   # Soft unique floor for checkpoint selection.
   eig_prefer_unique_sequence_floor: true
   eig_min_unique_sequence_fraction: 0.08

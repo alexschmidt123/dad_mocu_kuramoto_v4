@@ -381,17 +381,15 @@ class SharedBaseResidualMoEPolicy(nn.Module):
 
 
 class BeliefConditionedMoEPolicy(nn.Module):
-    """Belief-conditioned shared-base + residual MoE for sequential design.
+    """Belief-conditioned mixture of expert probe-rankers.
 
-    Innovation (not a fusion of Fixed/Myopic/DAD):
-      * shared base head = general probe ranking;
-      * learned residual experts = regime-specific corrections;
-      * belief-conditioned router (top-k) selects which experts apply;
-      * belief-gated residual scale lets corrections grow when the posterior
-        is informative / remaining horizon is non-trivial.
+    This is a real MoE, not a teacher clone and not a residual on myopic/DAD:
+      * E expert heads each emit a full action ranking;
+      * a belief-conditioned router picks a sparse top-k mixture;
+      * fused logits = Σ_e ŵ_e Expert_e(h)  (no added two-step/myopic base).
 
-    External baselines remain comparison methods only. They are never expert
-    heads inside this policy.
+    Expert 0 is a generalist warm-started by BC. Experts 1..E-1 are specialists.
+    External baselines (Fixed / Myopic / DAD / RL) are never expert heads.
     """
 
     def __init__(
@@ -413,9 +411,6 @@ class BeliefConditionedMoEPolicy(nn.Module):
         self.n_experts = int(n_experts)
         self.top_k = min(int(top_k), self.n_experts)
         hidden = self.config.hidden
-        # expert_hidden widens each expert head.  Defaults to ``hidden`` so the
-        # standard 4-expert model is unchanged; a 1-expert parameter-matched
-        # dense control sets it larger so its capacity matches the mixture.
         self.expert_hidden = int(expert_hidden) if expert_hidden else hidden
         self.balance_coefficient = float(balance_coefficient)
         self.routing_information_coefficient = float(
@@ -423,6 +418,7 @@ class BeliefConditionedMoEPolicy(nn.Module):
         )
         self.redundancy_coefficient = float(redundancy_coefficient)
         self.backbone = _PolicyBackbone(self.n_actions, self.config)
+        # Kept for older checkpoints; fused logits do not add this head.
         self.base_head = nn.Sequential(
             nn.Linear(hidden, hidden),
             nn.SiLU(),
@@ -438,19 +434,12 @@ class BeliefConditionedMoEPolicy(nn.Module):
                 for _ in range(self.n_experts)
             ]
         )
-        # Start as the shared base: residual experts contribute nothing until
-        # PPO / regime losses learn belief-dependent corrections.
-        for expert in self.experts:
-            nn.init.zeros_(expert[-1].weight)
-            nn.init.zeros_(expert[-1].bias)
         self.router = nn.Sequential(
             nn.Linear(hidden, max(1, hidden // 2)),
             nn.SiLU(),
             nn.Linear(max(1, hidden // 2), self.n_experts),
         )
-        # Belief-dependent residual strength: sigmoid gate on the shared
-        # latent. Bias +2 ⇒ gate≈0.88 at init so residuals can learn early
-        # without Fixed/Myopic cloning.
+        # Unused in the fused path; kept so older residual_gate checkpoints load.
         self.residual_gate = nn.Sequential(
             nn.Linear(hidden, max(1, hidden // 2)),
             nn.SiLU(),
@@ -465,6 +454,22 @@ class BeliefConditionedMoEPolicy(nn.Module):
         self.register_buffer("prototypes_initialized", torch.tensor(False))
         self.prototype_temperature = 0.35
         self.prototype_momentum = 0.95
+        self.detach_base = False
+
+    def freeze_base_head(self) -> None:
+        """Freeze generalist expert 0. Specialists and the router stay live."""
+        for parameter in self.experts[0].parameters():
+            parameter.requires_grad = False
+        for parameter in self.base_head.parameters():
+            parameter.requires_grad = False
+        self.detach_base = True
+
+    def reinitialize_residual_experts(self, std: float = 0.08) -> None:
+        """Re-init specialist heads only; keep BC generalist (expert 0)."""
+        for expert in self.experts[1:]:
+            nn.init.normal_(expert[-1].weight, mean=0.0, std=float(std))
+            nn.init.zeros_(expert[-1].bias)
+
     @staticmethod
     def _fingerprint(values: torch.Tensor, feasible: torch.Tensor) -> torch.Tensor:
         """Normalize action values so regimes encode rankings, not scale.
@@ -521,20 +526,28 @@ class BeliefConditionedMoEPolicy(nn.Module):
 
     def _components(self, *inputs: torch.Tensor):
         features = self.backbone(*inputs)
-        base_logits = self.base_head(features)
         expert_values = torch.stack([head(features) for head in self.experts], dim=1)
+        generalist = expert_values[:, 0]
+        if self.detach_base:
+            generalist = generalist.detach()
+            expert_values = expert_values.clone()
+            expert_values[:, 0] = generalist
         dense_weights = torch.softmax(self.router(features), dim=-1)
+        steps = inputs[4].reshape(-1)
+        at_prior = steps <= 0
+        if bool(at_prior.any()):
+            # Identical prior: specialists must not override the generalist
+            # first probe (that collapse is what wrecked IEEE9 EIG).
+            prior_w = torch.zeros_like(dense_weights)
+            prior_w[:, 0] = 1.0
+            dense_weights = torch.where(at_prior[:, None], prior_w, dense_weights)
         top_values, top_indices = torch.topk(dense_weights, self.top_k, dim=-1)
         sparse_weights = torch.zeros_like(dense_weights).scatter(-1, top_indices, top_values)
         sparse_weights = sparse_weights / sparse_weights.sum(dim=-1, keepdim=True).clamp_min(1e-8)
         routed_value = (sparse_weights.unsqueeze(-1) * expert_values).sum(dim=1)
-        global_scale = F.softplus(self.logit_scale).clamp(max=20.0)
-        # Per-state belief gate ∈ (0,1): residual experts matter only when the
-        # latent belief state requests a correction (not a Fixed/Myopic clone).
-        belief_gate = torch.sigmoid(self.residual_gate(features))
-        scale = global_scale * belief_gate
-        logits = base_logits + scale * routed_value
-        return logits, dense_weights, expert_values, scale, base_logits
+        temperature = F.softplus(self.logit_scale).clamp(max=20.0)
+        logits = temperature * routed_value
+        return logits, dense_weights, expert_values, temperature, generalist
 
     def forward(
         self,
@@ -559,16 +572,20 @@ class BeliefConditionedMoEPolicy(nn.Module):
         return logits
 
     def base_logits(self, *inputs: torch.Tensor) -> torch.Tensor:
-        """Shared-base action scores (no residual expert correction)."""
-        return self._components(*inputs)[4]
+        """Generalist expert 0 only. Used for BC; not the fused MoE policy."""
+        features = self.backbone(*inputs)
+        return self.experts[0](features)
 
     def distribution(self, *inputs: torch.Tensor) -> torch.distributions.Categorical:
         return torch.distributions.Categorical(logits=self(*inputs))
 
     def specialization_loss(self, *inputs: torch.Tensor) -> tuple[torch.Tensor, dict[str, float]]:
         """Balance routing while discouraging functionally identical experts."""
-        _, weights, expert_values, scale = self._components(*inputs)[:4]
-        mean_usage = weights.mean(dim=0)
+        logits, weights, expert_values, scale, base = self._components(*inputs)
+        steps = inputs[4].reshape(-1)
+        post = steps > 0
+        usage_w = weights[post] if bool(post.any()) else weights
+        mean_usage = usage_w.mean(dim=0)
         target = torch.full_like(mean_usage, 1.0 / self.n_experts)
         balance = self.n_experts * torch.sum((mean_usage - target).square())
         centered = expert_values - expert_values.mean(-1, keepdim=True)
@@ -603,6 +620,14 @@ class BeliefConditionedMoEPolicy(nn.Module):
         )
         global_scale = float(F.softplus(self.logit_scale).clamp(max=20.0).detach())
         gate_mean = float((scale.detach().reshape(-1) / max(global_scale, 1e-6)).mean())
+        fused_top = logits.argmax(-1)
+        base_top = base.argmax(-1)
+        steps = inputs[4].reshape(-1)
+        post = steps > 0
+        if bool(post.any()):
+            disagree = float((fused_top[post] != base_top[post]).float().mean().detach())
+        else:
+            disagree = 0.0
         stats = {
             "router_entropy": float(conditional_entropy.detach()),
             "router_marginal_entropy": float(marginal_entropy.detach()),
@@ -613,6 +638,7 @@ class BeliefConditionedMoEPolicy(nn.Module):
             "max_expert_usage": float(mean_usage.max().detach()),
             "expert_logit_scale": global_scale,
             "belief_residual_gate_mean": gate_mean,
+            "fused_vs_base_argmax_disagree": disagree,
             "moe_balance_coefficient": float(self.balance_coefficient),
             "moe_routing_information_coefficient": float(
                 self.routing_information_coefficient
@@ -628,7 +654,7 @@ class BeliefConditionedMoEPolicy(nn.Module):
         feasible_mask: torch.Tensor,
     ) -> tuple[torch.Tensor, dict[str, float]]:
         """Supervise experts/router from all-action counterfactual utilities."""
-        fused, router_weights, expert_values, _, _ = self._components(*inputs)
+        _fused, router_weights, expert_values, _, _ = self._components(*inputs)
         target = self._fingerprint(target_utility.detach(), feasible_mask)
         self._initialize_prototypes(target)
         distance = torch.cdist(target, self.regime_prototypes).square()
@@ -669,16 +695,16 @@ class BeliefConditionedMoEPolicy(nn.Module):
         ).sum(-1) / feasible_mask.sum(-1, keepdim=True).clamp_min(1)
         value_loss = (responsibilities * per_expert).sum(-1).mean()
         router_loss = -(responsibilities * router_weights.clamp_min(1e-8).log()).sum(-1).mean()
-        masked_fused = fused.masked_fill(~feasible_mask, -1e9)
-        best_action = target_utility.masked_fill(~feasible_mask, -1e9).argmax(-1)
-        ranking_loss = F.cross_entropy(masked_fused, best_action)
-        loss = value_loss + router_loss + 0.25 * ranking_loss
+        # Do not CE-train fused logits toward a teacher argmax: that clones
+        # myopic / two-step / Fixed into the mixture. Experts cluster on
+        # fingerprints; the fused ranking is left to PPO + residual losses.
+        loss = value_loss + router_loss
         assignment = responsibilities.argmax(-1)
         used = torch.bincount(assignment, minlength=self.n_experts).float()
         return loss, {
             "cf_value_loss": float(value_loss.detach()),
             "cf_router_loss": float(router_loss.detach()),
-            "cf_ranking_loss": float(ranking_loss.detach()),
+            "cf_ranking_loss": 0.0,
             "cf_active_regimes": float((used > 0).sum().detach()),
         }
 
@@ -729,6 +755,144 @@ class BeliefConditionedMoEPolicy(nn.Module):
         return penalty, {
             "branching_pairs": float(disagree.sum().detach()) / 2.0,
             "branching_loss": float(penalty.detach()),
+        }
+
+    def belief_branching_loss(
+        self,
+        *inputs: torch.Tensor,
+        feasible_mask: torch.Tensor,
+        similarity_threshold: float = 0.85,
+        margin: float = 0.35,
+    ) -> tuple[torch.Tensor, dict[str, float]]:
+        """Force distinct π on distinct posteriors, without a teacher ranking.
+
+        Pairs at the same step>0 whose belief summaries disagree must have
+        different action distributions. This is not myopic/Fixed/DAD cloning:
+        the signal is the posterior itself.
+        """
+        logits, _, _, _, _ = self._components(*inputs)
+        logits = logits.clamp(-50.0, 50.0).masked_fill(~feasible_mask, -1e9)
+        probs = torch.softmax(logits, dim=-1)
+        belief = inputs[3].reshape(inputs[3].shape[0], -1)
+        unit = F.normalize(belief, dim=-1, eps=1e-8)
+        similarity = unit @ unit.transpose(0, 1)
+        steps = inputs[4].reshape(-1)
+        same_step = steps[:, None] == steps[None, :]
+        informative = (steps > 0)[:, None] & (steps > 0)[None, :]
+        n = probs.shape[0]
+        off_diagonal = ~torch.eye(n, dtype=torch.bool, device=probs.device)
+        disagree = (
+            (similarity < similarity_threshold)
+            & same_step
+            & informative
+            & off_diagonal
+        )
+        if not bool(disagree.any()):
+            zero = logits.sum() * 0.0
+            return zero, {
+                "belief_branching_pairs": 0.0,
+                "belief_branching_loss": 0.0,
+            }
+        total_variation = 0.5 * (
+            probs[:, None, :] - probs[None, :, :]
+        ).abs().sum(-1)
+        penalty = F.relu(margin - total_variation)[disagree].mean()
+        return penalty, {
+            "belief_branching_pairs": float(disagree.sum().detach()) / 2.0,
+            "belief_branching_loss": float(penalty.detach()),
+        }
+
+    def low_ess_residual_loss(
+        self,
+        *inputs: torch.Tensor,
+        feasible_mask: torch.Tensor,
+        ess_threshold: float,
+    ) -> tuple[torch.Tensor, dict[str, float]]:
+        """Residual experts must move π away from the frozen base when ESS is low."""
+        logits, _, _, scale, base = self._components(*inputs)
+        belief = inputs[3]
+        ess = belief.reshape(belief.shape[0], -1)[:, 1]
+        thr = float(ess_threshold)
+        if thr <= 0.0:
+            zero = logits.sum() * 0.0
+            return zero, {
+                "low_ess_residual_kl": 0.0,
+                "low_ess_gate_mean": 0.0,
+                "expert_logit_scale": float(scale.detach().reshape(-1).mean()),
+            }
+        gate = ((thr - ess) / max(thr, 1e-6)).clamp(0.0, 1.0)
+        if float(gate.sum()) <= 1e-8:
+            zero = logits.sum() * 0.0
+            return zero, {
+                "low_ess_residual_kl": 0.0,
+                "low_ess_gate_mean": 0.0,
+                "expert_logit_scale": float(scale.detach().reshape(-1).mean()),
+            }
+        masked_final = logits.clamp(-50.0, 50.0).masked_fill(~feasible_mask, -1e9)
+        masked_base = base.clamp(-50.0, 50.0).masked_fill(~feasible_mask, -1e9)
+        log_p = F.log_softmax(masked_final, dim=-1)
+        log_q = F.log_softmax(masked_base, dim=-1)
+        kl = (log_p.exp() * (log_p - log_q)).sum(dim=-1)
+        w_sum = gate.sum().clamp_min(1e-8)
+        loss = -(gate * kl).sum() / w_sum
+        return loss, {
+            "low_ess_residual_kl": float((gate * kl).sum().detach() / w_sum.detach()),
+            "low_ess_gate_mean": float(gate.mean().detach()),
+            "expert_logit_scale": float(scale.detach().reshape(-1).mean()),
+        }
+
+    def residual_scale_floor_loss(
+        self,
+        *,
+        target: float,
+    ) -> tuple[torch.Tensor, dict[str, float]]:
+        """Hinge penalty if softplus(logit_scale) falls below ``target``."""
+        scale = F.softplus(self.logit_scale).clamp(max=20.0)
+        gap = F.relu(float(target) - scale)
+        loss = gap.square()
+        return loss, {
+            "residual_scale": float(scale.detach()),
+            "residual_scale_target": float(target),
+            "residual_scale_gap": float(gap.detach()),
+        }
+
+    def greedy_leave_base_loss(
+        self,
+        *inputs: torch.Tensor,
+        feasible_mask: torch.Tensor,
+        margin: float = 0.5,
+    ) -> tuple[torch.Tensor, dict[str, float]]:
+        """Force greedy fused argmax off the base action after step 0.
+
+        KL-to-base can rise while argmax stays put; eval is greedy, so the
+        residual must beat the base action by a margin on later steps.
+        """
+        logits, _, _, _, base = self._components(*inputs)
+        steps = inputs[4].reshape(-1)
+        post = (steps > 0).to(dtype=logits.dtype)
+        if float(post.sum()) <= 1e-8:
+            zero = logits.sum() * 0.0
+            return zero, {
+                "leave_base_gap": 0.0,
+                "leave_base_disagree": 0.0,
+            }
+        masked_fused = logits.clamp(-50.0, 50.0).masked_fill(~feasible_mask, -1e9)
+        masked_base = base.clamp(-50.0, 50.0).masked_fill(~feasible_mask, -1e9)
+        base_top = masked_base.argmax(-1)
+        base_score = masked_fused.gather(1, base_top.unsqueeze(-1)).squeeze(-1)
+        alt = masked_fused.scatter(
+            1, base_top.unsqueeze(-1), torch.full_like(base_score, -1e9).unsqueeze(-1)
+        )
+        alt_best = alt.max(dim=-1).values
+        gap = F.relu(base_score + float(margin) - alt_best)
+        w = post.sum().clamp_min(1.0)
+        loss = (post * gap).sum() / w
+        disagree = ((alt_best > base_score) & (steps > 0)).to(dtype=logits.dtype)
+        return loss, {
+            "leave_base_gap": float((post * gap).sum().detach() / w.detach()),
+            "leave_base_disagree": float(
+                disagree.sum().detach() / post.sum().detach()
+            ),
         }
 
 

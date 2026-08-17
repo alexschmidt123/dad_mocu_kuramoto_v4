@@ -10,6 +10,7 @@ from typing import Any
 
 import numpy as np
 import torch
+import torch.nn.functional as F
 
 from src.objectives.mocu.context import (
     GLOBAL_SEED,
@@ -459,23 +460,33 @@ def train_vector_eig_policy(
     ppo_epochs = 2 if smoke else int(training.get("eig_moe_ppo_epochs", 4))
     ppo_clip = float(training.get("eig_moe_ppo_clip", 0.2))
     entropy_coef = float(training.get("entropy_coef", 0.01))
-    # Counterfactual regime supervision during PPO.  Without it the expert
-    # regimes formed in the warm start decay and the router collapses; with a
-    # constant full weight the two-step targets would anchor the policy.  The
-    # weight starts at eig_moe_cf_coefficient, decays linearly over
-    # eig_moe_cf_anneal_fraction of the PPO epochs, and holds at
-    # eig_moe_cf_floor_fraction of the coefficient thereafter (runs that
-    # annealed to exactly zero collapsed back to one deterministic sequence).
-    # Targets are computed for the first eig_moe_cf_rollouts_per_batch
-    # rollouts of each batch to bound the two-step simulation cost; two
-    # rollouts provide the same-step pairs used by the branching regularizer.
-    cf_coefficient = float(training.get("eig_moe_cf_coefficient", 1.0))
-    cf_anneal_fraction = float(training.get("eig_moe_cf_anneal_fraction", 0.5))
-    cf_floor_fraction = float(training.get("eig_moe_cf_floor_fraction", 0.1))
+    # Counterfactual teacher ranking is OFF by default. Using two-step /
+    # myopic argmax CE on fused logits made MoE copy other methods. Residuals
+    # must change the ranking through PPO + belief-conditioned losses.
+    cf_coefficient = float(training.get("eig_moe_cf_coefficient", 0.0))
+    cf_anneal_fraction = float(training.get("eig_moe_cf_anneal_fraction", 0.0))
+    cf_floor_fraction = float(training.get("eig_moe_cf_floor_fraction", 0.0))
     cf_rollouts_per_batch = int(training.get("eig_moe_cf_rollouts_per_batch", 2))
     branching_coefficient = float(
-        training.get("eig_moe_branching_coefficient", 0.1)
+        training.get("eig_moe_branching_coefficient", 0.15)
     )
+    low_ess_residual_coefficient = float(
+        training.get("eig_moe_low_ess_residual_coefficient", 0.10)
+    )
+    low_ess_threshold = float(training.get("eig_moe_low_ess_threshold", 0.4))
+    residual_scale_coefficient = float(
+        training.get("eig_moe_residual_scale_coefficient", 0.05)
+    )
+    residual_scale_target = float(
+        training.get("eig_moe_logit_scale_target", 3.5)
+    )
+    freeze_base_after_bc = bool(
+        training.get("eig_moe_freeze_base_after_bc", False)
+    )
+    leave_base_coefficient = float(
+        training.get("eig_moe_leave_base_coefficient", 0.0)
+    )
+    leave_base_margin = float(training.get("eig_moe_leave_base_margin", 0.5))
     # Soft BC + optional two-step labels beat hard myopic CE (SIR was stuck ≈ myopic).
     bc_temperature = float(training.get("eig_bc_temperature", 0.5))
     bc_lookahead = str(training.get("eig_bc_lookahead", "two_step")).lower()
@@ -544,8 +555,6 @@ def train_vector_eig_policy(
         observations: list[np.ndarray] = []
         log_w = engine.log_p0.clone()
         trajectory_losses = []
-        counterfactual_states: list[tuple[torch.Tensor, ...]] = []
-        counterfactual_targets: list[torch.Tensor] = []
         for step in range(ctx.horizon):
             feasible = _eig_feasible(ctx, actions)
             if bc_lookahead in {"two_step", "2step", "two-step"}:
@@ -572,19 +581,25 @@ def train_vector_eig_policy(
                 step=step,
                 device=device,
             )
-            logits = policy(*tensors)
+            if isinstance(policy, BeliefConditionedMoEPolicy):
+                # Distill generalist expert 0 only. Fused MoE logits are never
+                # trained toward the two-step / myopic teacher.
+                logits = policy.base_logits(*tensors[:-1]).masked_fill(
+                    ~tensors[-1], -1e9
+                )
+            else:
+                logits = policy(*tensors)
             imitation = _soft_bc_loss(
                 logits, scores, feasible, temperature=bc_temperature
             )
             if isinstance(policy, BeliefConditionedMoEPolicy):
-                # Supervise every feasible action with a posterior-conditioned
-                # continuation value (regime fingerprints for residual experts).
-                target = torch.zeros(1, ctx.n_actions, device=device)
-                target[0, torch.as_tensor(feasible, device=device)] = torch.as_tensor(
-                    scores[feasible], dtype=torch.float32, device=device
+                # Soft KL alone left expert-0 greedy on a weak 0.5s probe.
+                # A small CE locks t=0 to the two-step argmax (same first
+                # action DAD/RL use); fused logits are still not cloned.
+                imitation = imitation + 0.5 * F.cross_entropy(
+                    logits,
+                    torch.as_tensor([label], device=logits.device),
                 )
-                counterfactual_states.append(tensors)
-                counterfactual_targets.append(target)
             trajectory_losses.append(imitation)
             y_np = _observe(
                 system,
@@ -600,27 +615,25 @@ def train_vector_eig_policy(
             observations.append(y_np)
         optimizer.zero_grad(set_to_none=True)
         bc_loss = torch.stack(trajectory_losses).mean()
-        if isinstance(policy, BeliefConditionedMoEPolicy):
-            cf_inputs = tuple(
-                torch.cat([state[i] for state in counterfactual_states], dim=0)
-                for i in range(len(counterfactual_states[0]))
-            )
-            cf_target = torch.cat(counterfactual_targets, dim=0)
-            cf_loss, _ = policy.counterfactual_loss(
-                *cf_inputs[:-1],
-                target_utility=cf_target,
-                feasible_mask=cf_inputs[-1],
-            )
-            auxiliary, _ = policy.specialization_loss(*cf_inputs[:-1])
-            bc_loss = bc_loss + cf_loss + auxiliary
         bc_loss.backward()
         torch.nn.utils.clip_grad_norm_(policy.parameters(), 1.0)
         optimizer.step()
         bc_losses.append(float(bc_loss.detach().item()))
     if isinstance(policy, BeliefConditionedMoEPolicy):
-        # Prototypes were farthest-point initialized on the first (noisiest)
-        # warm-start batch; re-anchor them on fingerprints produced by the
-        # warmed-up policy when PPO starts.
+        policy.reinitialize_residual_experts()
+        if freeze_base_after_bc:
+            policy.freeze_base_head()
+            print(
+                f"[eig:{method}] froze generalist expert 0; specialists+router "
+                "remain the fused MoE policy",
+                flush=True,
+            )
+        else:
+            print(
+                f"[eig:{method}] specialist experts reinitialized; fused policy "
+                "is the routed mixture (no teacher residual)",
+                flush=True,
+            )
         policy.reset_regime_prototypes()
 
     # Checkpoint differences between epochs are small (~0.02 nats), so a small
@@ -678,6 +691,7 @@ def train_vector_eig_policy(
     for epoch in range(epochs):
         epoch_gains = []
         epoch_losses = []
+        epoch_moe_stats: dict[str, float] = {}
         if cf_coefficient > 0.0 and isinstance(policy, BeliefConditionedMoEPolicy):
             if cf_anneal_fraction > 0.0:
                 cf_anneal_epochs = max(1, int(round(cf_anneal_fraction * epochs)))
@@ -839,25 +853,59 @@ def train_vector_eig_policy(
                     ).mean()
                     policy_loss = policy_loss - entropy_coef * dist.entropy().mean()
                     actor_loss = policy_loss
+                    moe_stats: dict[str, float] = {}
                     if isinstance(policy, BeliefConditionedMoEPolicy):
-                        auxiliary, _ = policy.specialization_loss(*inputs[:-1])
+                        auxiliary, moe_stats = policy.specialization_loss(
+                            *inputs[:-1]
+                        )
                         actor_loss = actor_loss + auxiliary
+                        if low_ess_residual_coefficient > 0.0:
+                            low_ess_loss, low_ess_stats = policy.low_ess_residual_loss(
+                                *inputs[:-1],
+                                feasible_mask=inputs[-1],
+                                ess_threshold=low_ess_threshold,
+                            )
+                            actor_loss = (
+                                actor_loss
+                                + low_ess_residual_coefficient * low_ess_loss
+                            )
+                            moe_stats.update(low_ess_stats)
+                        if residual_scale_coefficient > 0.0:
+                            scale_loss, scale_stats = policy.residual_scale_floor_loss(
+                                target=residual_scale_target,
+                            )
+                            actor_loss = (
+                                actor_loss
+                                + residual_scale_coefficient * scale_loss
+                            )
+                            moe_stats.update(scale_stats)
+                        if branching_coefficient > 0.0:
+                            branch_loss, branch_stats = policy.belief_branching_loss(
+                                *inputs[:-1],
+                                feasible_mask=inputs[-1],
+                            )
+                            actor_loss = (
+                                actor_loss + branching_coefficient * branch_loss
+                            )
+                            moe_stats.update(branch_stats)
+                        if leave_base_coefficient > 0.0:
+                            leave_loss, leave_stats = policy.greedy_leave_base_loss(
+                                *inputs[:-1],
+                                feasible_mask=inputs[-1],
+                                margin=leave_base_margin,
+                            )
+                            actor_loss = (
+                                actor_loss + leave_base_coefficient * leave_loss
+                            )
+                            moe_stats.update(leave_stats)
                     if cf_inputs is not None and cf_target_t is not None:
-                        cf_loss, _ = policy.counterfactual_loss(
+                        cf_loss, cf_stats = policy.counterfactual_loss(
                             *cf_inputs[:-1],
                             target_utility=cf_target_t,
                             feasible_mask=cf_inputs[-1],
                         )
                         actor_loss = actor_loss + cf_weight * cf_loss
-                        if branching_coefficient > 0.0:
-                            branch_loss, _ = policy.branching_loss(
-                                *cf_inputs[:-1],
-                                target_utility=cf_target_t,
-                                feasible_mask=cf_inputs[-1],
-                            )
-                            actor_loss = actor_loss + (
-                                branching_coefficient * branch_loss
-                            )
+                        moe_stats.update(cf_stats)
                     optimizer.zero_grad(set_to_none=True)
                     actor_loss.backward()
                     torch.nn.utils.clip_grad_norm_(policy.parameters(), 1.0)
@@ -873,6 +921,7 @@ def train_vector_eig_policy(
                     last_loss = actor_loss.detach()
                 assert last_loss is not None
                 epoch_losses.append(float(last_loss.item()))
+                epoch_moe_stats = moe_stats
             else:
                 optimizer.zero_grad(set_to_none=True)
                 loss = torch.stack(losses).mean()
@@ -891,6 +940,7 @@ def train_vector_eig_policy(
                 "validation_n_unique_sequences": epoch_validation_unique,
                 "validation_meets_adaptivity": int(epoch_meets_adaptivity),
                 "moe_cf_weight": float(cf_weight),
+                **epoch_moe_stats,
             }
         )
         if epoch_validation_eig > fallback_eig:
@@ -977,7 +1027,7 @@ def train_vector_eig_policy(
                 "architecture": (
                     "parameter_matched_dense_control_v1"
                     if method == "matched_dense"
-                    else "counterfactual_decision_regime_top2_moe_v1"
+                    else "belief_topk_mixture_moe_v4"
                     if method == "moe_sboed"
                     else "dense_policy"
                 ),
@@ -1034,6 +1084,26 @@ def train_vector_eig_policy(
                 ),
                 "eig_moe_redundancy_coefficient": float(
                     getattr(policy, "redundancy_coefficient", 0.0)
+                ),
+                "eig_moe_low_ess_residual_coefficient": (
+                    low_ess_residual_coefficient
+                    if isinstance(policy, BeliefConditionedMoEPolicy)
+                    else 0.0
+                ),
+                "eig_moe_residual_scale_coefficient": (
+                    residual_scale_coefficient
+                    if isinstance(policy, BeliefConditionedMoEPolicy)
+                    else 0.0
+                ),
+                "eig_moe_freeze_base_after_bc": (
+                    freeze_base_after_bc
+                    if isinstance(policy, BeliefConditionedMoEPolicy)
+                    else False
+                ),
+                "eig_moe_leave_base_coefficient": (
+                    leave_base_coefficient
+                    if isinstance(policy, BeliefConditionedMoEPolicy)
+                    else 0.0
                 ),
                 "eig_moe_prototype_reset_after_warm_start": isinstance(
                     policy, BeliefConditionedMoEPolicy
