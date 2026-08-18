@@ -1,9 +1,9 @@
 #!/bin/bash
 # Full experiment: call core scripts in order.
 #
-#   bash run.sh --config configs/ieee5.yaml
-#   bash run.sh --config configs/ieee5.yaml --T 8
-#   bash run.sh --config configs/ieee5.yaml --experiment_type eig_based
+#   bash run.sh --config configs/ieee9.yaml
+#   bash run.sh --config configs/ieee9.yaml --T 8
+#   bash run.sh --config configs/ieee9.yaml --experiment_type eig_based
 #   bash run.sh --config configs/sir_ode.yaml
 #   bash run.sh --config configs/ieee9.yaml --method dad --force
 #
@@ -27,6 +27,10 @@ EXPERIMENT_TYPE_DEFAULT="objective_based"
 DEFAULT_STEP_NUMBER=5
 DEFAULT_N_OBS=0
 DEFAULT_NOISE_SIGMA=0.005
+DEFAULT_SEED=101
+# Publication training RNGs (sweep cartesian axis). Bank θ uses yaml
+# train_seed/test_seed; this is the policy-training seed only.
+DEFAULT_SEEDS="101,202,303"
 
 validate_experiment_type() {
     local t="${1,,}"
@@ -41,6 +45,56 @@ validate_experiment_type() {
             return 1
             ;;
     esac
+}
+
+METHODS_HELP="dad, rl_sboed, moe_sboed, myopic, fixed, random, matched_dense, step_dad (comma-separated for multiple)"
+
+# Resolve evaluate/train method keys via Python (honours config + comma lists).
+resolve_experiment_method_keys() {
+    local config="$1"
+    local t="$2"
+    local n_obs="$3"
+    local sigma="$4"
+    local method_filter="${5-}"
+    python3 -c '
+import sys
+from src.experiment import load_experiment_config
+from src.objectives.mocu.context import methods_from_args
+
+cfg = load_experiment_config(
+    sys.argv[1],
+    step_number=int(sys.argv[2]),
+    n_obs=int(sys.argv[3]),
+    noise_sigma=float(sys.argv[4]),
+)
+method_filter = sys.argv[5] if len(sys.argv) > 5 and sys.argv[5] else None
+for key in methods_from_args(cfg, method_filter):
+    print(key)
+' "$config" "$t" "$n_obs" "$sigma" "$method_filter"
+}
+
+resolve_training_method_keys() {
+    local config="$1"
+    local t="$2"
+    local n_obs="$3"
+    local sigma="$4"
+    local method_filter="${5-}"
+    python3 -c '
+import sys
+from src.experiment import load_experiment_config
+from src.objectives.mocu.context import methods_from_args, training_method_keys
+
+cfg = load_experiment_config(
+    sys.argv[1],
+    step_number=int(sys.argv[2]),
+    n_obs=int(sys.argv[3]),
+    noise_sigma=float(sys.argv[4]),
+)
+method_filter = sys.argv[5] if len(sys.argv) > 5 and sys.argv[5] else None
+eval_keys = methods_from_args(cfg, method_filter)
+for key in training_method_keys(eval_keys):
+    print(key)
+' "$config" "$t" "$n_obs" "$sigma" "$method_filter"
 }
 
 # Tee all stdout/stderr to <result_dir>/logs/run_log.log (idempotent for nested scripts).
@@ -83,11 +137,14 @@ N_OBS="$DEFAULT_N_OBS"
 N_OBS_SET=0
 NOISE_SIGMA="$DEFAULT_NOISE_SIGMA"
 NOISE_SIGMA_SET=0
-SEED=101
+SEED="$DEFAULT_SEED"
 
 usage() {
-    echo "Usage: $0 --config <config.yaml> [--T <horizon>] [--N_obs <count>] [--noise_sigma <sigma>] [--seed <int>] [--experiment_type objective_based|eig_based] [--method <method>] [--exp-dir <path>] [--force] [--bank-structure-audit] [--smoke]" >&2
+    echo "Usage: $0 --config <config.yaml> [--T <horizon>] [--N_obs <count>] [--noise_sigma <sigma>] [--seed <int>] [--experiment_type objective_based|eig_based] [--method <methods>] [--exp-dir <path>] [--force] [--bank-structure-audit] [--smoke]" >&2
     echo "" >&2
+    echo "  --method  optional; comma-separated list (default: experiment.methods in yaml)" >&2
+    echo "            e.g. --method dad,random  (skips training when all selected are baselines)" >&2
+    echo "  --seed    training RNG seed (default: ${DEFAULT_SEED}; sweep uses ${DEFAULT_SEEDS})" >&2
     echo "  --T       probe horizon (default: ${DEFAULT_STEP_NUMBER})" >&2
     echo "  --N_obs   IEEE trajectory samples; 0 = scalar max-ROCOF (ignored for SIR ODE)" >&2
     echo "  --noise_sigma observation noise std (IEEE default: ${DEFAULT_NOISE_SIGMA}; SIR uses YAML)" >&2
@@ -95,8 +152,8 @@ usage() {
     echo "  --bank-structure-audit  run Myopic-trap / redundancy audit after data gen; fail if not ready" >&2
     echo "Result folders: date_time_configname_Uctrl|EIG_Tnum_NobsN_sigmaX" >&2
     echo "Examples:" >&2
-    echo "  bash run.sh --config configs/ieee5.yaml" >&2
-    echo "  bash run.sh --config configs/ieee5.yaml --T 8" >&2
+    echo "  bash run.sh --config configs/ieee9.yaml" >&2
+    echo "  bash run.sh --config configs/ieee9.yaml --T 8 --seed 101" >&2
     echo "  bash run.sh --config configs/sir_ode.yaml" >&2
 }
 
@@ -107,7 +164,7 @@ while [[ $# -gt 0 ]]; do
         -T|--T|--step-number|--step_number) T="$2"; shift 2 ;;
         --N_obs|--n-obs|--n_obs) N_OBS="$2"; N_OBS_SET=1; shift 2 ;;
         --noise_sigma|--noise-sigma) NOISE_SIGMA="$2"; NOISE_SIGMA_SET=1; shift 2 ;;
-        --seed) SEED="$2"; shift 2 ;;
+        --seed|--seeds) SEED="$2"; shift 2 ;;
         --experiment_type|--experiment-type)
             EXPERIMENT_TYPE="$(validate_experiment_type "$2")" || exit 1
             EXPERIMENT_TYPE_SET=1
@@ -167,36 +224,22 @@ fi
 python3 -c 'import sys; x=float(sys.argv[1]); assert x > 0' "$NOISE_SIGMA" 2>/dev/null \
     || { echo "Invalid --noise_sigma: $NOISE_SIGMA (positive float required)" >&2; exit 1; }
 
-need_dad=1
-need_rl=1
-need_moe=1
-if [[ -n "$METHOD" ]]; then
-    case "${METHOD,,}" in
-        dad) need_dad=1; need_rl=0; need_moe=0 ;;
-        rl_sboed|rl-sboed)
-            need_dad=0
-            need_rl=1
-            need_moe=0
-            ;;
-        moe_sboed|moe-sboed)
-            need_dad=1; need_rl=0; need_moe=1
-            ;;
-        matched_dense|matched-dense)
-            need_dad=0; need_rl=0; need_moe=0; need_matched=1
-            ;;
-        step_dad|step-dad)
-            # Step-DAD refines a trained DAD policy online.
-            need_dad=1; need_rl=0; need_moe=0
-            ;;
-        myopic|fixed|random) need_dad=0; need_rl=0; need_moe=0 ;;
-        *)
-            echo "Unknown method: $METHOD (allowed: dad|rl_sboed|moe_sboed|matched_dense|step_dad|myopic|fixed|random)" >&2
-            exit 1
-            ;;
-    esac
+METHOD_FILTER=""
+if [[ -n "$METHOD" && "${METHOD,,}" != "all" ]]; then
+    METHOD_FILTER="$METHOD"
 fi
 
-need_matched=${need_matched:-0}
+mapfile -t RESOLVED_METHODS < <(
+    resolve_experiment_method_keys "$CONFIG" "$T" "$N_OBS" "$NOISE_SIGMA" "$METHOD_FILTER"
+) || true
+if [[ ${#RESOLVED_METHODS[@]} -eq 0 ]]; then
+    echo "No methods resolved (check --method / experiment.methods)" >&2
+    exit 1
+fi
+
+mapfile -t TRAIN_METHODS < <(
+    resolve_training_method_keys "$CONFIG" "$T" "$N_OBS" "$NOISE_SIGMA" "$METHOD_FILTER"
+) || true
 
 TYPE_ARGS=(--experiment_type "$EXPERIMENT_TYPE")
 T_ARGS=(-T "$T")
@@ -211,8 +254,14 @@ EXP_ARGS=(--exp-dir "$EXP_DIR")
 # Log into the result folder once the path is known (nested scripts reuse this tee).
 start_run_logging "$EXP_DIR"
 
-echo "=== run.sh (config=$CONFIG type=$EXPERIMENT_TYPE T=$T N_obs=$N_OBS noise_sigma=$NOISE_SIGMA method=${METHOD:-ALL}) ==="
+echo "=== run.sh (config=$CONFIG type=$EXPERIMENT_TYPE T=$T N_obs=$N_OBS noise_sigma=$NOISE_SIGMA seed=$SEED methods=${METHOD:-config}) ==="
 echo "Result folder: $EXP_DIR"
+echo "Evaluate: ${RESOLVED_METHODS[*]}"
+if [[ ${#TRAIN_METHODS[@]} -gt 0 ]]; then
+    echo "Train: ${TRAIN_METHODS[*]}"
+else
+    echo "Train: (skipped — eval-only methods)"
+fi
 
 ./scripts/data_generation.sh --config "$CONFIG" "${TYPE_ARGS[@]}" "${T_ARGS[@]}" "${OBS_ARGS[@]}" "${EXP_ARGS[@]}" ${FORCE} ${SMOKE}
 
@@ -227,25 +276,16 @@ if [[ -n "$BANK_STRUCTURE_AUDIT" ]]; then
     exit "$audit_rc"
 fi
 
-if [[ "$need_dad" -eq 1 ]]; then
-    ./scripts/training.sh --config "$CONFIG" --method dad --seed "$SEED" \
+if [[ ${#TRAIN_METHODS[@]} -gt 0 ]]; then
+    TRAIN_CSV="$(IFS=,; echo "${TRAIN_METHODS[*]}")"
+    ./scripts/training.sh --config "$CONFIG" --method "$TRAIN_CSV" --seed "$SEED" \
         "${TYPE_ARGS[@]}" "${T_ARGS[@]}" "${OBS_ARGS[@]}" "${EXP_ARGS[@]}" ${SMOKE}
-fi
-if [[ "$need_rl" -eq 1 ]]; then
-    ./scripts/training.sh --config "$CONFIG" --method rl_sboed --seed "$SEED" \
-        "${TYPE_ARGS[@]}" "${T_ARGS[@]}" "${OBS_ARGS[@]}" "${EXP_ARGS[@]}" ${SMOKE}
-fi
-if [[ "$need_moe" -eq 1 ]]; then
-    ./scripts/training.sh --config "$CONFIG" --method moe_sboed --seed "$SEED" \
-        "${TYPE_ARGS[@]}" "${T_ARGS[@]}" "${OBS_ARGS[@]}" "${EXP_ARGS[@]}" ${SMOKE}
-fi
-if [[ "$need_matched" -eq 1 ]]; then
-    ./scripts/training.sh --config "$CONFIG" --method matched_dense --seed "$SEED" \
-        "${TYPE_ARGS[@]}" "${T_ARGS[@]}" "${OBS_ARGS[@]}" "${EXP_ARGS[@]}" ${SMOKE}
+else
+    echo "[run.sh] skipping training.sh (no offline trainers in selection)"
 fi
 
-if [[ -n "$METHOD" ]]; then
-    ./scripts/evaluation.sh --config "$CONFIG" "${TYPE_ARGS[@]}" "${T_ARGS[@]}" "${OBS_ARGS[@]}" "${EXP_ARGS[@]}" --method "$METHOD" ${SMOKE}
+if [[ -n "$METHOD_FILTER" ]]; then
+    ./scripts/evaluation.sh --config "$CONFIG" "${TYPE_ARGS[@]}" "${T_ARGS[@]}" "${OBS_ARGS[@]}" "${EXP_ARGS[@]}" --method "$METHOD_FILTER" ${SMOKE}
 else
     ./scripts/evaluation.sh --config "$CONFIG" "${TYPE_ARGS[@]}" "${T_ARGS[@]}" "${OBS_ARGS[@]}" "${EXP_ARGS[@]}" ${SMOKE}
 fi

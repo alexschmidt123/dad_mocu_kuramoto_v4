@@ -1,9 +1,9 @@
 """Config-driven experiment steps (called by scripts/*.sh).
 
-  python -m src.experiment allocate-dir --config configs/ieee5.yaml
-  python -m src.experiment generate-data --config configs/ieee5.yaml --exp-dir ...
-  python -m src.experiment train --config configs/ieee5.yaml --method dad --exp-dir ...
-  python -m src.experiment evaluate --config configs/ieee5.yaml --exp-dir ...
+  python -m src.experiment allocate-dir --config configs/ieee9.yaml
+  python -m src.experiment generate-data --config configs/ieee9.yaml --exp-dir ...
+  python -m src.experiment train --config configs/ieee9.yaml --method dad --exp-dir ...
+  python -m src.experiment evaluate --config configs/ieee9.yaml --exp-dir ...
 
 Result folders are always named:
   date_time_configname_Uctrl|EIG_Tnum_NobsN_sigmaX
@@ -35,6 +35,7 @@ from src.banks.power_grid import (
 )
 from src.objectives.mocu.context import (
     ALL_METHOD_KEYS,
+    EXTENDED_METHOD_KEYS,
     build_context_from_config,
     context_report_meta,
     method_display_name,
@@ -876,7 +877,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--method",
         "-m",
         default=None,
-        help=f"Optional ({', '.join(ALL_METHOD_KEYS)}). Omit = configured methods.",
+        help=(
+            "Optional comma-separated method keys "
+            f"({', '.join(EXTENDED_METHOD_KEYS)}). "
+            "Omit = experiment.methods in yaml."
+        ),
     )
     _add_experiment_type(ev)
     _add_exp_dir(ev)

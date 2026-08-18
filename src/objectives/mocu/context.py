@@ -69,6 +69,15 @@ ALL_METHOD_KEYS = (
 )
 EXTENDED_METHOD_KEYS = ALL_METHOD_KEYS + ("matched_dense", "step_dad")
 
+# Methods that require an offline train step (shell scripts skip training.sh when
+# the selected evaluate set contains only keys outside this tuple).
+TRAINABLE_METHOD_KEYS = (
+    "dad",
+    "rl_sboed",
+    "moe_sboed",
+    "matched_dense",
+)
+
 
 @dataclass
 class ExperimentContext:
@@ -172,42 +181,68 @@ def method_display_name(method_key: str) -> str:
     return METHOD_ALIASES[normalize_method_key(method_key)]
 
 
+def _dedupe_method_keys(keys: list[str]) -> list[str]:
+    seen: set[str] = set()
+    out: list[str] = []
+    for key in keys:
+        canon = normalize_method_key(key)
+        if canon not in seen:
+            seen.add(canon)
+            out.append(canon)
+    return out
+
+
 def methods_from_args(
     cfg: SBOEDConfig, method: str | None
 ) -> list[str]:
-    """Return canonical method keys to run."""
-    if method is None or str(method).strip() == "":
-        explicit = list(cfg.methods) if cfg.methods else []
-        configured = explicit if explicit else list(ALL_METHOD_KEYS)
-        keys = []
-        for m in configured:
-            try:
-                keys.append(normalize_method_key(m))
-            except ValueError:
-                continue
-        if not keys:
-            keys = list(ALL_METHOD_KEYS)
-        # Deduplicate preserving order
-        seen = set()
-        out = []
-        for k in keys:
-            if k not in seen:
-                seen.add(k)
-                out.append(k)
-        # Only auto-add MoE when the config did not declare experiment.methods
-        # (Plan-2 configs omit MoE until DAD/RL beat Fixed/Myopic).
-        if not explicit and "moe_sboed" not in out:
-            out.insert(2 if "rl_sboed" in out else len(out), "moe_sboed")
-        if not explicit and set(out) == {
-            "dad",
-            "moe_sboed",
-            "myopic",
-            "fixed",
-            "random",
-        }:
-            out = list(ALL_METHOD_KEYS)
-        return out
-    return [normalize_method_key(method)]
+    """Return canonical method keys to run.
+
+    ``method`` may be a single key/display name or a comma-separated list such
+    as ``dad,random``.  When omitted, use ``experiment.methods`` from the config
+    (with the legacy MoE auto-insert when the config leaves methods implicit).
+    """
+    if method is not None and str(method).strip() != "":
+        raw = str(method).strip()
+        if "," in raw:
+            return _dedupe_method_keys(
+                part.strip() for part in raw.split(",") if part.strip()
+            )
+        return [normalize_method_key(raw)]
+
+    explicit = list(cfg.methods) if cfg.methods else []
+    configured = explicit if explicit else list(ALL_METHOD_KEYS)
+    keys = []
+    for m in configured:
+        try:
+            keys.append(normalize_method_key(m))
+        except ValueError:
+            continue
+    if not keys:
+        keys = list(ALL_METHOD_KEYS)
+    out = _dedupe_method_keys(keys)
+    # Only auto-add MoE when the config did not declare experiment.methods
+    # (Plan-2 configs omit MoE until DAD/RL beat Fixed/Myopic).
+    if not explicit and "moe_sboed" not in out:
+        out.insert(2 if "rl_sboed" in out else len(out), "moe_sboed")
+    if not explicit and set(out) == {
+        "dad",
+        "moe_sboed",
+        "myopic",
+        "fixed",
+        "random",
+    }:
+        out = list(ALL_METHOD_KEYS)
+    return out
+
+
+def training_method_keys(method_keys: list[str]) -> list[str]:
+    """Offline trainers required for an evaluate set (preserves train order)."""
+    normalized = _dedupe_method_keys(method_keys)
+    selected = set(normalized)
+    out = [key for key in TRAINABLE_METHOD_KEYS if key in selected]
+    if "step_dad" in selected and "dad" not in out:
+        out.insert(0, "dad")
+    return out
 
 
 def experiment_out_dir(

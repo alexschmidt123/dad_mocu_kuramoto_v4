@@ -644,6 +644,19 @@ def train_vector_eig_policy(
     validation_fixed = _fixed_sequence(
         ctx, engine, n_fantasies=4 if smoke else 12
     )
+    moe_step0_action: int | None = None
+    if isinstance(policy, BeliefConditionedMoEPolicy):
+        moe_step0_action = _prior_two_step_action(
+            ctx,
+            engine,
+            n_fantasies=4 if smoke else 12,
+            seed=int(seed),
+        )
+        print(
+            f"[eig:{method}] pin t=0 to prior one-step action="
+            f"{moe_step0_action} (MoE adaptive only for t>0)",
+            flush=True,
+        )
 
     def validation_eig() -> tuple[float, int]:
         policy.eval()
@@ -657,6 +670,7 @@ def train_vector_eig_policy(
                 dad=policy,
                 fixed_sequence=validation_fixed,
                 n_fantasies=4 if smoke else 12,
+                moe_step0_action=moe_step0_action,
             )
             for i, system in enumerate(validation_systems)
         ]
@@ -762,7 +776,17 @@ def train_vector_eig_policy(
                     if use_actor_critic:
                         with torch.no_grad():
                             dist = policy.distribution(*tensors)
-                            action_t = dist.sample()
+                            if (
+                                moe_step0_action is not None
+                                and step == 0
+                            ):
+                                action_t = torch.as_tensor(
+                                    [moe_step0_action],
+                                    device=device,
+                                    dtype=torch.long,
+                                )
+                            else:
+                                action_t = dist.sample()
                             log_prob = dist.log_prob(action_t)
                             entropy = dist.entropy()
                         trajectory_states.append(tuple(t.detach() for t in tensors))
@@ -770,7 +794,14 @@ def train_vector_eig_policy(
                         trajectory_old_lp.append(log_prob.detach())
                     else:
                         dist = policy.distribution(*tensors)
-                        action_t = dist.sample()
+                        if moe_step0_action is not None and step == 0:
+                            action_t = torch.as_tensor(
+                                [moe_step0_action],
+                                device=device,
+                                dtype=torch.long,
+                            )
+                        else:
+                            action_t = dist.sample()
                         log_prob = dist.log_prob(action_t)
                         entropy = dist.entropy()
                     action = int(action_t.item())
@@ -943,7 +974,19 @@ def train_vector_eig_policy(
                 **epoch_moe_stats,
             }
         )
-        if epoch_validation_eig > fallback_eig:
+        prefer_diverse_fallback = isinstance(
+            policy, BeliefConditionedMoEPolicy
+        ) and minimum_unique > 1
+        better_fallback = (
+            epoch_validation_unique > fallback_unique
+            or (
+                epoch_validation_unique == fallback_unique
+                and epoch_validation_eig > fallback_eig
+            )
+            if prefer_diverse_fallback
+            else epoch_validation_eig > fallback_eig
+        )
+        if better_fallback:
             fallback_eig = epoch_validation_eig
             fallback_unique = epoch_validation_unique
             fallback_stage = f"epoch_{epoch + 1}"
@@ -1105,6 +1148,7 @@ def train_vector_eig_policy(
                     if isinstance(policy, BeliefConditionedMoEPolicy)
                     else 0.0
                 ),
+                "moe_step0_action": moe_step0_action,
                 "eig_moe_prototype_reset_after_warm_start": isinstance(
                     policy, BeliefConditionedMoEPolicy
                 ),
@@ -1143,6 +1187,28 @@ def train_vector_eig_policy(
     }
 
 
+def _prior_two_step_action(
+    ctx: ExperimentContext,
+    engine: VectorEIGEngine,
+    *,
+    n_fantasies: int,
+    seed: int,
+) -> int:
+    """Open-loop first probe: one-step EIG at the prior (myopic ξ₁).
+
+    Two-step scores at the prior collapsed to a weak 0.5s probe on IEEE9;
+    myopic t=0 is always a 3.0s injection. MoE only adapts after this probe.
+    """
+    feasible = _eig_feasible(ctx, [])
+    scores = engine.action_scores(
+        engine.log_p0.clone(),
+        feasible,
+        n_fantasies=n_fantasies,
+        seed=int(seed),
+    )
+    return int(np.argmax(scores))
+
+
 def _fixed_sequence(
     ctx: ExperimentContext,
     engine: VectorEIGEngine,
@@ -1177,6 +1243,7 @@ def _rollout(
     dad: AdaptiveExperimentPolicy | None,
     fixed_sequence: list[int],
     n_fantasies: int,
+    moe_step0_action: int | None = None,
 ) -> dict[str, Any]:
     actions: list[int] = []
     observations: list[np.ndarray] = []
@@ -1202,6 +1269,12 @@ def _rollout(
         if method == "random":
             rng = np.random.default_rng(GLOBAL_SEED + rollout_id * 101 + step)
             action = int(rng.choice(feasible))
+        elif (
+            method == "moe_sboed"
+            and step == 0
+            and moe_step0_action is not None
+        ):
+            action = int(moe_step0_action)
         elif method == "fixed_open_loop":
             # Stay inside the chronological feasible set (SIR: increasing times).
             feasible_set = {int(a) for a in feasible.tolist()}
@@ -1310,6 +1383,7 @@ def evaluate_vector_eig(
                 weights_only=False,
             )
             training_seconds[method_name] = float(payload.get("elapsed_seconds", 0.0))
+    moe_step0_action: int | None = None
     if "moe_sboed" in selected_methods:
         moe_payload = torch.load(
             model_dir(ctx.out_dir) / "moe_sboed.pth",
@@ -1319,6 +1393,16 @@ def evaluate_vector_eig(
         training_seconds["moe_sboed"] = float(
             moe_payload.get("elapsed_seconds", 0.0)
         )
+        meta = dict(moe_payload.get("meta") or {})
+        if meta.get("moe_step0_action") is not None:
+            moe_step0_action = int(meta["moe_step0_action"])
+        else:
+            moe_step0_action = _prior_two_step_action(
+                ctx,
+                engine,
+                n_fantasies=4 if smoke else 16,
+                seed=int(meta.get("training_seed", GLOBAL_SEED)),
+            )
     if matched is not None:
         matched_payload = torch.load(
             matched_path, map_location="cpu", weights_only=False
@@ -1365,6 +1449,9 @@ def evaluate_vector_eig(
                     else None,
                     fixed_sequence=fixed,
                     n_fantasies=4 if smoke else 16,
+                    moe_step0_action=(
+                        moe_step0_action if method == "moe_sboed" else None
+                    ),
                 )
                 row["theta_id"] = i
                 row["design_replicate"] = replicate

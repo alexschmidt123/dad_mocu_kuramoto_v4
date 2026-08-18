@@ -2,9 +2,9 @@
 # Generate / reuse observation banks and bind them to a stamped result folder.
 #
 # Usage:
-#   ./scripts/data_generation.sh --config configs/ieee5.yaml
-#   ./scripts/data_generation.sh --config configs/ieee5.yaml --T 8
-#   ./scripts/data_generation.sh --config configs/ieee5.yaml --experiment_type eig_based
+#   ./scripts/data_generation.sh --config configs/ieee9.yaml
+#   ./scripts/data_generation.sh --config configs/ieee9.yaml --T 8
+#   ./scripts/data_generation.sh --config configs/ieee9.yaml --experiment_type eig_based
 
 set -euo pipefail
 # shellcheck source=../run.sh

@@ -3,7 +3,7 @@
 #
 # Usage:
 #   ./scripts/visualization.sh --mode moe-mechanism --config configs/ieee9.yaml --exp-dir experiments/...
-#   ./scripts/visualization.sh --mode diagnose-collapse --config configs/ieee9.yaml --exp-dir experiments/...
+#   ./scripts/visualization.sh --mode diagnose-collapse --config configs/ieee9.yaml --method dad --exp-dir experiments/...
 #   ./scripts/visualization.sh --mode eig-plots --run-prefix ieee9 --out-dir documents/plots
 set -euo pipefail
 # shellcheck source=../run.sh
@@ -21,9 +21,11 @@ NOISE_SIGMA="$DEFAULT_NOISE_SIGMA"
 SEED=101
 ROLLOUTS=128
 DEVICE="auto"
+METHOD=""
 
 usage() {
     echo "Usage: $0 --mode moe-mechanism|diagnose-collapse|eig-plots [options]" >&2
+    echo "  --method  optional for diagnose-collapse (default: dad); comma list uses first key" >&2
     echo "  moe-mechanism / diagnose-collapse require --config and --exp-dir" >&2
     echo "  eig-plots writes under --out-dir (default: documents/plots); never experiments/_*" >&2
 }
@@ -38,6 +40,7 @@ while [[ $# -gt 0 ]]; do
         -T|--T) T="$2"; shift 2 ;;
         --N_obs|--n-obs|--n_obs) N_OBS="$2"; shift 2 ;;
         --noise_sigma|--noise-sigma) NOISE_SIGMA="$2"; shift 2 ;;
+        --method|-method|-m) METHOD="$2"; shift 2 ;;
         --experiment_type|--experiment-type)
             EXPERIMENT_TYPE="$(validate_experiment_type "$2")" || exit 1
             shift 2
@@ -52,6 +55,17 @@ done
 
 [[ -n "$MODE" ]] || { usage; exit 1; }
 
+diagnostic_method_arg() {
+    if [[ -z "$METHOD" || "${METHOD,,}" == "all" ]]; then
+        echo "dad"
+        return 0
+    fi
+    # diagnose-collapse accepts one policy key; use the first comma token.
+    local first="${METHOD%%,*}"
+    first="$(echo "$first" | xargs)"
+    echo "$first"
+}
+
 case "${MODE,,}" in
     moe-mechanism|moe_mechanism)
         [[ -n "$CONFIG" && -n "$EXP_DIR" ]] || { echo "--config and --exp-dir required" >&2; exit 1; }
@@ -63,9 +77,10 @@ case "${MODE,,}" in
         ;;
     diagnose-collapse|diagnose_collapse)
         [[ -n "$CONFIG" && -n "$EXP_DIR" ]] || { echo "--config and --exp-dir required" >&2; exit 1; }
-        echo "=== visualization diagnose-collapse exp-dir=$EXP_DIR ==="
+        diag_method="$(diagnostic_method_arg)"
+        echo "=== visualization diagnose-collapse method=$diag_method exp-dir=$EXP_DIR ==="
         args=(diagnose-collapse --config "$CONFIG" --exp-dir "$EXP_DIR" --experiment-type "$EXPERIMENT_TYPE"
-            --N_obs "$N_OBS" --noise_sigma "$NOISE_SIGMA")
+            --N_obs "$N_OBS" --noise_sigma "$NOISE_SIGMA" --method "$diag_method")
         [[ -n "$T" ]] && args+=(-T "$T")
         exec python3 -m src.experiment "${args[@]}"
         ;;
@@ -75,8 +90,9 @@ case "${MODE,,}" in
             experiments/_*|experiments/_*/*) echo "Refusing invalid out-dir under experiments/_* : $OUT_DIR" >&2; exit 1 ;;
         esac
         mkdir -p "$OUT_DIR"
-        echo "=== visualization eig-plots run-prefix=$RUN_PREFIX out-dir=$OUT_DIR ==="
-        exec python3 -m src.objectives.eig.cli plot --run-prefix "$RUN_PREFIX" --out-dir "$OUT_DIR"
+        echo "=== visualization eig-plots run-prefix=$RUN_PREFIX out-dir=$OUT_DIR methods=${METHOD:-all runs} ==="
+        plot_args=(plot --run-prefix "$RUN_PREFIX" --out-dir "$OUT_DIR")
+        exec python3 -m src.objectives.eig.cli "${plot_args[@]}"
         ;;
     *)
         echo "Unknown --mode: $MODE" >&2

@@ -2,13 +2,13 @@
 # Sweep run.sh over configs and/or horizons (sequential calls to run.sh).
 #
 # Same T, multiple configs:
-#   bash sweep_run.sh --configs ieee5,ieee9 --T 8
+#   bash sweep_run.sh --configs ieee9,ieee14 --T 8
 #
 # Same config, multiple T:
-#   bash sweep_run.sh --configs ieee5 --T 4,5,8
+#   bash sweep_run.sh --configs ieee9 --T 4,5,8
 #
-# Cartesian product (every config × every T):
-#   bash sweep_run.sh --configs ieee5,ieee9 --T 4,8
+# Cartesian product (every config × every T × seed):
+#   bash sweep_run.sh --configs ieee9,ieee14 --T 4,8 --seed 101,202,303
 #
 set -euo pipefail
 
@@ -17,11 +17,11 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=run.sh
 source "$ROOT/run.sh"
 
-CONFIGS="ieee5,ieee9"
+CONFIGS="ieee9,ieee14"
 TS="$DEFAULT_STEP_NUMBER"
 N_OBS_VALUES="$DEFAULT_N_OBS"
 NOISE_SIGMAS="$DEFAULT_NOISE_SIGMA"
-SEEDS="101"
+SEEDS="$DEFAULT_SEEDS"
 FORCE=""
 METHOD=""
 SMOKE=""
@@ -29,9 +29,14 @@ BANK_STRUCTURE_AUDIT=""
 EXPERIMENT_TYPE="$EXPERIMENT_TYPE_DEFAULT"
 
 usage() {
-    echo "Usage: $0 [--configs ieee5,ieee9] [--T 5|4,8] [--N_obs 0|120] [--noise_sigma 0.005|0.001,0.005] [--experiment_type objective_based|eig_based] [--method <method>] [--force] [--bank-structure-audit] [--smoke]" >&2
+    echo "Usage: $0 [--configs ieee9,ieee14] [--T 5|4,8] [--N_obs 0|120] [--noise_sigma 0.005|0.001,0.005] [--seed 101,202,303] [--experiment_type objective_based|eig_based] [--method <methods>] [--force] [--bank-structure-audit] [--smoke]" >&2
     echo "" >&2
-    echo "  --configs   comma-separated config stems or paths under configs/ (default: ieee5,ieee9)" >&2
+    echo "  --method    optional comma-separated evaluate/train subset (default: yaml methods)" >&2
+    echo "              e.g. --method dad,rl_sboed,myopic  (no MoE; skips MoE training)" >&2
+    echo "  --seed      one training seed or comma-separated list (default: ${DEFAULT_SEEDS})" >&2
+    echo "  --seeds     alias for --seed" >&2
+    echo "  --configs   comma-separated config stems or paths under configs/ (default: ieee9,ieee14)" >&2
+    echo "              IEEE-5 catalogs are retired; use ieee9, ieee14, or sir_ode" >&2
     echo "  --systems   alias for --configs" >&2
     echo "  --config    alias for --configs (also accepts full yaml paths)" >&2
     echo "  --T         one horizon or comma-separated list (default: ${DEFAULT_STEP_NUMBER})" >&2
@@ -41,9 +46,10 @@ usage() {
     echo "  --bank-structure-audit  forward to run.sh (Myopic-trap gate per cell)" >&2
     echo "" >&2
     echo "Examples:" >&2
-    echo "  $0 --configs ieee5,ieee9 --T 8          # same T, multiple yaml" >&2
-    echo "  $0 --configs ieee5 --T 4,5,8            # same yaml, multiple T" >&2
-    echo "  $0 --configs ieee5,ieee9 --T 4,8        # product of both" >&2
+    echo "  $0 --configs ieee9,ieee14 --T 8         # same T, multiple yaml" >&2
+    echo "  $0 --configs ieee9 --T 4,5,8            # same yaml, multiple T" >&2
+    echo "  $0 --configs ieee9,ieee14 --T 4,8       # product of both" >&2
+    echo "  $0 --configs sir_ode --T 4,5 --experiment_type eig_based" >&2
 }
 
 resolve_cfg() {
@@ -131,11 +137,13 @@ SEED_ARR=()
 IFS=',' read -r -a _raw_seeds <<< "$SEEDS"
 for seed in "${_raw_seeds[@]}"; do
     seed="$(echo "$seed" | xargs)"
+    [[ -n "$seed" ]] || continue
     [[ "$seed" =~ ^[0-9]+$ ]] || { echo "Invalid --seed value: $seed" >&2; exit 1; }
     SEED_ARR+=("$seed")
 done
+[[ ${#SEED_ARR[@]} -gt 0 ]] || { echo "No --seed values given" >&2; usage; exit 1; }
 
-echo "=== sweep_run.sh configs=${CFG_ARR[*]} T=${T_ARR[*]} N_obs=${NOBS_ARR[*]} noise_sigma=${SIGMA_ARR[*]} type=$EXPERIMENT_TYPE ==="
+echo "=== sweep_run.sh configs=${CFG_ARR[*]} T=${T_ARR[*]} N_obs=${NOBS_ARR[*]} noise_sigma=${SIGMA_ARR[*]} seed=${SEED_ARR[*]} type=$EXPERIMENT_TYPE ==="
 for cfg in "${CFG_ARR[@]}"; do
     stem="$(basename "$cfg")"
     stem="${stem%.yml}"
@@ -150,7 +158,7 @@ for cfg in "${CFG_ARR[@]}"; do
         elif [[ ! -d "data/${stem}" ]]; then
             extra=(--force)
         fi
-        echo "--- $cfg --T $T --N_obs $N_OBS --noise_sigma $NOISE_SIGMA ${extra[*]:-} ---"
+        echo "--- $cfg --T $T --N_obs $N_OBS --noise_sigma $NOISE_SIGMA --seed $SEED ${extra[*]:-} ---"
         ARGS=(--config "$cfg" --experiment_type "$EXPERIMENT_TYPE" -T "$T" --N_obs "$N_OBS" --noise_sigma "$NOISE_SIGMA" --seed "$SEED")
         [[ -n "$METHOD" ]] && ARGS+=(--method "$METHOD")
         [[ -n "$BANK_STRUCTURE_AUDIT" ]] && ARGS+=(--bank-structure-audit)

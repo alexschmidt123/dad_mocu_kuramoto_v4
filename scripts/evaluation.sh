@@ -2,8 +2,9 @@
 # Evaluate methods into a stamped result folder.
 #
 # Usage:
-#   ./scripts/evaluation.sh --config configs/ieee5.yaml --T 8
-#   ./scripts/evaluation.sh --config configs/ieee5.yaml --exp-dir experiments/...
+#   ./scripts/evaluation.sh --config configs/ieee9.yaml --T 8
+#   ./scripts/evaluation.sh --config configs/ieee9.yaml --method dad,random
+#   ./scripts/evaluation.sh --config configs/ieee9.yaml --exp-dir experiments/...
 
 set -euo pipefail
 # shellcheck source=../run.sh
@@ -19,7 +20,9 @@ N_OBS="$DEFAULT_N_OBS"
 NOISE_SIGMA="$DEFAULT_NOISE_SIGMA"
 
 usage() {
-    echo "Usage: $0 --config <config.yaml> [--T <horizon>] [--N_obs <count>] [--noise_sigma <sigma>] [--experiment_type objective_based|eig_based] [--method <method>] [--exp-dir <path>] [--smoke]" >&2
+    echo "Usage: $0 --config <config.yaml> [--T <horizon>] [--N_obs <count>] [--noise_sigma <sigma>] [--experiment_type objective_based|eig_based] [--method <methods>] [--exp-dir <path>] [--smoke]" >&2
+    echo "" >&2
+    echo "  --method  optional comma-separated list (default: experiment.methods in yaml)" >&2
 }
 
 while [[ $# -gt 0 ]]; do
@@ -42,9 +45,11 @@ done
 
 [[ -n "$CONFIG" ]] || { usage; exit 1; }
 
-echo "=== evaluation (config=$CONFIG type=$EXPERIMENT_TYPE T=${T:-$DEFAULT_STEP_NUMBER} N_obs=$N_OBS noise_sigma=$NOISE_SIGMA method=${METHOD:-ALL}) ==="
+T="${T:-$DEFAULT_STEP_NUMBER}"
+
+echo "=== evaluation (config=$CONFIG type=$EXPERIMENT_TYPE T=$T N_obs=$N_OBS noise_sigma=$NOISE_SIGMA methods=${METHOD:-config}) ==="
 ARGS=(evaluate --config "$CONFIG" --experiment-type "$EXPERIMENT_TYPE" --N_obs "$N_OBS" --noise_sigma "$NOISE_SIGMA")
-[[ -n "$T" ]] && ARGS+=(-T "$T")
+ARGS+=(-T "$T")
 [[ -n "$EXP_DIR" ]] && ARGS+=(--exp-dir "$EXP_DIR")
-[[ -n "$METHOD" ]] && ARGS+=(--method "$METHOD")
+[[ -n "$METHOD && ${METHOD,,} != all" ]] && ARGS+=(--method "$METHOD")
 exec python3 -m src.experiment "${ARGS[@]}" ${SMOKE}

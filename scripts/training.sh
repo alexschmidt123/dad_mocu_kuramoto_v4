@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
-# Train a method into a stamped experiment folder (logs live under that folder).
+# Train method(s) into a stamped experiment folder (logs live under that folder).
 #
 # Usage:
 #   ./scripts/training.sh --config configs/ieee9.yaml --method dad --T 5
-#   ./scripts/training.sh --config configs/ieee9.yaml --method moe_sboed --exp-dir experiments/...
+#   ./scripts/training.sh --config configs/ieee9.yaml --method dad,rl_sboed
 #   ./scripts/training.sh --config configs/ieee9.yaml --method all --seed 101
+#   ./scripts/training.sh --config configs/ieee9.yaml --method myopic,fixed
+#     → no-op (eval-only methods)
 set -euo pipefail
 # shellcheck source=../run.sh
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/run.sh"
@@ -20,7 +22,11 @@ NOISE_SIGMA="$DEFAULT_NOISE_SIGMA"
 SEED=101
 
 usage() {
-    echo "Usage: $0 --config <config.yaml> [--method dad|rl_sboed|moe_sboed|matched_dense|all] [--T <horizon>] [--N_obs <count>] [--noise_sigma <sigma>] [--seed <int>] [--experiment_type objective_based|eig_based] [--exp-dir <path>] [--smoke]" >&2
+    echo "Usage: $0 --config <config.yaml> [--method <methods>|all] [--T <horizon>] [--N_obs <count>] [--noise_sigma <sigma>] [--seed <int>] [--experiment_type objective_based|eig_based] [--exp-dir <path>] [--smoke]" >&2
+    echo "" >&2
+    echo "  --method  optional comma-separated trainers (default: all trainable in config)" >&2
+    echo "            trainable: dad, rl_sboed, moe_sboed, matched_dense" >&2
+    echo "            skipped automatically: myopic, fixed, random, step_dad (eval-only)" >&2
 }
 
 while [[ $# -gt 0 ]]; do
@@ -44,28 +50,32 @@ done
 
 [[ -n "$CONFIG" ]] || { usage; exit 1; }
 
+T="${T:-$DEFAULT_STEP_NUMBER}"
+
 train_one() {
     local method="$1"
-    echo "=== training method=$method (config=$CONFIG type=$EXPERIMENT_TYPE T=${T:-$DEFAULT_STEP_NUMBER} N_obs=$N_OBS noise_sigma=$NOISE_SIGMA seed=$SEED) ==="
+    echo "=== training method=$method (config=$CONFIG type=$EXPERIMENT_TYPE T=$T N_obs=$N_OBS noise_sigma=$NOISE_SIGMA seed=$SEED) ==="
     local args=(train --config "$CONFIG" --method "$method" --experiment-type "$EXPERIMENT_TYPE"
         --N_obs "$N_OBS" --noise_sigma "$NOISE_SIGMA" --seed "$SEED")
-    [[ -n "$T" ]] && args+=(-T "$T")
+    args+=(-T "$T")
     [[ -n "$EXP_DIR" ]] && args+=(--exp-dir "$EXP_DIR")
     python3 -m src.experiment "${args[@]}" ${SMOKE}
 }
 
-case "${METHOD,,}" in
-    dad) train_one dad ;;
-    rl_sboed|rl-sboed) train_one rl_sboed ;;
-    moe_sboed|moe-sboed) train_one moe_sboed ;;
-    matched_dense|matched-dense) train_one matched_dense ;;
-    all)
-        train_one dad
-        train_one rl_sboed
-        train_one moe_sboed
-        ;;
-    *)
-        echo "Unknown --method: $METHOD (allowed: dad|rl_sboed|moe_sboed|matched_dense|all)" >&2
-        exit 1
-        ;;
-esac
+METHOD_FILTER=""
+if [[ "${METHOD,,}" != "all" ]]; then
+    METHOD_FILTER="$METHOD"
+fi
+
+mapfile -t TRAIN_METHODS < <(
+    resolve_training_method_keys "$CONFIG" "$T" "$N_OBS" "$NOISE_SIGMA" "$METHOD_FILTER"
+) || true
+
+if [[ ${#TRAIN_METHODS[@]} -eq 0 ]]; then
+    echo "=== training skipped (no trainable methods in selection: ${METHOD}) ==="
+    exit 0
+fi
+
+for method in "${TRAIN_METHODS[@]}"; do
+    train_one "$method"
+done
