@@ -21,27 +21,28 @@ import torch.nn.functional as F
 
 from src.objectives.mocu.context import (
     ExperimentContext,
-    FullDeltaFContext,  # noqa: F401 — alias
     belief_summary,
     control_from_log_weights,
     observe_compressed,
     posterior_mocu,
     update_posterior_vector,
 )
-from src.control.rewards import (
+from src.objectives.mocu.rewards import (
     dad_rewards,
     safety_aware_control_cost,
     verify_rl_sboed_rollout,
 )
 from src.policies.rl_sboed import (
     AdaptiveExperimentPolicy,
-    BeliefConditionedMoEPolicy,
     PolicyConfig,
-    SharedBaseResidualMoEPolicy,
     StateValueCritic,
+)
+from src.policies.moe import (
+    BeliefConditionedMoEPolicy,
+    SharedBaseResidualMoEPolicy,
     parameter_matched_expert_hidden,
 )
-from src.reporting.run_context import ensure_result_layout, model_dir
+from src.layout import ensure_result_layout, model_dir
 
 RewardMode = Literal["dad_terminal", "rl_sboed_stepwise"]
 
@@ -782,12 +783,6 @@ def _gae(
         advantages[t] = last
     returns = advantages + values
     return advantages.astype(np.float32), returns.astype(np.float32)
-
-
-def normalize_advantages(advantages: np.ndarray) -> np.ndarray:
-    """Normalize a complete PPO batch without erasing trajectory differences."""
-    a = np.asarray(advantages, dtype=np.float32)
-    return (a - a.mean()) / (a.std() + 1e-8)
 
 
 @torch.no_grad()
@@ -1830,7 +1825,7 @@ def train_policy(
     }
     # Persist a compact training summary into run_config.json (no extra JSON files).
     try:
-        from src.reporting.run_context import load_run_config_doc, run_config_path
+        from src.layout import load_run_config_doc, run_config_path
 
         doc = load_run_config_doc(ctx.out_dir)
         train_block = dict(doc.get("training_results") or {})

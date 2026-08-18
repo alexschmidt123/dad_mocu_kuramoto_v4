@@ -31,7 +31,6 @@ from src.banks.quality import BankQualityError
 from src.banks.power_grid import (
     generate_physical_bank,
     resolve_dataset_dir,
-    system_name_from_cfg,
 )
 from src.objectives.mocu.context import (
     ALL_METHOD_KEYS,
@@ -42,8 +41,8 @@ from src.objectives.mocu.context import (
     methods_from_args,
     normalize_method_key,
 )
-from src.reporting.summary import write_objective_summary_md
-from src.reporting.run_context import (
+from src.results.summary import write_objective_summary_md
+from src.layout import (
     allocate_result_dir,
     ensure_result_layout,
     resolve_result_dir,
@@ -96,8 +95,8 @@ def resolve_experiment_type(raw: str | None) -> ExperimentType:
 def _use_vector_eig_pipeline(cfg, exp_type: str, n_obs: int) -> bool:
     """Physical-bank vector EIG (incl. continuous max-ROCOF with N_obs=0).
 
-    Legacy table/stepwise EIG stays only for classic eig_based + N_obs=0
-    non-continuous IEEE configs.
+    Table-lookup EIG (``pipeline.run_evaluation``) is used only for classic
+    eig_based + N_obs=0 non-continuous IEEE configs.
     """
     if str(exp_type).lower().replace("-", "_") != "eig_based":
         return False
@@ -113,7 +112,7 @@ def _add_experiment_type(parser: argparse.ArgumentParser) -> None:
         dest="experiment_type",
         default="objective_based",
         choices=EXPERIMENT_TYPES,
-        help="objective_based (default u_ctrl) or eig_based (stepwise ΔH/EIG)",
+        help="objective_based (default u_ctrl) or eig_based (terminal EIG)",
     )
 
 
@@ -205,10 +204,77 @@ def _run_record_extra(
     extra = dict(more)
     if methods is not None:
         extra["methods"] = list(methods)
-    seed = getattr(args, "seed", None)
+    seed = extra.get("seed", getattr(args, "seed", None))
     if seed is not None:
         extra["seed"] = int(seed)
     return extra
+
+
+VECTOR_EIG_METHOD_MAP = {
+    "dad": "dad_eig",
+    "rl_sboed": "rl_sboed_eig",
+    "moe_sboed": "moe_sboed",
+    "matched_dense": "matched_dense",
+    "myopic": "myopic_delta_h",
+    "fixed": "fixed_open_loop",
+    "random": "random",
+}
+
+
+def _evaluate_run_identity(
+    args: argparse.Namespace,
+) -> tuple[Any, str, Path, dict[str, Any], int]:
+    """Load eval config from --exp-dir run_config when present."""
+    from src.layout import (
+        load_run_config_doc,
+        method_checkpoint_available,
+        resolve_eval_seed,
+        run_methods_from_doc,
+    )
+
+    exp_type = resolve_experiment_type(args.experiment_type)
+    step = args.step_number
+    n_obs = args.n_obs
+    sigma = args.noise_sigma
+    run_doc: dict[str, Any] = {}
+    if args.exp_dir:
+        exp_dir = Path(args.exp_dir)
+        if not exp_dir.is_absolute():
+            exp_dir = repo_root() / exp_dir
+        run_doc = load_run_config_doc(exp_dir)
+        if run_doc.get("T") is not None:
+            step = int(run_doc["T"])
+        elif run_doc.get("step_number") is not None:
+            step = int(run_doc["step_number"])
+        if run_doc.get("N_obs") is not None:
+            n_obs = int(run_doc["N_obs"])
+        if run_doc.get("noise_sigma") is not None:
+            sigma = float(run_doc["noise_sigma"])
+        if run_doc.get("experiment_type"):
+            exp_type = resolve_experiment_type(str(run_doc["experiment_type"]))
+    cfg = load_experiment_config(
+        args.config,
+        step_number=step,
+        n_obs=n_obs,
+        noise_sigma=sigma,
+    )
+    exp_dir = _resolve_exp_dir(cfg, exp_type, args.exp_dir, create_new=False)
+    run_doc = load_run_config_doc(exp_dir) or run_doc
+    eval_seed = resolve_eval_seed(exp_dir, getattr(args, "seed", None))
+    if args.method:
+        method_keys = methods_from_args(cfg, args.method)
+    else:
+        stamped = run_methods_from_doc(run_doc)
+        method_keys = stamped or methods_from_args(cfg, None)
+    kept: list[str] = []
+    for key in method_keys:
+        if method_checkpoint_available(exp_dir, key):
+            kept.append(key)
+        else:
+            print(f"[evaluate] skip {key}: missing .pth under {exp_dir / 'model'}")
+    if not kept:
+        raise SystemExit(f"No evaluable methods remain in {exp_dir}")
+    return cfg, exp_type, exp_dir, {"methods": kept, "eval_seed": eval_seed, "run_doc": run_doc}, eval_seed
 
 
 def cmd_allocate_dir(args: argparse.Namespace) -> None:
@@ -296,7 +362,12 @@ def cmd_generate_data(args: argparse.Namespace) -> None:
                 },
             ),
         )
-        print(json.dumps(rep, indent=2, default=str))
+        print(
+            f"[generate-data] reused={bool(rep.get('reused'))} "
+            f"path={rep.get('path')} "
+            f"train={rep.get('train_theta_count')} test={rep.get('test_theta_count')} "
+            f"actions={rep.get('n_actions')}"
+        )
         print(f"EXP_DIR={exp_dir}")
         return
 
@@ -355,10 +426,12 @@ def cmd_generate_data(args: argparse.Namespace) -> None:
                 },
             ),
         )
-        slim = {k: v for k, v in rep.items() if k != "time_vector"}
-        slim["experiment_type"] = exp_type
-        slim["exp_dir"] = str(exp_dir)
-        print(json.dumps(slim, indent=2, default=str))
+        print(
+            f"[generate-data] reused={bool(rep.get('reused'))} "
+            f"type={exp_type} train={rep.get('train_theta_count')} "
+            f"test={rep.get('test_theta_count')} "
+            f"actions={rep.get('n_actions')}"
+        )
         print(f"EXP_DIR={exp_dir}")
         return
 
@@ -372,28 +445,44 @@ def cmd_generate_data(args: argparse.Namespace) -> None:
         cfg, linked, data_path, train_systems, test_systems, cfg.methods
     )
     print(
-        json.dumps(
-            {
-                "experiment_type": exp_type,
-                "exp_dir": str(linked),
-                "data_dir": str(data_path),
-                "n_train": len(train_systems),
-                "n_test": len(test_systems),
-            },
-            indent=2,
-        )
+        f"[generate-data] type={exp_type} "
+        f"train={len(train_systems)} test={len(test_systems)} "
+        f"data={data_path}"
     )
     print(f"EXP_DIR={linked}")
 
 
 def cmd_train(args: argparse.Namespace) -> None:
+    from src.layout import load_run_config_doc, resolve_eval_seed
+
+    exp_type = resolve_experiment_type(args.experiment_type)
+    step = args.step_number
+    n_obs = args.n_obs
+    sigma = args.noise_sigma
+    train_seed = int(args.seed)
+    if args.exp_dir:
+        exp_guess = Path(args.exp_dir)
+        if not exp_guess.is_absolute():
+            exp_guess = repo_root() / exp_guess
+        run_doc = load_run_config_doc(exp_guess)
+        if run_doc.get("T") is not None:
+            step = int(run_doc["T"])
+        elif run_doc.get("step_number") is not None:
+            step = int(run_doc["step_number"])
+        if run_doc.get("N_obs") is not None:
+            n_obs = int(run_doc["N_obs"])
+        if run_doc.get("noise_sigma") is not None:
+            sigma = float(run_doc["noise_sigma"])
+        if run_doc.get("experiment_type"):
+            exp_type = resolve_experiment_type(str(run_doc["experiment_type"]))
+        train_seed = resolve_eval_seed(exp_guess, train_seed)
+
     cfg = load_experiment_config(
         args.config,
-        step_number=args.step_number,
-        n_obs=args.n_obs,
-        noise_sigma=args.noise_sigma,
+        step_number=step,
+        n_obs=n_obs,
+        noise_sigma=sigma,
     )
-    exp_type = resolve_experiment_type(args.experiment_type)
     key = normalize_method_key(args.method)
     if key not in ("dad", "rl_sboed", "moe_sboed", "matched_dense"):
         raise SystemExit(
@@ -403,8 +492,6 @@ def cmd_train(args: argparse.Namespace) -> None:
     exp_dir = _resolve_exp_dir(
         cfg, exp_type, args.exp_dir, create_new=False
     )
-    from src.reporting.run_context import load_run_config_doc
-
     prev_methods = load_run_config_doc(exp_dir).get("methods")
     train_record_methods = list(prev_methods) if prev_methods else [key]
 
@@ -422,7 +509,7 @@ def cmd_train(args: argparse.Namespace) -> None:
             ctx.data_dir,
             experiment_type=exp_type,
             extra=_run_record_extra(
-                args, methods=train_record_methods, N_obs=ctx.n_obs
+                args, methods=train_record_methods, N_obs=ctx.n_obs, seed=train_seed
             ),
         )
         display = method_display_name(key)
@@ -433,13 +520,16 @@ def cmd_train(args: argparse.Namespace) -> None:
         from src.objectives.mocu.train import train_policy
 
         result = train_policy(
-            ctx, method=display, seed=int(args.seed), smoke=args.smoke
+            ctx, method=display, seed=int(train_seed), smoke=args.smoke
         )
-        print(json.dumps(result, indent=2))
+        print(
+            f"[train] {display} "
+            f"{float((result or {}).get('elapsed_seconds') or 0.0):.0f}s"
+        )
         print(f"EXP_DIR={exp_dir}")
         return
 
-    if _use_vector_eig_pipeline(cfg, exp_type, int(args.n_obs)):
+    if _use_vector_eig_pipeline(cfg, exp_type, int(n_obs)):
         from src.objectives.eig.vector import train_vector_eig_policy
 
         ctx = build_context_from_config(
@@ -457,9 +547,10 @@ def cmd_train(args: argparse.Namespace) -> None:
             extra=_run_record_extra(
                 args,
                 methods=train_record_methods,
+                seed=train_seed,
                 observation_model=(
                     "continuous_duration_max_rocof"
-                    if int(args.n_obs) == 0
+                    if int(ctx.n_obs) == 0
                     else "sampled_delta_f_vector"
                 ),
                 N_obs=ctx.n_obs,
@@ -467,30 +558,37 @@ def cmd_train(args: argparse.Namespace) -> None:
         )
         if key == "dad":
             result = train_vector_eig_policy(
-                ctx, method="dad_eig", smoke=bool(args.smoke), seed=int(args.seed)
+                ctx, method="dad_eig", smoke=bool(args.smoke), seed=int(train_seed)
             )
         elif key == "rl_sboed":
             result = train_vector_eig_policy(
                 ctx,
                 method="rl_sboed_eig",
                 smoke=bool(args.smoke),
-                seed=int(args.seed),
+                seed=int(train_seed),
             )
         elif key == "moe_sboed":
             result = train_vector_eig_policy(
-                ctx, method="moe_sboed", smoke=bool(args.smoke), seed=int(args.seed)
+                ctx, method="moe_sboed", smoke=bool(args.smoke), seed=int(train_seed)
             )
         else:
             result = train_vector_eig_policy(
-                ctx, method="matched_dense", smoke=bool(args.smoke), seed=int(args.seed)
+                ctx, method="matched_dense", smoke=bool(args.smoke), seed=int(train_seed)
             )
-        print(json.dumps(result, indent=2))
+        print(
+            f"[train] {result.get('method')} "
+            f"val_eig={result.get('best_validation_terminal_eig')} "
+            f"uniq={result.get('best_validation_n_unique_sequences')} "
+            f"stage={result.get('best_stage')} "
+            f"{float(result.get('elapsed_seconds') or 0.0):.0f}s "
+            f"→ {result.get('checkpoint')}"
+        )
         print(f"EXP_DIR={exp_dir}")
         return
 
     if key == "rl_sboed":
         from src.objectives.eig.pipeline import train_rl_sboed_eig
-        from src.reporting.run_context import load_experiment_run, load_run_config_doc
+        from src.layout import load_experiment_run, load_run_config_doc
 
         if not load_run_config_doc(exp_dir):
             raise SystemExit(
@@ -499,7 +597,7 @@ def cmd_train(args: argparse.Namespace) -> None:
         run = load_experiment_run(exp_dir, repo_root())
         print(f"[train] type={exp_type} EIG-specific RL-sBOED → {exp_dir}")
         path = train_rl_sboed_eig(
-            run, smoke=bool(args.smoke), seed=int(args.seed)
+            run, smoke=bool(args.smoke), seed=int(train_seed)
         )
         print(
             json.dumps(
@@ -511,15 +609,14 @@ def cmd_train(args: argparse.Namespace) -> None:
 
     if key == "moe_sboed":
         raise SystemExit(
-            "Legacy Fixed/Myopic/DAD fusion MoE is disabled. "
-            "For continuous-duration / vector EIG use the BeliefConditionedMoE "
-            "path (N_obs matching the vector pipeline; train via "
-            "`python -m src.experiment train --method moe_sboed` under the "
-            "vector-EIG entrypoint). See documents/moe_sboed_workflow.txt."
+            "moe_sboed (BeliefConditionedMoE) is trained on the MOCU path "
+            "(`--experiment_type objective_based`) or the vector-EIG path "
+            "(eig_based with N_obs>0 or continuous-duration). "
+            "This table-EIG entrypoint has no MoE trainer."
         )
 
     from src.objectives.eig.pipeline import train_dad_policy
-    from src.reporting.run_context import load_experiment_run, load_run_config_doc
+    from src.layout import load_experiment_run, load_run_config_doc
 
     if not load_run_config_doc(exp_dir):
         raise SystemExit(
@@ -535,19 +632,10 @@ def cmd_train(args: argparse.Namespace) -> None:
 
 
 def cmd_evaluate(args: argparse.Namespace) -> None:
-    cfg = load_experiment_config(
-        args.config,
-        step_number=args.step_number,
-        n_obs=args.n_obs,
-        noise_sigma=args.noise_sigma,
-    )
-    exp_type = resolve_experiment_type(args.experiment_type)
-    exp_dir = _resolve_exp_dir(
-        cfg, exp_type, args.exp_dir, create_new=False
-    )
+    cfg, exp_type, exp_dir, identity, eval_seed = _evaluate_run_identity(args)
+    method_keys = list(identity["methods"])
 
     if exp_type == "objective_based":
-        method_keys = methods_from_args(cfg, args.method)
         ctx = build_context_from_config(
             cfg,
             ensure_bank=True,
@@ -564,13 +652,16 @@ def cmd_evaluate(args: argparse.Namespace) -> None:
             extra=_run_record_extra(
                 args,
                 methods=method_keys,
+                seed=eval_seed,
+                eval_seed=eval_seed,
                 smoke=bool(args.smoke),
                 eval_meta=meta,
             ),
         )
         print(
             f"[evaluate] type={exp_type} methods={method_keys} "
-            f"N_obs={ctx.n_obs} mode={ctx.observation_mode} exp_dir={exp_dir}"
+            f"eval_seed={eval_seed} N_obs={ctx.n_obs} "
+            f"mode={ctx.observation_mode} exp_dir={exp_dir}"
         )
         from src.objectives.mocu.evaluate import run_full_evaluation
 
@@ -578,9 +669,8 @@ def cmd_evaluate(args: argparse.Namespace) -> None:
             ctx,
             methods=method_keys,
             smoke=args.smoke,
-            # Smoke validates plumbing and timing, not the expensive physical
-            # safety certification performed by publication runs.
             skip_cuda_safety=bool(args.smoke),
+            eval_seed=eval_seed,
         )
         summary_path = write_objective_summary_md(
             ctx.out_dir,
@@ -592,32 +682,19 @@ def cmd_evaluate(args: argparse.Namespace) -> None:
             },
         )
         print(f"Summary → {summary_path}")
-        print(
-            json.dumps(
-                {"out_dir": str(ctx.out_dir), "eval": eval_meta},
-                indent=2,
-                default=str,
-            )
-        )
         print(f"Done → {ctx.out_dir}")
         print(f"EXP_DIR={exp_dir}")
         return
 
-    if _use_vector_eig_pipeline(cfg, exp_type, int(args.n_obs)):
+    n_obs = int(dict(cfg.raw.get("observation") or {}).get("N_obs", 0))
+    if _use_vector_eig_pipeline(cfg, exp_type, n_obs):
         from src.objectives.eig.vector import evaluate_vector_eig
 
-        method_map = {
-            "dad": "dad_eig",
-            "rl_sboed": "rl_sboed_eig",
-            "moe_sboed": "moe_sboed",
-            "matched_dense": "matched_dense",
-            "myopic": "myopic_delta_h",
-            "fixed": "fixed_open_loop",
-            "random": "random",
-        }
-        requested = methods_from_args(cfg, args.method)
-        vector_methods = tuple(method_map[key] for key in requested)
-
+        vector_methods = tuple(
+            VECTOR_EIG_METHOD_MAP[key]
+            for key in method_keys
+            if key in VECTOR_EIG_METHOD_MAP
+        )
         ctx = build_context_from_config(
             cfg,
             ensure_bank=True,
@@ -632,46 +709,54 @@ def cmd_evaluate(args: argparse.Namespace) -> None:
             experiment_type=exp_type,
             extra=_run_record_extra(
                 args,
-                methods=list(requested),
+                methods=list(method_keys),
+                seed=eval_seed,
+                eval_seed=eval_seed,
                 observation_model=(
                     "continuous_duration_max_rocof"
-                    if int(args.n_obs) == 0
+                    if int(ctx.n_obs) == 0
                     else "sampled_delta_f_vector"
                 ),
                 N_obs=ctx.n_obs,
             ),
         )
+        print(
+            f"[evaluate] type={exp_type} methods={method_keys} "
+            f"eval_seed={eval_seed} N_obs={ctx.n_obs} exp_dir={exp_dir}"
+        )
         result = evaluate_vector_eig(
             ctx,
             smoke=bool(args.smoke),
             methods=vector_methods,
+            eval_seed=eval_seed,
         )
-        print(json.dumps(result, indent=2))
+        for row in result.get("summaries") or []:
+            print(
+                f"[evaluate] {row.get('method')} "
+                f"eig={float(row.get('terminal_eig_mean', 0.0)):.4f} "
+                f"uniq={row.get('n_unique_sequences')} "
+                f"eval_seed={row.get('eval_seed', eval_seed)}"
+            )
         print(f"EXP_DIR={exp_dir}")
         return
 
-    from src.objectives.eig.stepwise.runner import run_system_stepwise_eig
+    from src.objectives.eig.pipeline import print_experiment_banner, run_evaluation
+    from src.layout import load_experiment_run, load_run_config_doc
 
-    system = system_name_from_cfg(cfg)
-    ensure_result_layout(exp_dir)
-    out_dir = exp_dir / "eval"
-    print(f"[evaluate] type={exp_type} stepwise-eig system={system} exp={exp_dir}")
-    from src.reporting.run_context import load_run_config_doc as _load_rc
-
-    if not _load_rc(exp_dir):
+    if not load_run_config_doc(exp_dir):
         raise SystemExit(
             f"eig_based experiment missing at {exp_dir}. "
-            f"Run data_generation + dad_training with --experiment-type eig_based first."
+            f"Run data_generation + train with --experiment-type eig_based first."
         )
-    out = run_system_stepwise_eig(
-        system,
-        repo_root(),
-        exp_dir=exp_dir,
-        t_max=int(cfg.step_number),
-        out_dir=out_dir,
+    run = load_experiment_run(exp_dir, repo_root())
+    print(
+        f"[evaluate] type={exp_type} table-EIG methods={method_keys} exp={exp_dir}"
     )
-    print(json.dumps({"experiment_type": exp_type, "out_dir": str(out)}, indent=2))
-    print(f"Done → {out}")
+    print_experiment_banner(
+        run.cfg, run.exp_dir, run.data_path,
+        run.train_systems, run.test_systems, method_keys,
+    )
+    run_evaluation(run, methods=method_keys)
     print(f"EXP_DIR={exp_dir}")
 
 
@@ -929,7 +1014,7 @@ def build_parser() -> argparse.ArgumentParser:
     tr.add_argument("--smoke", action="store_true")
     tr.set_defaults(func=cmd_train)
 
-    ev = sub.add_parser("evaluate", help="Evaluate methods / stepwise EIG")
+    ev = sub.add_parser("evaluate", help="Evaluate methods")
     ev.add_argument("--config", "-c", required=True)
     ev.add_argument(
         "--method",

@@ -282,7 +282,7 @@ def run_keyed_history(
         weighted_quantile,
     )
     from src.objectives.eig.rollout import update_log_weights
-    from src.inference.scoring import y_sim_last_step_from_tables
+    from src.banks.tables import y_sim_last_step_from_tables
 
     log_w = np.asarray(table_support.log_p0, dtype=np.float64).copy()
     used: set[int] = set()

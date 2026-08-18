@@ -28,7 +28,7 @@ from src.config import SYSTEM_CONFIGS, SBOEDConfig, load_config_for_run, repo_ro
 from src.banks.paths import DATA_ROOT
 from src.banks.quality import validate_physical_bank_quality
 from src.domains.swing.design import build_catalog, build_simulator
-from src.inference.spce import sample_mk_prior
+from src.control.posterior_ctrl import sample_mk_prior
 from src.observations.compress import obs_indices_for_n_obs
 
 

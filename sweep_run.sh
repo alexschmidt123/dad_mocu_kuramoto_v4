@@ -8,7 +8,18 @@
 #   bash sweep_run.sh --configs ieee9 --T 4,5,8
 #
 # Cartesian product (every config × every T × seed):
-#   bash sweep_run.sh --configs ieee9,ieee14 --T 4,8 --seed 101,202,303
+#   bash sweep_run.sh --configs ieee9 --T 3,4,5 --seed 101,202,303
+#
+# After a T sweep (at least two --T values), writes one stamped plots folder
+# per (config, type, N_obs, sigma) group:
+#   --T 3,4,5 → experiments/MMDDYYYY_HHMMSS_plots_ieee9_EIG_T3-5_Nobs10_sigma0p005
+# Single-T sweeps do not write a plots folder. date_time is this sweep's start
+# time. Each plots folder has exactly five files:
+#   metric.md, time.md, metric_vs_T.png, time_vs_T.md, meta.json
+#
+# Rebuild plots from existing T-sweep result dirs (no train/eval):
+#   bash sweep_run.sh --configs ieee9 --experiment_type eig_based \
+#     --T 3,4,5 --N_obs 10 --noise_sigma 0.005 --seed 101,202,303 --plots-only
 #
 set -euo pipefail
 
@@ -27,9 +38,10 @@ METHOD=""
 SMOKE=""
 BANK_STRUCTURE_AUDIT=""
 EXPERIMENT_TYPE="$EXPERIMENT_TYPE_DEFAULT"
+PLOTS_ONLY=0
 
 usage() {
-    echo "Usage: $0 [--configs ieee9,ieee14] [--T 5|4,8] [--N_obs 0|120] [--noise_sigma 0.005|0.001,0.005] [--seed 101,202,303] [--experiment_type objective_based|eig_based] [--method <methods>] [--force] [--bank-structure-audit] [--smoke]" >&2
+    echo "Usage: $0 [--configs ieee9,ieee14] [--T 5|4,8] [--N_obs 0|120] [--noise_sigma 0.005|0.001,0.005] [--seed 101,202,303] [--experiment_type objective_based|eig_based] [--method <methods>] [--force] [--bank-structure-audit] [--smoke] [--plots-only]" >&2
     echo "" >&2
     echo "  --method    optional comma-separated evaluate/train subset (default: yaml methods)" >&2
     echo "              e.g. --method dad,rl_sboed,myopic  (no MoE; skips MoE training)" >&2
@@ -44,6 +56,7 @@ usage() {
     echo "  --noise_sigma one std or comma-separated list (default: ${DEFAULT_NOISE_SIGMA})" >&2
     echo "  --force     regenerate physical banks" >&2
     echo "  --bank-structure-audit  forward to run.sh (Myopic-trap gate per cell)" >&2
+    echo "  --plots-only  write stamped plots from existing matching result dirs (no train/eval)" >&2
     echo "" >&2
     echo "Examples:" >&2
     echo "  $0 --configs ieee9,ieee14 --T 8         # same T, multiple yaml" >&2
@@ -88,6 +101,7 @@ while [[ $# -gt 0 ]]; do
             shift
             ;;
         --smoke) SMOKE="--smoke"; shift ;;
+        --plots-only) PLOTS_ONLY=1; shift ;;
         -h|--help) usage; exit 0 ;;
         *) usage; exit 1 ;;
     esac
@@ -143,30 +157,98 @@ for seed in "${_raw_seeds[@]}"; do
 done
 [[ ${#SEED_ARR[@]} -gt 0 ]] || { echo "No --seed values given" >&2; usage; exit 1; }
 
-echo "=== sweep_run.sh configs=${CFG_ARR[*]} T=${T_ARR[*]} N_obs=${NOBS_ARR[*]} noise_sigma=${SIGMA_ARR[*]} seed=${SEED_ARR[*]} type=$EXPERIMENT_TYPE ==="
+SWEEP_STAMP="$(date +%m%d%Y_%H%M%S)"
+STEM_ARR=()
 for cfg in "${CFG_ARR[@]}"; do
-    stem="$(basename "$cfg")"
-    stem="${stem%.yml}"
-    stem="${stem%.yaml}"
+    STEM_ARR+=("$(basename "$cfg" .yaml)")
+done
+
+write_sweep_plots() {
+    local plot_args=(
+        python3 -m src.results.plots
+        --stamp "$SWEEP_STAMP"
+        --experiment-type "$EXPERIMENT_TYPE"
+    )
+    if [[ -n "$METHOD" ]]; then
+        plot_args+=(--methods "$METHOD")
+    fi
+    # Folder token is this sweep's --T range (T3-5). Single-T sweeps never plot.
+    plot_args+=(--T "$TS" --N_obs "$N_OBS_VALUES" --noise_sigma "$NOISE_SIGMAS")
+    if [[ "$1" == "discover" ]]; then
+        plot_args+=(--discover --seeds "$SEEDS")
+        local stem
+        for stem in "${STEM_ARR[@]}"; do
+            plot_args+=(--config-stem "$stem")
+        done
+    else
+        local d
+        for d in "${CELL_DIRS[@]}"; do
+            plot_args+=(--exp-dir "$d")
+        done
+    fi
+    echo "=== sweep_run.sh plots stamp=$SWEEP_STAMP ==="
+    "${plot_args[@]}"
+}
+
+maybe_write_sweep_plots() {
+    if [[ ${#T_ARR[@]} -lt 2 ]]; then
+        echo "=== sweep_run.sh: skip plots (need a T sweep of at least two --T values; got T=${T_ARR[*]}) ==="
+        return 0
+    fi
+    write_sweep_plots "$1"
+}
+
+echo "=== sweep_run.sh stamp=$SWEEP_STAMP configs=${CFG_ARR[*]} T=${T_ARR[*]} N_obs=${NOBS_ARR[*]} noise_sigma=${SIGMA_ARR[*]} seed=${SEED_ARR[*]} type=$EXPERIMENT_TYPE ==="
+
+if [[ "$PLOTS_ONLY" -eq 1 ]]; then
+    maybe_write_sweep_plots discover
+    echo "=== sweep_run.sh plots-only complete ==="
+    exit 0
+fi
+
+CELL_DIRS=()
+for cfg in "${CFG_ARR[@]}"; do
     for T in "${T_ARR[@]}"; do
       for N_OBS in "${NOBS_ARR[@]}"; do
        for NOISE_SIGMA in "${SIGMA_ARR[@]}"; do
         for SEED in "${SEED_ARR[@]}"; do
         extra=()
+        # Only forward explicit --force. Do not infer a missing bank from
+        # data/<yaml-stem>: IEEE-9 lives at data/ieee9_duration_bus, and
+        # generate-data refuses --force on existing physical banks.
         if [[ -n "$FORCE" ]]; then
-            extra=(--force)
-        elif [[ ! -d "data/${stem}" ]]; then
             extra=(--force)
         fi
         echo "--- $cfg --T $T --N_obs $N_OBS --noise_sigma $NOISE_SIGMA --seed $SEED ${extra[*]:-} ---"
         ARGS=(--config "$cfg" --experiment_type "$EXPERIMENT_TYPE" -T "$T" --N_obs "$N_OBS" --noise_sigma "$NOISE_SIGMA" --seed "$SEED")
         [[ -n "$METHOD" ]] && ARGS+=(--method "$METHOD")
         [[ -n "$BANK_STRUCTURE_AUDIT" ]] && ARGS+=(--bank-structure-audit)
+        cell_log="$(mktemp)"
+        set +e
         # shellcheck disable=SC2086
-        bash run.sh "${ARGS[@]}" "${extra[@]+"${extra[@]}"}" ${SMOKE}
+        bash run.sh "${ARGS[@]}" "${extra[@]+"${extra[@]}"}" ${SMOKE} | tee "$cell_log"
+        rc=${PIPESTATUS[0]}
+        set -e
+        cell="$(grep '^EXP_DIR=' "$cell_log" | tail -n 1 | sed 's/^EXP_DIR=//' | tr -d '\r' | sed 's/[[:space:]]*$//')"
+        rm -f "$cell_log"
+        if [[ $rc -ne 0 ]]; then
+            echo "sweep cell failed (exit $rc): $cfg T=$T N_obs=$N_OBS noise_sigma=$NOISE_SIGMA seed=$SEED" >&2
+            exit "$rc"
+        fi
+        if [[ -z "$cell" ]]; then
+            echo "sweep cell succeeded but EXP_DIR= was not printed: $cfg T=$T seed=$SEED" >&2
+            exit 1
+        fi
+        CELL_DIRS+=("$cell")
         done
        done
       done
     done
 done
+
+if [[ ${#CELL_DIRS[@]} -gt 0 ]]; then
+    maybe_write_sweep_plots dirs
+else
+    echo "=== sweep_run.sh: no result dirs to plot ===" >&2
+fi
 echo "=== sweep_run.sh complete ==="

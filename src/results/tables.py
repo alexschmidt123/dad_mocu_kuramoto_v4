@@ -1,4 +1,4 @@
-"""Control-objective evaluation metrics and comparison tables."""
+"""Method-comparison tables (CSV) written under an experiment ``eval/`` folder."""
 
 from __future__ import annotations
 

@@ -71,12 +71,6 @@ def policy_rollout(
     return seq, y_list, torch.stack(log_probs), torch.stack(entropies)
 
 
-# Compatibility aliases used by older call sites.
-_feasible_mask = feasible_mask
-_policy_rollout = policy_rollout
-_training_horizon = training_horizon
-
-
 def rollout_dad(
     cfg: SBOEDConfig,
     test_systems: list[dict],

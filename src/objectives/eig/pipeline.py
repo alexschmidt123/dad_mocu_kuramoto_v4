@@ -10,7 +10,6 @@ from __future__ import annotations
 import csv
 import json
 import time
-from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Any
 
@@ -26,14 +25,17 @@ except ImportError:  # pragma: no cover
 
 from src.config import ALL_METHODS, SBOEDConfig, repo_root
 from src.banks.tables import (
+    TableThetaSupport,
     ensure_data,
     load_split_systems,
-    lookup_action_y,
-    lookup_sequence_y,
     resolve_data_dir,
     save_json,
+    validate_trajectory_y_sim,
+    y_sim_last_step_from_tables,
+    y_sim_sequence_from_table,
+    y_sim_steps_from_tables,
 )
-from src.reporting.run_context import (
+from src.layout import (
     ExperimentRun,
     eval_dir,
     eval_method_path,
@@ -46,178 +48,97 @@ from src.reporting.run_context import (
     write_run_config,
 )
 from src.domains.swing.simulator import system_mk
-from src.inference.spce import (
+from src.control.posterior_ctrl import (
     clamp_info_gain,
-    log_gaussian_observation_density,
     normalize_log_weights,
     posterior_after_gaussian_observations,
     posterior_entropy,
     posterior_mean_mk_vectors,
 )
+from src.observations.likelihood import log_gaussian_observation_density
 from src.policies.dad import DADPolicy
-from src.objectives.eig.dad_rollout import _policy_rollout, rollout_dad
-from src.domains.swing.design import (
-    build_catalog,
-    masked_action_indices,
-    random_valid_sequence,
-)
-from src.banks.tables import validate_trajectory_y_sim
-from src.inference.scoring import (
-    TableThetaSupport,
-    spce_eig_from_rollout,
-    y_sim_last_step_from_tables,
-    y_sim_steps_from_tables,
-)
+from src.objectives.eig.dad_rollout import policy_rollout
+from src.domains.swing.design import build_catalog
 
-
-# --- Baselines -------------------------------------------------------------
-
-class Method(ABC):
-    name: str
-
-    @abstractmethod
-    def run(self, cfg: SBOEDConfig, test_systems: list[dict], rng: np.random.Generator) -> list[dict]:
-        """Return list of rollouts: {M, K, sequence, y}."""
-
-
-def default_fixed_sequence(cfg: SBOEDConfig, catalog) -> list[int]:
-    """
-    Deterministic open-loop baseline: spread probes across buses at the middle
-    configured amplitude. This avoids catalog-order bias such as always taking
-    the first adjacent bus actions.
-    """
-    if cfg.step_number <= 0:
-        return []
-    if cfg.step_number > len(catalog):
-        raise ValueError(f"T={cfg.step_number} exceeds action catalog size={len(catalog)}")
-
-    amplitudes = sorted({float(d.amplitude) for d in catalog})
-    target_amp = amplitudes[len(amplitudes) // 2]
-    if cfg.N == 1:
-        target_buses = [0]
-    else:
-        target_buses = [
-            int(round(x))
-            for x in np.linspace(0, cfg.N - 1, num=min(cfg.step_number, cfg.N))
-        ]
-
-    seq: list[int] = []
-    used: set[int] = set()
-    for bus in target_buses:
-        for i, design in enumerate(catalog):
-            if i in used:
-                continue
-            if int(design.bus) == int(bus) and abs(float(design.amplitude) - target_amp) < 1e-12:
-                seq.append(i)
-                used.add(i)
-                break
-        if len(seq) >= cfg.step_number:
-            return seq
-
-    for i in range(len(catalog)):
-        if i not in used:
-            seq.append(i)
-            used.add(i)
-        if len(seq) >= cfg.step_number:
-            break
-    return seq
-
-
-class RandomMethod(Method):
-    name = "random"
-
-    def run(self, cfg, test_systems, rng):
-        catalog = build_catalog(cfg)
-        out = []
-        for sys in test_systems:
-            seq = random_valid_sequence(catalog, cfg.step_number, rng)
-            y = lookup_sequence_y(sys, seq)
-            out.append({"M": sys["M"], "K": sys["K"], "sequence": seq, "y": y})
-        return out
-
-
-class FixedOpenLoopMethod(Method):
-    name = "fixed_open_loop"
-
-    def __init__(self, fixed_sequence: list[int] | None = None):
-        self.fixed_sequence = fixed_sequence
-
-    def run(self, cfg, test_systems, rng):
-        catalog = build_catalog(cfg)
-        seq = self.fixed_sequence or default_fixed_sequence(cfg, catalog)
-        out = []
-        for sys in test_systems:
-            y = lookup_sequence_y(sys, seq)
-            out.append({"M": sys["M"], "K": sys["K"], "sequence": list(seq), "y": y})
-        return out
-
-
-class MyopicDeltaHMethod(Method):
-    """Greedy ΔH: banked train ``y`` on support; test ``y`` from test table."""
-
-    name = "myopic_delta_h"
-
-    def __init__(self, catalog, table_support: TableThetaSupport):
-        self.catalog = catalog
-        self.table_support = table_support
-
-    def run(self, cfg, test_systems, rng):
-        out = []
-        log_p0 = self.table_support.log_p0
-
-        for sys in tqdm(test_systems, desc="myopic eval", unit="θ", leave=False):
-            used: set[int] = set()
-            seq, y_hist = [], []
-            log_unnorm = np.array(log_p0, dtype=np.float64)
-
-            for _ in range(cfg.step_number):
-                p_before = normalize_log_weights(log_unnorm)
-                H_before = posterior_entropy(p_before)
-
-                feasible = masked_action_indices(used, self.catalog)
-                best_a, best_dh = int(feasible[0]), -np.inf
-                for a in feasible:
-                    trial = seq + [int(a)]
-                    m_vals = y_sim_last_step_from_tables(self.table_support, trial)
-                    y_hat = float(np.sum(p_before * m_vals))
-                    log_L = log_gaussian_observation_density(y_hat, m_vals, cfg.sigma_y)
-                    p_after = normalize_log_weights(log_unnorm + log_L)
-                    dh = clamp_info_gain(H_before - posterior_entropy(p_after))
-                    if dh > best_dh:
-                        best_dh, best_a = dh, int(a)
-
-                seq.append(best_a)
-                y = lookup_action_y(sys, best_a)
-                y_hist.append(float(y))
-                m_obs = y_sim_last_step_from_tables(self.table_support, seq)
-                log_unnorm = log_unnorm + log_gaussian_observation_density(
-                    y, m_obs, cfg.sigma_y,
-                )
-                used.add(best_a)
-
-            out.append({"M": sys["M"], "K": sys["K"], "sequence": seq, "y": y_hist})
-        return out
-
-
-def get_method(
-    name: str,
-    train_systems: list[dict] | None = None,
-    *,
-    catalog=None,
-    table_support: TableThetaSupport | None = None,
-    **kwargs,
-) -> Method:
-    if name == "random":
-        return RandomMethod()
-    if name == "fixed_open_loop":
-        return FixedOpenLoopMethod(kwargs.get("fixed_sequence"))
-    if name == "myopic_delta_h":
-        if catalog is None or table_support is None:
-            raise ValueError("myopic_delta_h requires catalog and table_support")
-        return MyopicDeltaHMethod(catalog, table_support)
-    raise ValueError(f"Unknown method: {name}. Use dad_spce/dad_delta_h via scripts/training.sh --method dad.")
 
 # --- Metrics ---------------------------------------------------------------
+
+
+def _log_mean_exp(log_vals: np.ndarray) -> float:
+    c = float(np.max(log_vals))
+    return c + float(np.log(np.mean(np.exp(log_vals - c))))
+
+
+def _foster_pce_from_log_likelihoods(
+    log_p_positive: float,
+    log_p_contrastive: np.ndarray,
+) -> float:
+    """Foster prior-contrastive EIG bound (DAD ``PriorContrastiveEstimation``)."""
+    log_denom = _log_mean_exp(
+        np.concatenate([[log_p_positive], np.asarray(log_p_contrastive).ravel()])
+    )
+    return clamp_info_gain(float(log_p_positive - log_denom))
+
+
+def _foster_pce_from_f_tensor(
+    y_seq: np.ndarray,
+    f_tensor: np.ndarray,
+    sigma_y: float,
+    positive_idx: int = 0,
+) -> float:
+    y = np.asarray(y_seq, dtype=np.float64).reshape(-1)
+    f = np.asarray(f_tensor, dtype=np.float64)
+    if f.ndim != 2 or f.shape[1] != y.shape[0]:
+        raise ValueError(
+            f"f_tensor shape {f.shape} incompatible with y_seq length {y.shape[0]}"
+        )
+    s2 = float(sigma_y) ** 2
+    log_terms = (
+        -0.5 * y.shape[0] * np.log(2.0 * np.pi * s2)
+        - 0.5 * np.sum((y[None, :] - f) ** 2, axis=1) / s2
+    )
+    pos = int(positive_idx)
+    contrastive = np.delete(log_terms, pos)
+    return _foster_pce_from_log_likelihoods(float(log_terms[pos]), contrastive)
+
+
+def spce_eig_from_rollout(
+    cfg: SBOEDConfig,
+    sequence: list[int],
+    y_obs: list[float] | np.ndarray,
+    theta0_system: dict[str, Any],
+    support: TableThetaSupport,
+    rng: np.random.Generator,
+    L: int | None = None,
+) -> tuple[list[float], float, float]:
+    """Table-path Foster PCE-EIG: fixed noisy ``y_obs``; centres from banked ``y_sim``."""
+    if L is None:
+        L = int(cfg.spce.get("L", 4))
+    y_seq = np.asarray(y_obs, dtype=np.float64)
+    seq = [int(a) for a in sequence]
+    pool = list(support.systems)
+    others = [s for s in pool if s is not theta0_system] or pool
+    if not others:
+        raise ValueError("need at least one contrastive latent θ for Foster PCE")
+    n_pick = min(int(L), len(others))
+    pick = rng.choice(len(others), size=n_pick, replace=False)
+    T = len(seq)
+    centres = np.empty((n_pick + 1, T), dtype=np.float64)
+    centres[0] = y_sim_sequence_from_table(theta0_system, seq)
+    for row_i, idx in enumerate(pick, start=1):
+        centres[row_i] = y_sim_sequence_from_table(others[int(idx)], seq)
+    s2 = float(cfg.sigma_y) ** 2
+    log_L_all = (
+        -0.5 * np.log(2.0 * np.pi * s2)
+        - 0.5 * (y_seq[None, :] - centres) ** 2 / s2
+    )
+    step_eigs = [
+        _foster_pce_from_log_likelihoods(float(log_L_all[0, t]), log_L_all[1:, t])
+        for t in range(len(y_seq))
+    ]
+    total = float(_foster_pce_from_f_tensor(y_seq, centres, cfg.sigma_y, positive_idx=0))
+    mean_step = float(np.mean(step_eigs)) if step_eigs else 0.0
+    return step_eigs, mean_step, total
 
 
 def evaluate_rollout(
@@ -632,7 +553,7 @@ def setup_experiment_dir(
     data_path: Path | None = None,
     experiment_type: str = "eig_based",
 ) -> Path:
-    from src.reporting.run_context import assert_experiments_result_dir
+    from src.layout import assert_experiments_result_dir
 
     if exp_dir is None:
         exp_dir = make_experiment_dir(
@@ -706,7 +627,7 @@ def run_method(
 ) -> dict[str, Any]:
     """Dispatch one of {dad, myopic, fixed, random} through the shared rollout engine."""
     from src.control.cuda_control import CudaControlEngine
-    from src.control.eval_metrics import aggregate_control_metrics, save_per_rollout_csv
+    from src.results.tables import aggregate_control_metrics, save_per_rollout_csv
     from src.control.u_req import ControlSpec
     from src.objectives.eig.methods import (
         ensure_fixed_subset,
@@ -883,7 +804,7 @@ def train_dad_policy(
                 system = policy_train_systems[
                     int(rng.integers(len(policy_train_systems)))
                 ]
-                seq, y_list, log_probs, entropies = _policy_rollout(
+                seq, y_list, log_probs, entropies = policy_rollout(
                     policy,
                     device,
                     system,
@@ -994,7 +915,7 @@ def train_rl_sboed_eig(
                 system = policy_train_systems[
                     int(rng.integers(len(policy_train_systems)))
                 ]
-                seq, y_list, log_probs, entropies = _policy_rollout(
+                seq, y_list, log_probs, entropies = policy_rollout(
                     policy,
                     device,
                     system,
@@ -1102,14 +1023,14 @@ def run_evaluation(
     validate_trajectory_y_sim(train_systems, split="train")
     validate_trajectory_y_sim(test_systems, split="test")
 
-    from src.control.generate import control_banks_certified
+    from src.banks.generate_control import control_banks_certified
 
     certified, cert_detail = control_banks_certified(run.data_path)
     if not certified:
         raise RuntimeError(
             "Control-bank safety invariants not certified "
             "(oracle / u_max / U-bank particle safety rates must all be 1.0). "
-            "Run: python -m src.cli generate-control-bank --config <config>\n"
+            "Run: python -m src.objectives.eig.cli generate-control-bank --config <config>\n"
             f"Detail: {cert_detail}"
         )
     print(f"  Control-bank certified → {cert_detail}")
@@ -1171,7 +1092,7 @@ def run_evaluation(
         "training_seconds": training_timing or {},
         "test_seconds": test_timing,
     }
-    from src.control.eval_metrics import (
+    from src.results.tables import (
         build_control_table_rows,
         print_control_table,
         save_control_comparison_csv,
@@ -1316,7 +1237,7 @@ def refresh_eval_summary(exp_dir: Path) -> list[dict[str, Any]]:
                 run_labels["preset"] = run_labels["config_preset"]
     rows = None
     try:
-        from src.control.eval_metrics import (
+        from src.results.tables import (
             build_control_table_rows,
             save_control_comparison_csv,
         )
@@ -1339,7 +1260,7 @@ def refresh_eval_summary(exp_dir: Path) -> list[dict[str, Any]]:
 
 def eval_experiment(exp_dir: Path) -> list[dict[str, Any]]:
     rows = refresh_eval_summary(exp_dir)
-    from src.control.eval_metrics import print_control_table
+    from src.results.tables import print_control_table
 
     if rows and "mean_u_ctrl" in rows[0]:
         print_control_table(rows)

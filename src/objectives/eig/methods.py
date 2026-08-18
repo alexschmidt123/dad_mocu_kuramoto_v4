@@ -15,7 +15,7 @@ from src.control.u_req import ControlSpec
 from src.objectives.eig.dad_rollout import rollout_dad
 from src.objectives.eig.rollout import FixedSelector, RandomSelector, RolloutResult, run_shared_rollout
 from src.domains.swing.design import build_catalog
-from src.inference.scoring import TableThetaSupport
+from src.banks.tables import TableThetaSupport
 
 
 METHOD_NAMES = ("dad", "myopic", "fixed", "random")
@@ -177,7 +177,7 @@ def run_dad(
     rng: np.random.Generator,
     meta: dict[str, Any],
 ) -> list[dict[str, Any]]:
-    from src.reporting.run_context import model_dir
+    from src.layout import model_dir
 
     policy_path = model_dir(exp_dir) / "dad.pth"
     if not policy_path.is_file():
@@ -218,7 +218,7 @@ def ensure_fixed_subset(
     control_spec: ControlSpec,
     seed: int = 0,
 ) -> list[int]:
-    from src.reporting.run_context import eval_dir
+    from src.layout import eval_dir
 
     out_path = eval_dir(exp_dir) / "fixed_subset_search.json"
     if out_path.is_file():

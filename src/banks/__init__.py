@@ -1,7 +1,13 @@
-"""Bank I/O, generation helpers, and core audits.
+"""On-disk banks under top-level ``data/`` — generate, load, and audit.
 
-On-disk artifacts live under the top-level ``data/`` folder; this package is
-the code that builds, loads, and audits those banks.
+  paths.py            — ``data/<system>/`` location
+  power_grid.py       — physical Δf / duration banks (IEEE, etc.)
+  tables.py           — table (Foster) probe banks
+  control_u.py        — ψ* / U-bank I/O and per-split generation
+  generate_control.py — certify / write the control bank for a dataset
+  quality.py          — bank completeness / quality gates
+  audit.py            — design-redundancy / adaptive-room audit
+  diagnose_control.py / diagnose_duration.py — CLI diagnostics
 """
 
 from __future__ import annotations

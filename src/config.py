@@ -20,7 +20,7 @@ IEEE_SYSTEM_LABELS: dict[str, str] = {
     "sir": "SIR-ODE",
 }
 
-# Horizon when CLI does not pass ``-T`` (see ``run.sh`` / ``src.cli``).
+# Horizon when CLI does not pass ``-T`` (see ``run.sh`` / ``src.experiment``).
 DEFAULT_STEP_NUMBER = 5
 
 
@@ -292,7 +292,7 @@ def config_from_data_meta(meta: "DataRunMeta") -> SBOEDConfig:
 
 def load_config_for_experiment(exp_dir: Path, project_root: Path | None = None) -> SBOEDConfig:
     """Backward-compatible: cfg synced to the experiment's linked data tables."""
-    from src.reporting.run_context import load_experiment_run
+    from src.layout import load_experiment_run
 
     return load_experiment_run(exp_dir, project_root).cfg
 

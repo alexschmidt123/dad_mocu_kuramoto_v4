@@ -1,4 +1,4 @@
-"""MOCU / posterior-safe u_ctrl experiment path (Plan-2 and continuous-duration)."""
+"""MOCU / posterior-safe u_ctrl experiment path (``experiment_type=objective_based``)."""
 
 from __future__ import annotations
 

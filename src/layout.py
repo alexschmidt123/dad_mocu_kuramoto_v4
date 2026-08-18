@@ -1,7 +1,4 @@
-"""Experiment folder layout + resolved train/eval run context.
-
-Merged from former ``experiment_layout`` and ``run_context`` modules.
-"""
+"""Experiment folder layout: stamped ``experiments/`` dirs, run_config, model/eval paths."""
 
 from __future__ import annotations
 
@@ -101,20 +98,72 @@ def make_experiment_dir_name(
     )
 
 
+def horizon_token(horizons: list[int] | tuple[int, ...]) -> str:
+    """T-sweep token, e.g. ``T3-5``. Single-horizon names are not valid plot folders."""
+    values = sorted({int(t) for t in horizons})
+    if len(values) < 2:
+        raise ValueError(
+            "plots folders require a T sweep of at least two horizons, "
+            f"got {list(horizons)!r}"
+        )
+    return f"T{values[0]}-{values[-1]}"
+
+
+def make_plots_dir_name(
+    config_name: str,
+    experiment_type: str,
+    horizons: list[int] | tuple[int, ...],
+    *,
+    stamp: str,
+    n_obs: int = 0,
+    noise_sigma: float = 0.005,
+    sigma_token: str | None = None,
+) -> str:
+    """Stamped sweep plot bundle: ``MMDDYYYY_HHMMSS_plots_<config>_EIG_T3-5_Nobs10_sigma0p005``."""
+    et = str(experiment_type).strip().lower().replace("-", "_")
+    if et not in EXPERIMENT_TYPES:
+        raise ValueError(
+            f"Invalid experiment_type {experiment_type!r} "
+            f"(allowed: {', '.join(EXPERIMENT_TYPES)})"
+        )
+    name = str(config_name).strip()
+    if not name or "/" in name or "\\" in name or " " in name or name.startswith("plots_"):
+        raise ValueError(f"Invalid config name for plots folder: {config_name!r}")
+    stamp_text = str(stamp).strip()
+    if not re.fullmatch(r"\d{8}_\d{6}", stamp_text):
+        raise ValueError(f"Invalid plots stamp {stamp!r}; expected MMDDYYYY_HHMMSS")
+    if int(n_obs) < 0:
+        raise ValueError(f"N_obs must be non-negative, got {n_obs}")
+    label = EXPERIMENT_FOLDER_LABELS[et]
+    sigma = str(sigma_token).strip() if sigma_token else _folder_sigma(noise_sigma)
+    return (
+        f"{stamp_text}_plots_{name}_{label}_{horizon_token(horizons)}_"
+        f"Nobs{int(n_obs)}_sigma{sigma}"
+    )
+
+
 def parse_result_dir_name(name: str) -> dict[str, Any] | None:
     """Parse a result folder basename; return None if it does not match the rule."""
-    m = RESULT_DIR_RE.match(str(name))
+    basename = Path(str(name)).name
+    if "_plots_" in basename:
+        return None
+    m = RESULT_DIR_RE.match(basename)
     if not m:
         return None
+    sigma_text = str(m.group("sigma"))
+    t = int(m.group("T"))
     return {
         "stamp": m.group("stamp"),
         "config": m.group("config"),
+        "label": m.group("label"),
         "experiment_type": (
-            "objective_based" if m.group("label") == "Uctrl" else "eig_based"
+            "eig_based" if m.group("label") == "EIG" else "objective_based"
         ),
-        "step_number": int(m.group("T")),
+        "step_number": t,
+        "T": t,
         "N_obs": int(m.group("nobs")),
-        "noise_sigma": float(m.group("sigma").replace("p", ".")),
+        "noise_sigma": float(sigma_text.replace("p", ".")),
+        "sigma_token": sigma_text,
     }
 
 
@@ -289,6 +338,45 @@ def eval_summary_path(exp_dir: Path) -> Path:
 
 def eval_method_path(exp_dir: Path, method: str) -> Path:
     return eval_dir(exp_dir) / f"{method}.json"
+
+
+def resolve_eval_seed(exp_dir: Path | None, cli_seed: int | None = None) -> int:
+    """Prefer the stamped run seed; else CLI ``--seed``; else GLOBAL_SEED."""
+    if exp_dir is not None:
+        doc = load_run_config_doc(exp_dir)
+        if doc.get("seed") is not None and str(doc["seed"]).strip() != "":
+            return int(doc["seed"])
+    if cli_seed is not None and str(cli_seed).strip() != "":
+        return int(cli_seed)
+    from src.objectives.mocu.context import GLOBAL_SEED
+
+    return int(GLOBAL_SEED)
+
+
+def run_methods_from_doc(doc: dict[str, Any] | None) -> list[str]:
+    """Canonical methods already stamped on this experiment folder."""
+    if not doc:
+        return []
+    prev_block = dict(doc.get("experiment") or {})
+    return _canonical_run_methods(prev_block.get("methods", doc.get("methods")))
+
+
+TRAINED_METHOD_CHECKPOINTS: dict[str, tuple[str, ...]] = {
+    "dad": ("dad_eig.pth", "dad.pth"),
+    "rl_sboed": ("rl_sboed_eig.pth", "rl_sboed.pth"),
+    "moe_sboed": ("moe_sboed.pth",),
+    "matched_dense": ("matched_dense.pth",),
+    "step_dad": ("dad_eig.pth", "dad.pth"),
+}
+
+
+def method_checkpoint_available(exp_dir: Path, method_key: str) -> bool:
+    """Baselines are always available; learned methods need a ``.pth``."""
+    names = TRAINED_METHOD_CHECKPOINTS.get(str(method_key))
+    if names is None:
+        return True
+    mdir = model_dir(exp_dir)
+    return any((mdir / name).is_file() for name in names)
 
 
 def load_run_config_doc(exp_dir: Path) -> dict[str, Any]:

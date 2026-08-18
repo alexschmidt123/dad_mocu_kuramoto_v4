@@ -41,11 +41,11 @@ from src.objectives.mocu.train import (
     _tensors_from_state,
     load_trained_policy,
 )
-from src.policies.rl_sboed import (
+from src.policies.moe import (
     BeliefConditionedMoEPolicy,
     SharedBaseResidualMoEPolicy,
 )
-from src.reporting.run_context import model_dir
+from src.layout import model_dir
 
 
 def _expert_argmax(expert_values: np.ndarray, feasible: np.ndarray) -> np.ndarray:

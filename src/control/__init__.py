@@ -1,10 +1,14 @@
-"""Terminal-control / MOCU math (u_req, posterior, rewards, myopic/fixed).
+"""Terminal control: posterior → ψ*, CUDA sim, myopic/fixed selectors.
 
-U-bank I/O lives in ``src.banks.control_u``. On-disk banks are under ``data/``.
-Experiment CLI: ``python -m src.experiment``.
+  posterior_ctrl.py — discrete-θ belief + Yoon IBR ψ*(h_T)
+  terminal_rule.py  — frozen calibrated rule shared by all methods
+  u_req.py          — control spec (limits, contingency, u grid)
+  cuda_control.py   — PyCUDA terminal-control simulation
+  oracle_u_ctrl.py  — true-θ oracle u_ctrl cache
+  myopic.py / fixed_search.py — baseline selectors
 
-Import submodules directly (``src.control.u_req``, …) to avoid circular
-imports with ``src.banks.control_u``.
+U-bank generation lives in ``src.banks.control_u`` / ``src.banks.generate_control``.
+Import submodules directly to avoid circular imports.
 """
 
 from __future__ import annotations

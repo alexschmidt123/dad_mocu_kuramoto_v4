@@ -5,9 +5,13 @@ Core pipeline shells live only in `scripts/`:
 1. `data_generation.sh`
 2. `training.sh`
 3. `evaluation.sh`
-4. `visualization.sh`
 
-Use them via `run.sh` / `sweep_run.sh`.
+Use them via `run.sh` / `sweep_run.sh`. T-sweep metric/time tables
+(`src.results.plots`) work for EIG and MOCU on any application
+config and are written by `sweep_run.sh` into stamped
+`experiments/<stamp>_plots_…` folders (including `--plots-only`).
+Diagnostics: `python -m src.experiment moe-mechanism`
+or `python -m src.experiment diagnose-collapse`.
 
 This `tools/` tree holds offline audits, diagnostics, and bank sweeps.
 Product-gated audits used by `python -m src.experiment` live in core

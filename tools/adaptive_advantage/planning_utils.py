@@ -463,7 +463,7 @@ def select_fixed_T2(
 ) -> tuple[tuple[int, int], float, SearchMeta]:
     """Best length-2 Fixed sequence by MC mean u_ctrl on support."""
     from src.objectives.mocu.context import _score_fixed_subset
-    from src.inference.spce import log_prior_uniform_discrete
+    from src.control.posterior_ctrl import log_prior_uniform_discrete
 
     acts = list(candidates) if candidates is not None else list(range(Y.shape[1]))
     centres_by_theta = np.asarray(Y[:, :, None], dtype=np.float64)

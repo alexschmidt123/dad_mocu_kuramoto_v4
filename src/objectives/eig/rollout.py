@@ -10,10 +10,9 @@ import numpy as np
 from src.control.cuda_control import CudaControlEngine
 from src.control.posterior_ctrl import normalize_log_weights, posterior_safe_u_ctrl
 from src.control.u_req import ControlSpec
-from src.inference.spce import log_gaussian_observation_density
-from src.banks.tables import lookup_action_y
+from src.observations.likelihood import log_gaussian_observation_density
+from src.banks.tables import TableThetaSupport, lookup_action_y, y_sim_last_step_from_tables
 from src.domains.swing.simulator import system_mk
-from src.inference.scoring import TableThetaSupport, y_sim_last_step_from_tables
 
 
 class ProbeSelector(Protocol):

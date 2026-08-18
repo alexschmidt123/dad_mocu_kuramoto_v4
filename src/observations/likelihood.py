@@ -85,3 +85,13 @@ def vector_gaussian_loglik(
     resid = c - y[None, :]
     quad = np.sum(resid * resid, axis=-1) / s2
     return -0.5 * d * math.log(2.0 * math.pi * s2) - 0.5 * quad
+
+
+def log_gaussian_observation_density(
+    y: float,
+    f_vals: np.ndarray,
+    sigma_y: float,
+) -> np.ndarray:
+    """log p(y | θ_n, ξ) = log N(y; F(θ_n, ξ), σ_y²) on a discrete θ support."""
+    centres = np.asarray(f_vals, dtype=np.float64).reshape(-1, 1)
+    return vector_gaussian_loglik(np.array([float(y)]), centres, sigma_y)

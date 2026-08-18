@@ -23,7 +23,7 @@ from src.domains.swing.design import (
     build_simulator,
     unrank_sequence_chunk,
 )
-from src.domains.swing.simulator import mk_to_json, system_mk
+from src.domains.swing.simulator import mk_to_json
 
 try:  # pragma: no cover - cosmetic progress helper
     from tqdm.auto import tqdm
@@ -124,13 +124,13 @@ def is_present(path: Path) -> bool:
 
 
 def resolve_exp_config_path(exp_dir: Path) -> Path:
-    from src.reporting.run_context import resolve_experiment_config_path
+    from src.layout import resolve_experiment_config_path
 
     return resolve_experiment_config_path(exp_dir)
 
 
 def resolve_data_dir(exp_dir: Path, project_root: Path) -> Path:
-    from src.reporting.run_context import read_linked_data_dir
+    from src.layout import read_linked_data_dir
 
     try:
         d = read_linked_data_dir(exp_dir)
@@ -156,7 +156,7 @@ def resolve_data_dir(exp_dir: Path, project_root: Path) -> Path:
         if is_present(d):
             return d.resolve()
         raise FileNotFoundError(
-            f"Data not found at {d} (need train.json + test.json; run: python -m src.cli generate-data)"
+            f"Data not found at {d} (need train.json + test.json; run: python -m src.experiment generate-data)"
         )
     except FileNotFoundError:
         pass
@@ -768,7 +768,7 @@ def generate_split(
             return existing_payload
         raise ValueError(f"empty θ range [{theta_start}, {theta_end}) for split={split}")
 
-    from src.inference.spce import sample_mk_prior
+    from src.control.posterior_ctrl import sample_mk_prior
 
     _reject_legacy_trajectory_mode(cfg)
 
@@ -1102,66 +1102,6 @@ def ensure_data(
     return d
 
 
-def grid_f_path(project_root: Path, cfg: SBOEDConfig) -> Path:
-    """Scalar (M,K) grid cache of one-step F(θ_n, ξ_a); optional legacy artifact."""
-    return data_dir(project_root, cfg) / "grid_f.npz"
-
-
-def _load_grid_f_array(path: Path) -> np.ndarray:
-    with np.load(path) as data:
-        if "grid_f" in data:
-            return np.asarray(data["grid_f"], dtype=np.float64)
-        if "grid_mu" in data:
-            return np.asarray(data["grid_mu"], dtype=np.float64)
-    raise KeyError(f"{path} must contain 'grid_f'")
-
-
-def build_and_save_grid_f(project_root: Path, cfg: SBOEDConfig) -> Path:
-    """One-step F on scalar (M,K) grid (legacy helper; eval uses MC support)."""
-    path = grid_f_path(project_root, cfg)
-    legacy = path.parent / "grid_mu.npz"
-    if path.is_file():
-        return path
-    if legacy.is_file():
-        return legacy
-
-    from src.inference.spce import build_mk_grid
-
-    catalog = build_catalog(cfg)
-    sim = build_simulator(cfg)
-    grid_side = int(cfg.prior.get("grid_side", 6))
-    sw = cfg.swing
-    _, M_grid, K_grid = build_mk_grid(
-        float(sw["M_lower"]), float(sw["M_upper"]),
-        float(sw["K_lower"]), float(sw["K_upper"]),
-        grid_side,
-    )
-    n_actions = len(catalog)
-    n_g = len(M_grid)
-    grid_f = np.zeros((n_actions, n_g), dtype=np.float64)
-    print(f"  Building grid_f cache ({n_actions} actions × {n_g} nodes) → {path}")
-    for a in range(n_actions):
-        grid_f[a] = sim.map_batch(M_grid, K_grid, catalog[a])
-
-    path.parent.mkdir(parents=True, exist_ok=True)
-    np.savez(
-        path,
-        grid_f=grid_f,
-        M_grid=M_grid,
-        K_grid=K_grid,
-        grid_side=grid_side,
-    )
-    return path
-
-
-def load_grid_f(project_root: Path, cfg: SBOEDConfig) -> np.ndarray:
-    path = grid_f_path(project_root, cfg)
-    legacy = path.parent / "grid_mu.npz"
-    if not path.is_file() and not legacy.is_file():
-        build_and_save_grid_f(project_root, cfg)
-    return _load_grid_f_array(path if path.is_file() else legacy)
-
-
 # --- lookup at train / eval time -------------------------------------------
 
 def _trajectory_y_sim(traj: dict[str, Any]) -> list[float]:
@@ -1276,70 +1216,57 @@ def lookup_sequence_y_sim(system: dict[str, Any], sequence: list[int]) -> list[f
     return [lookup_action_y_sim(system, int(a)) for a in sequence]
 
 
-def lookup_prefix_y_sim(system: dict[str, Any], prefix: list[int]) -> list[float]:
-    return lookup_sequence_y_sim(system, prefix)
+@dataclass
+class TableThetaSupport:
+    """Subsample of train latent θ entries (discrete prior support at eval)."""
+
+    systems: list[dict[str, Any]]
+    log_p0: np.ndarray
+
+    def __len__(self) -> int:
+        return len(self.systems)
+
+    @classmethod
+    def from_train(
+        cls,
+        train_systems: list[dict[str, Any]],
+        cfg: SBOEDConfig,
+        rng: np.random.Generator,
+        *,
+        n_particles: int | None = None,
+    ) -> TableThetaSupport:
+        from src.control.posterior_ctrl import log_prior_uniform_discrete
+
+        default_n = int(cfg.prior.get("mc_samples", 128))
+        n = min(int(n_particles if n_particles is not None else default_n), len(train_systems))
+        idx = rng.choice(len(train_systems), size=n, replace=False)
+        picked = [train_systems[int(i)] for i in idx]
+        return cls(systems=picked, log_p0=log_prior_uniform_discrete(n))
 
 
-def lookup_sequence_y(system: dict[str, Any], sequence: list[int]) -> list[float]:
-    """Reset-based sequence observation assembled from per-action table rows."""
-    return [lookup_action_y(system, int(a)) for a in sequence]
+def y_sim_sequence_from_table(system: dict[str, Any], sequence: list[int]) -> np.ndarray:
+    seq = [int(a) for a in sequence]
+    return np.asarray(lookup_sequence_y_sim(system, seq), dtype=np.float64)
 
 
-def lookup_prefix_y(system: dict[str, Any], prefix: list[int]) -> list[float]:
-    """
-    Observations for the first len(prefix) probes.
-
-    Reset-based protocol: y_t depends only on (θ, ξ_t). Sequential decisions
-    affect the posterior/history, not the swing-equation forward response.
-    """
-    return lookup_sequence_y(system, prefix)
-
-
-def simulate_rollout(
-    cfg: SBOEDConfig,
-    system: dict[str, Any],
+def y_sim_steps_from_tables(
+    support: TableThetaSupport,
     sequence: list[int],
-    rng: np.random.Generator,
-) -> list[float]:
-    M, K = system_mk(system, cfg.N)
-    sim = build_simulator(cfg)
-    catalog = build_catalog(cfg)
-    designs = [catalog[int(a)] for a in sequence]
-    return [
-        sim.simulate(M, K, design, add_noise=cfg.sigma_y, rng=rng)
-        for design in designs
-    ]
+) -> np.ndarray:
+    """Shape ``(T, n_support)`` — banked ``y_sim`` (likelihood centres)."""
+    seq = [int(a) for a in sequence]
+    T = len(seq)
+    out = np.zeros((T, len(support.systems)), dtype=np.float64)
+    for i, sys in enumerate(support.systems):
+        ys = y_sim_sequence_from_table(sys, seq)
+        if ys.shape[0] != T:
+            raise ValueError(f"y_sim length mismatch for support index {i}")
+        out[:, i] = ys
+    return out
 
 
-def sample_trajectory_rollout(
-    systems: list[dict[str, Any]],
-    rng: np.random.Generator,
-    *,
-    curriculum_weights: list[np.ndarray] | None = None,
-) -> tuple[dict[str, Any], list[int], list[float]]:
-    """Uniform system + trajectory, or curriculum weights per system (sum to 1)."""
-    i_sys = int(rng.integers(len(systems)))
-    sys = systems[i_sys]
-    if sys.get("trajectory_bank"):
-        root = sys.get("_data_root")
-        if root is None:
-            raise ValueError("trajectory bank system missing _data_root")
-        bank = open_trajectory_bank(sys, Path(root))
-        assert bank is not None
-        n_traj = bank.n_sequences
-        if curriculum_weights is not None:
-            w = np.asarray(curriculum_weights[i_sys], dtype=np.float64)
-            w = w / w.sum()
-            idx = int(rng.choice(n_traj, p=w))
-        else:
-            idx = int(rng.integers(n_traj))
-        traj = bank.row_payload(idx)
-    else:
-        trajs = sys["trajectories"]
-        if curriculum_weights is not None:
-            w = np.asarray(curriculum_weights[i_sys], dtype=np.float64)
-            w = w / w.sum()
-            traj = trajs[int(rng.choice(len(trajs), p=w))]
-        else:
-            traj = trajs[int(rng.integers(len(trajs)))]
-    return sys, list(traj["sequence"]), list(traj["y"])
+def y_sim_last_step_from_tables(
+    support: TableThetaSupport,
+    sequence: list[int],
+) -> np.ndarray:
+    return y_sim_steps_from_tables(support, sequence)[-1, :].copy()

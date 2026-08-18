@@ -11,9 +11,21 @@ Under `experiments/` only stamped result dirs are allowed:
 
 `MMDDYYYY_HHMMSS_<config>_Uctrl|EIG_T#_Nobs#_sigmaX`
 
+Also allowed: stamped plot bundles written **only** by `sweep_run.sh`:
+
+`MMDDYYYY_HHMMSS_plots_<config>_Uctrl|EIG_T#-#_Nobs#_sigmaX`
+
+A plots folder is only for a T sweep (at least two horizons), e.g. `T3-5`.
+Do not write a plots folder for a single-T run.
+
+The `date_time` is the sweep start time. Each plots folder contains exactly
+five files: `metric.md`, `time.md`, `metric_vs_T.png`, `time_vs_T.md`,
+`meta.json`. Do not mkdir these by hand. Do not use `experiments/plots/`.
+
 Never create:
 
 - `experiments/_…` (smoke/scratch)
+- `experiments/plots/`
 - `experiments/*_logs` or `experiments/*sweep_logs*`
 - top-level `logs/` (invalid)
 
@@ -25,8 +37,15 @@ Allocate via `python -m src.experiment allocate-dir` or `run.sh` (never hand-mkd
 
 ## Package roles
 
-- Shared architecture: `domains/`, `banks/`, `observations/`, `control/`, `inference/`, `policies/`, `reporting/`
+- Shared architecture: `domains/`, `banks/`, `observations/`, `control/`, `policies/`, `results/`
+  - `src/layout.py` — stamped result-dir names, `run_config`, model/eval paths
+  - `results/summary.py` — one-run `summary.md`
+  - `results/tables.py` — comparison CSVs
+  - `results/plots.py` — T-sweep metric/time tables for **any** application
+    and both EIG and MOCU (called only from `sweep_run.sh`)
 - Top-level `data/` is on-disk banks only; code for them is `src/banks/`
+- `src/control/` — terminal control (posterior → ψ*, CUDA sim, myopic/fixed)
+- `src/observations/` — method-visible y and likelihood
 - `src/policies/` — policy **networks only** (`dad.py`, `rl_sboed.py`, `moe.py`)
 - `src/objectives/` — optimization goals only; not architecture
   - `objectives/mocu/` — MOCU / `objective_based`

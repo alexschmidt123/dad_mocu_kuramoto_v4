@@ -7,8 +7,8 @@ from dataclasses import dataclass
 import numpy as np
 
 from src.control.posterior_ctrl import normalize_log_weights, posterior_safe_u_ctrl
-from src.inference.spce import log_gaussian_observation_density
-from src.inference.scoring import TableThetaSupport, y_sim_last_step_from_tables
+from src.observations.likelihood import log_gaussian_observation_density
+from src.banks.tables import TableThetaSupport, y_sim_last_step_from_tables
 
 
 @dataclass
@@ -110,25 +110,3 @@ class MyopicControlSelector:
                 u_grid=self.u_candidates if self.u_candidates else None,
             )
         return float(np.mean(u_vals))
-
-
-def score_all_actions_myopic(
-    selector: MyopicControlSelector,
-    *,
-    used: set[int],
-    log_weights: np.ndarray,
-    weights: np.ndarray,
-    rng: np.random.Generator,
-) -> dict[int, float]:
-    """Debug helper: expected u_ctrl for every feasible action."""
-    out: dict[int, float] = {}
-    n_h = max(1, int(selector.n_hypothetical))
-    idx = rng.choice(len(weights), size=n_h, p=weights)
-    noise = rng.normal(0.0, selector.sigma_y, size=n_h)
-    for a in range(selector.n_actions):
-        if a in used:
-            continue
-        out[a] = selector._expected_u_ctrl(
-            a, log_weights, weights, idx=idx, noise=noise
-        )
-    return out

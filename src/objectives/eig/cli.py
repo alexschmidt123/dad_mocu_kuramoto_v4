@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-from pathlib import Path
 
 from src.config import (
     ALL_METHODS,
@@ -21,9 +20,7 @@ from src.objectives.eig.pipeline import (
     run_experiment,
     train_dad_policy,
 )
-from src.objectives.eig.plots import plot_all_detailed, plot_all_summaries, plot_sweep_six_metrics
-from src.objectives.eig.stepwise.runner import run_all_systems, run_system_stepwise_eig
-from src.reporting.run_context import load_experiment_run
+from src.layout import load_experiment_run
 
 
 def _add_T(parser: argparse.ArgumentParser) -> None:
@@ -109,72 +106,11 @@ def main(argv: list[str] | None = None) -> None:
     )
     summ.add_argument("--exp-dir", required=True)
 
-    plot = sub.add_parser(
-        "plot-summaries",
-        help="Plot cumulative ΔH curves, MSE bars, and train/test time bars from summary.csv",
-    )
-    plot.add_argument(
-        "--run-prefix",
-        "--config-prefix",
-        dest="run_prefix",
-        default="ieee14",
-        help="Experiment folder prefix (default: ieee14). Legacy *_config_* dirs still match.",
-    )
-    plot.add_argument(
-        "--out-dir",
-        default=None,
-        help="Output directory (default: documents/plots)",
-    )
-
-    plot_det = sub.add_parser(
-        "plot-detailed",
-        help="Detailed plots: per-T metrics, training curves, all-system overview",
-    )
-    plot_det.add_argument(
-        "--run-prefix",
-        "--config-prefix",
-        dest="run_prefix",
-        default=None,
-        help="Single system prefix (default: all ieee5/ieee9/ieee14)",
-    )
-    plot_det.add_argument(
-        "--out-dir",
-        default=None,
-        help="Output directory (default: documents/plots)",
-    )
-
-    plot_sweep = sub.add_parser(
-        "plot-sweep",
-        help="Three sweep figures: ΔH (top) and sPCE (bottom) per system with terminal tables",
-    )
-    plot_sweep.add_argument(
-        "--out-dir",
-        default=None,
-        help="Output directory (default: documents/plots/sweep_six)",
-    )
-
     run = sub.add_parser("run", help="Full pipeline: generate-data → train → evaluate")
     run.add_argument("--config", required=True)
     run.add_argument("--exp-dir", default=None)
     run.add_argument("--method", default=None, choices=ALL_METHODS)
     _add_T(run)
-
-    eig = sub.add_parser(
-        "stepwise-eig",
-        help="Evaluation-only stepwise ΔH/EIG report (fresh noise on banked y_sim)",
-    )
-    eig.add_argument(
-        "--system",
-        choices=("ieee5", "ieee9", "ieee14", "all"),
-        default="all",
-        help="IEEE benchmark system (default: all)",
-    )
-    eig.add_argument("--exp-dir", default=None, help="Primary experiment folder (default: latest T)")
-    eig.add_argument("--T-max", type=int, default=None, dest="t_max", help="Primary horizon if auto-picking exp")
-    eig.add_argument("--out-dir", default=None, help="Output directory override")
-    eig.add_argument("--noise-seed", type=int, default=None)
-    eig.add_argument("--support-seed", type=int, default=None)
-    eig.add_argument("--rollout-seed", type=int, default=None)
 
     args = parser.parse_args(argv)
     root = repo_root()
@@ -199,7 +135,7 @@ def main(argv: list[str] | None = None) -> None:
         return
 
     if args.command == "generate-control-bank":
-        from src.control.generate import generate_control_bank
+        from src.banks.generate_control import generate_control_bank
         from src.banks.diagnose_control import control_bank_nondegenerate
         from src.banks.tables import resolve_data_path
 
@@ -277,33 +213,6 @@ def main(argv: list[str] | None = None) -> None:
         eval_experiment(exp_dir)
         return
 
-    if args.command == "plot-summaries":
-        out_dir = Path(args.out_dir) if args.out_dir else None
-        print("Writing summary plots:")
-        plot_all_summaries(
-            root,
-            out_dir=out_dir,
-            run_prefix=args.run_prefix,
-        )
-        return
-
-    if args.command == "plot-detailed":
-        out_dir = Path(args.out_dir) if args.out_dir else None
-        prefixes = (args.run_prefix,) if args.run_prefix else None
-        print("Writing detailed plots:")
-        plot_all_detailed(
-            root,
-            out_dir=out_dir,
-            run_prefixes=prefixes,
-        )
-        return
-
-    if args.command == "plot-sweep":
-        out_dir = Path(args.out_dir) if args.out_dir else None
-        print("Writing sweep figures (one per system: ΔH top, sPCE bottom):")
-        plot_sweep_six_metrics(root, out_dir=out_dir)
-        return
-
     if args.command == "evaluate":
         exp_dir = resolve_exp_dir(root, args.exp_dir)
         assert exp_dir is not None
@@ -314,28 +223,6 @@ def main(argv: list[str] | None = None) -> None:
             run.train_systems, run.test_systems, methods,
         )
         run_evaluation(run, methods=methods)
-        return
-
-    if args.command == "stepwise-eig":
-        kwargs = {
-            "noise_seed": args.noise_seed,
-            "support_seed": args.support_seed,
-            "rollout_seed": args.rollout_seed,
-        }
-        if args.system == "all":
-            outputs = run_all_systems(root, t_max=args.t_max, **kwargs)
-            for prefix, path in outputs.items():
-                print(f"{prefix} → {path}")
-            return
-        out = run_system_stepwise_eig(
-            args.system,
-            root,
-            exp_dir=resolve_exp_dir(root, args.exp_dir) if args.exp_dir else None,
-            t_max=args.t_max,
-            out_dir=Path(args.out_dir) if args.out_dir else None,
-            **kwargs,
-        )
-        print(f"Stepwise EIG report → {out}")
         return
 
     if args.command == "run":

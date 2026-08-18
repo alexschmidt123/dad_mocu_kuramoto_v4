@@ -191,7 +191,6 @@ def generate_sir_bank(
             "train_theta_count": int(meta.get("train_theta_count", 0)),
             "test_theta_count": int(meta.get("test_theta_count", 0)),
             "elapsed_seconds": 0.0,
-            "reference": meta.get("reference"),
         }
 
     started = time.perf_counter()
@@ -347,7 +346,6 @@ def generate_sir_bank(
         "n_time": int(t_grid.shape[0]),
         "elapsed_seconds": elapsed,
         "N_sim": 1,
-        "reference": meta["reference"],
     }
 
 

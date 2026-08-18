@@ -14,7 +14,6 @@ import torch
 from src.objectives.mocu.context import (
     GLOBAL_SEED,
     ExperimentContext,
-    FullDeltaFContext,  # noqa: F401 — alias
     context_report_meta,
     control_engine_for,
     method_display_name,
@@ -65,6 +64,7 @@ def _rollout_baseline(
     theta_id: int,
     rollout_id: int,
     choose_action: Callable[[np.ndarray, list[int], int], int],
+    eval_seed: int,
 ) -> dict[str, Any]:
     from src.observations.carry_state import (
         make_carry_observer,
@@ -86,7 +86,7 @@ def _rollout_baseline(
             y = carry.observe_noisy(
                 action,
                 sigma_y=ctx.sigma_y,
-                global_seed=GLOBAL_SEED,
+                global_seed=int(eval_seed),
                 theta_id=theta_id,
                 rollout_id=rollout_id,
                 step=step,
@@ -98,7 +98,7 @@ def _rollout_baseline(
                 action,
                 sigma_y=ctx.sigma_y,
                 n_obs=ctx.n_obs,
-                global_seed=GLOBAL_SEED,
+                global_seed=int(eval_seed),
                 theta_id=theta_id,
                 rollout_id=rollout_id,
                 step=step,
@@ -118,7 +118,9 @@ def _rollout_baseline(
     }
 
 
-def evaluate_fixed(ctx: ExperimentContext, n_rollouts: int) -> list[dict[str, Any]]:
+def evaluate_fixed(
+    ctx: ExperimentContext, n_rollouts: int, *, eval_seed: int
+) -> list[dict[str, Any]]:
     seq = list(ctx.fixed_sequence)
     if len(seq) != int(ctx.horizon):
         raise RuntimeError(
@@ -142,6 +144,7 @@ def evaluate_fixed(ctx: ExperimentContext, n_rollouts: int) -> list[dict[str, An
             theta_id=tid,
             rollout_id=rid,
             choose_action=choose,
+            eval_seed=eval_seed,
         )
         rows.append({"method": "Fixed", **_flat(out)})
     return rows
@@ -150,16 +153,19 @@ def evaluate_fixed(ctx: ExperimentContext, n_rollouts: int) -> list[dict[str, An
 def evaluate_random(
     ctx: ExperimentContext,
     n_rollouts: int,
-    seed: int = 7,
+    seed: int | None = None,
     *,
     replicates_per_system: int = 1,
+    eval_seed: int | None = None,
 ) -> list[dict[str, Any]]:
     """Random baseline with independent design seeds within each test system."""
+    noise_seed = int(GLOBAL_SEED if eval_seed is None else eval_seed)
+    action_seed = int(noise_seed if seed is None else seed)
     rows = []
     for tid in range(n_rollouts):
         for replicate in range(int(replicates_per_system)):
             rid = tid * int(replicates_per_system) + replicate
-            rng = np.random.default_rng(seed + rid * 17)
+            rng = np.random.default_rng(action_seed + rid * 17)
             chrono = False
 
             def choose(log_w, used, step, rng=rng, chrono=chrono):
@@ -182,6 +188,7 @@ def evaluate_random(
                 theta_id=tid % len(ctx.test_systems),
                 rollout_id=rid,
                 choose_action=choose,
+                eval_seed=noise_seed,
             )
             flat = _flat(out)
             flat["random_replicate"] = replicate
@@ -189,7 +196,9 @@ def evaluate_random(
     return rows
 
 
-def evaluate_myopic(ctx: ExperimentContext, n_rollouts: int) -> list[dict[str, Any]]:
+def evaluate_myopic(
+    ctx: ExperimentContext, n_rollouts: int, *, eval_seed: int
+) -> list[dict[str, Any]]:
     rows = []
     for rid in range(n_rollouts):
         tid = rid % len(ctx.test_systems)
@@ -201,7 +210,7 @@ def evaluate_myopic(ctx: ExperimentContext, n_rollouts: int) -> list[dict[str, A
                 used,
                 rollout_id=rid,
                 step=step,
-                seed=GLOBAL_SEED,
+                seed=int(eval_seed),
             )
 
         out = _rollout_baseline(
@@ -210,18 +219,20 @@ def evaluate_myopic(ctx: ExperimentContext, n_rollouts: int) -> list[dict[str, A
             theta_id=tid,
             rollout_id=rid,
             choose_action=choose,
+            eval_seed=eval_seed,
         )
         rows.append({"method": "Myopic", **_flat(out)})
     return rows
 
 
 def evaluate_moe_sboed(
-    ctx: ExperimentContext, n_rollouts: int
+    ctx: ExperimentContext, n_rollouts: int, *, eval_seed: int
 ) -> list[dict[str, Any]]:
     return evaluate_policy_method(
         ctx,
         "MoE-sBOED",
         n_rollouts,
+        seed=int(eval_seed),
         deterministic=True,
         method_label="MoE-sBOED",
     )
@@ -243,7 +254,7 @@ def evaluate_policy_method(
     sequences across θ means the policy conditions on belief. Stochastic sampling
     is reported separately and must not be used alone to claim adaptivity.
     """
-    del seed  # noise keys use GLOBAL_SEED + rollout ids
+    eval_seed = int(seed)
     device = _evaluation_device()
     policy = load_trained_policy(ctx, method, device=device)
     reward_mode = "dad_terminal" if method == "DAD" else "rl_sboed_stepwise"
@@ -258,7 +269,7 @@ def evaluate_policy_method(
             ctx.test_systems[tid],
             theta_id=tid,
             rollout_id=rid,
-            global_seed=GLOBAL_SEED,
+            global_seed=eval_seed,
             reward_mode=reward_mode,
             device=device,
             deterministic=deterministic,
@@ -509,6 +520,7 @@ def run_full_evaluation(
     methods: list[str] | None = None,
     smoke: bool = False,
     skip_cuda_safety: bool = False,
+    eval_seed: int | None = None,
 ) -> dict[str, Any]:
     """
     Evaluate selected methods + true-θ oracle.
@@ -517,14 +529,31 @@ def run_full_evaluation(
     Default: all five.
     """
     from src.objectives.mocu.context import ALL_METHOD_KEYS, normalize_method_key
+    from src.layout import (
+        load_run_config_doc,
+        method_checkpoint_available,
+        resolve_eval_seed,
+    )
+
+    if eval_seed is None:
+        eval_seed = resolve_eval_seed(ctx.out_dir)
+    eval_seed = int(eval_seed)
 
     keys = (
         [normalize_method_key(m) for m in methods]
         if methods is not None
         else list(ALL_METHOD_KEYS)
     )
+    kept_keys = []
+    for key in keys:
+        if method_checkpoint_available(ctx.out_dir, key):
+            kept_keys.append(key)
+        else:
+            print(
+                f"[evaluate] skip {key}: missing checkpoint under {ctx.out_dir}/model"
+            )
+    keys = kept_keys
     display = [method_display_name(k) for k in keys]
-    from src.reporting.run_context import load_run_config_doc
 
     run_doc = load_run_config_doc(ctx.out_dir)
     training_results = dict(run_doc.get("training_results") or {})
@@ -545,26 +574,32 @@ def run_full_evaluation(
     summary_methods: list[str] = []
     runtime_by_method: dict[str, dict[str, Any]] = {}
     for key, name in zip(keys, display):
-        print(f"[{ctx.system}] evaluating {name} n={n}")
+        print(f"[{ctx.system}] evaluating {name} n={n} eval_seed={eval_seed}")
         _synchronize_cuda()
         started = time.perf_counter()
         method_rows: list[dict[str, Any]]
         if key == "fixed":
-            method_rows = evaluate_fixed(ctx, n)
+            method_rows = evaluate_fixed(ctx, n, eval_seed=eval_seed)
         elif key == "random":
             method_rows = evaluate_random(
                 ctx,
                 n,
+                seed=eval_seed,
+                eval_seed=eval_seed,
                 replicates_per_system=8 if smoke else 32,
             )
         elif key == "myopic":
-            method_rows = evaluate_myopic(ctx, n)
+            method_rows = evaluate_myopic(ctx, n, eval_seed=eval_seed)
         elif key == "moe_sboed":
-            method_rows = evaluate_moe_sboed(ctx, n)
-        elif key in ("dad", "rl_sboed"):
-            # Argmax policy only (stochastic sampling is not a primary result).
+            method_rows = evaluate_moe_sboed(ctx, n, eval_seed=eval_seed)
+        elif key in ("dad", "rl_sboed", "matched_dense"):
             method_rows = evaluate_policy_method(
-                ctx, name, n, deterministic=True, method_label=name
+                ctx,
+                name,
+                n,
+                seed=eval_seed,
+                deterministic=True,
+                method_label=name,
             )
         else:
             raise ValueError(f"unsupported method key {key}")
@@ -592,7 +627,7 @@ def run_full_evaluation(
     enriched, errors = attach_oracle(
         ctx, rows, skip_cuda_safety=skip_cuda_safety
     )
-    from src.reporting.run_context import ensure_result_layout
+    from src.layout import ensure_result_layout
 
     _, eval_root = ensure_result_layout(ctx.out_dir)
     summaries = [summarize_rows(enriched, m) for m in summary_methods]
@@ -608,6 +643,7 @@ def run_full_evaluation(
         summary["online_seconds_per_rollout"] = runtime_by_method[name][
             "seconds_per_rollout"
         ]
+        summary["eval_seed"] = int(eval_seed)
         summary["timing_scope"] = (
             "offline=method-specific preparation; online=warm action selection + "
             "observation lookup + posterior update + terminal decision; shared physical "
@@ -634,6 +670,8 @@ def run_full_evaluation(
         s["rank_by_mean_gap"] = i + 1  # Legacy column name; rank is by mean_mocu.
 
     oracle_row = oracle_summary_row(enriched)
+    if oracle_row is not None:
+        oracle_row["eval_seed"] = int(eval_seed)
     summary_for_csv = ([oracle_row] if oracle_row else []) + summaries
 
     # Required: one JSON per method + one summary.csv for all methods.
@@ -721,6 +759,7 @@ def run_full_evaluation(
         "ranking_rule": (
             "safety_rate >= 0.95 required; valid methods ranked by mean_mocu asc"
         ),
+        "eval_seed": int(eval_seed),
         "summaries": summaries,
         "adaptivity_eval": (
             "Policy methods use argmax rollouts; claim adaptivity from "

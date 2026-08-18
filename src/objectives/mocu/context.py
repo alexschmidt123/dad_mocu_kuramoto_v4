@@ -14,16 +14,17 @@ import torch
 _EXPECTED_U_TORCH_CACHE: dict[tuple, tuple[torch.Tensor, ...]] = {}
 
 from src.config import SBOEDConfig, load_config, repo_root, resolve_config_path
-from src.inference.spce import log_prior_uniform_discrete
 from src.banks.power_grid import (
     load_bank_from_path,
     resolve_dataset_dir,
     system_name_from_cfg,
 )
-from src.control.posterior_batch import batch_u_ctrl
 from src.control.posterior_ctrl import (
+    batch_u_ctrl,
+    log_prior_uniform_discrete,
     normalize_log_weights,
     posterior_control_decision,
+    posterior_ess as ess_from_weights,
     posterior_safe_u_ctrl,
 )
 from src.control.terminal_rule import load_frozen_terminal_rule
@@ -120,10 +121,6 @@ class ExperimentContext:
     config_hash: str
     continuous_duration_mode: bool = False
     reset_after_probe: bool = True
-
-
-# Backward-compatible alias
-FullDeltaFContext = ExperimentContext
 
 
 def resolve_n_obs(cfg: SBOEDConfig) -> int:
@@ -254,7 +251,7 @@ def experiment_out_dir(
     create_new: bool = False,
 ) -> Path:
     """Result folder: ``date_time_configname_experimentType_Tnum`` under experiments/."""
-    from src.reporting.run_context import resolve_result_dir
+    from src.layout import resolve_result_dir
 
     return resolve_result_dir(
         cfg,
@@ -340,7 +337,7 @@ def _resolve_terminal_rule(
         return _from_frozen(rule_path)
 
     if mode in ("frozen", "policy_robust", "policy-robust"):
-        from src.reporting.run_context import model_dir
+        from src.layout import model_dir
 
         candidates: list[Path] = []
         if out_dir is not None:
@@ -572,7 +569,7 @@ def _resolve_fixed_sequence(
     import json
     import time
 
-    from src.reporting.run_context import model_dir
+    from src.layout import model_dir
 
     save_path = model_dir(Path(out_dir)) / f"fixed_subset_T{horizon}.json"
     sigma_tag = f"{float(sigma_y):g}".replace(".", "p")
@@ -802,13 +799,13 @@ def build_context_from_config(
             cfg, root, experiment_type=experiment_type, create_new=False
         )
     else:
-        from src.reporting.run_context import assert_experiments_result_dir
+        from src.layout import assert_experiments_result_dir
 
         out_dir = assert_experiments_result_dir(
             Path(out_dir).resolve(), project_root=root
         )
         out_dir.mkdir(parents=True, exist_ok=True)
-    from src.reporting.run_context import ensure_result_layout
+    from src.layout import ensure_result_layout
 
     ensure_result_layout(out_dir)
 
@@ -1237,8 +1234,7 @@ def expected_u_all_actions_torch(
 
 
 def posterior_ess(log_w: np.ndarray) -> float:
-    w = normalize_log_weights(log_w)
-    return float(1.0 / np.sum(w * w))
+    return ess_from_weights(normalize_log_weights(log_w))
 
 
 def control_engine_for(ctx: ExperimentContext):

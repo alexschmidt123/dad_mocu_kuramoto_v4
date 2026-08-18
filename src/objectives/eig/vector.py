@@ -20,12 +20,14 @@ from src.objectives.mocu.context import (
 from src.control.posterior_ctrl import normalize_log_weights
 from src.policies.rl_sboed import (
     AdaptiveExperimentPolicy,
-    BeliefConditionedMoEPolicy,
     PolicyConfig,
     StateValueCritic,
+)
+from src.policies.moe import (
+    BeliefConditionedMoEPolicy,
     parameter_matched_expert_hidden,
 )
-from src.reporting.run_context import model_dir
+from src.layout import model_dir
 from src.domains.sir.design import chronological_feasible
 
 
@@ -333,10 +335,13 @@ def _observe(
     sigma: float,
     rollout_id: int,
     step: int,
+    eval_seed: int | None = None,
 ) -> np.ndarray:
+    """Additive Gaussian noise. Training keeps GLOBAL_SEED; eval uses eval_seed."""
     clean = np.asarray(system["obs_clean"][int(action)], dtype=np.float32)
+    base = int(GLOBAL_SEED if eval_seed is None else eval_seed)
     rng = np.random.default_rng(
-        GLOBAL_SEED + 97_451 * int(rollout_id) + 104_729 * int(step)
+        base + 97_451 * int(rollout_id) + 104_729 * int(step)
     )
     return clean + rng.normal(0.0, sigma, size=clean.shape).astype(np.float32)
 
@@ -539,7 +544,7 @@ def train_vector_eig_policy(
         f"[eig:{method}] BC warm-start trajectories={bc_trajectories} "
         f"horizon={ctx.horizon} n_actions={ctx.n_actions} "
         f"lookahead={bc_lookahead} temp={bc_temperature} "
-        f"actor_critic={use_actor_critic}",
+        f"actor_critic={use_actor_critic} obs_seed={int(seed)}",
         flush=True,
     )
     for bc_id in range(bc_trajectories):
@@ -607,6 +612,7 @@ def train_vector_eig_policy(
                 sigma=ctx.sigma_y,
                 rollout_id=50_000 + bc_id,
                 step=step,
+                eval_seed=int(seed),
             )
             log_w = engine.update(
                 log_w, label, torch.as_tensor(y_np, device=device)
@@ -642,7 +648,7 @@ def train_vector_eig_policy(
     n_validation = 4 if smoke else int(training.get("eig_validation_systems", 128))
     validation_systems = ctx.validation_systems[:n_validation]
     validation_fixed = _fixed_sequence(
-        ctx, engine, n_fantasies=4 if smoke else 12
+        ctx, engine, n_fantasies=4 if smoke else 12, seed=int(seed)
     )
     moe_step0_action: int | None = None
     if isinstance(policy, BeliefConditionedMoEPolicy):
@@ -671,6 +677,7 @@ def train_vector_eig_policy(
                 fixed_sequence=validation_fixed,
                 n_fantasies=4 if smoke else 12,
                 moe_step0_action=moe_step0_action,
+                eval_seed=int(seed),
             )
             for i, system in enumerate(validation_systems)
         ]
@@ -811,6 +818,7 @@ def train_vector_eig_policy(
                         sigma=ctx.sigma_y,
                         rollout_id=rollout_id,
                         step=step,
+                        eval_seed=int(seed),
                     )
                     y = torch.as_tensor(y_np, device=device)
                     log_w = engine.update(log_w, action, y)
@@ -1214,8 +1222,10 @@ def _fixed_sequence(
     engine: VectorEIGEngine,
     *,
     n_fantasies: int,
+    seed: int | None = None,
 ) -> list[int]:
     """Open-loop Fixed: greedy one-step prior EIG (chronological on SIR)."""
+    base = int(GLOBAL_SEED if seed is None else seed)
     seq: list[int] = []
     log_w = engine.log_p0.clone()
     for step in range(int(ctx.horizon)):
@@ -1226,7 +1236,7 @@ def _fixed_sequence(
             log_w,
             feasible,
             n_fantasies=n_fantasies,
-            seed=GLOBAL_SEED + step,
+            seed=base + step,
         )
         seq.append(int(np.argmax(scores)))
     return seq
@@ -1244,6 +1254,7 @@ def _rollout(
     fixed_sequence: list[int],
     n_fantasies: int,
     moe_step0_action: int | None = None,
+    eval_seed: int | None = None,
 ) -> dict[str, Any]:
     actions: list[int] = []
     observations: list[np.ndarray] = []
@@ -1251,6 +1262,7 @@ def _rollout(
     h0 = float(engine.entropy(log_w).item())
     step_eig = []
     trace = []
+    rng_base = int(GLOBAL_SEED if eval_seed is None else eval_seed)
     for step in range(ctx.horizon):
         feasible = _eig_feasible(ctx, actions)
         myopic_scores = None
@@ -1259,7 +1271,7 @@ def _rollout(
                 log_w,
                 feasible,
                 n_fantasies=n_fantasies,
-                seed=GLOBAL_SEED + 1009 * rollout_id + step,
+                seed=rng_base + 1009 * rollout_id + step,
             )
         if feasible.size == 0:
             raise RuntimeError(
@@ -1267,7 +1279,7 @@ def _rollout(
                 f"(history={actions}). SIR requires ξ1 < ξ2 < … < ξT."
             )
         if method == "random":
-            rng = np.random.default_rng(GLOBAL_SEED + rollout_id * 101 + step)
+            rng = np.random.default_rng(rng_base + rollout_id * 101 + step)
             action = int(rng.choice(feasible))
         elif (
             method == "moe_sboed"
@@ -1307,6 +1319,7 @@ def _rollout(
             sigma=ctx.sigma_y,
             rollout_id=rollout_id,
             step=step,
+            eval_seed=eval_seed,
         )
         h_before = float(engine.entropy(log_w).item())
         log_w = engine.update(
@@ -1324,13 +1337,27 @@ def _rollout(
     }
 
 
+_VECTOR_CHECKPOINTS = {
+    "dad_eig": "dad_eig.pth",
+    "rl_sboed_eig": "rl_sboed_eig.pth",
+    "moe_sboed": "moe_sboed.pth",
+    "matched_dense": "matched_dense.pth",
+}
+
+
 def evaluate_vector_eig(
     ctx: ExperimentContext,
     *,
     smoke: bool,
     methods: tuple[str, ...] | None = None,
+    eval_seed: int | None = None,
 ) -> dict[str, Any]:
     """Evaluate selected methods with common vector noise and write compact tables."""
+    from src.layout import resolve_eval_seed
+
+    if eval_seed is None:
+        eval_seed = resolve_eval_seed(ctx.out_dir)
+    eval_seed = int(eval_seed)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     engine = VectorEIGEngine(ctx, device)
     matched_path = model_dir(ctx.out_dir) / "matched_dense.pth"
@@ -1341,6 +1368,16 @@ def evaluate_vector_eig(
     unknown = sorted(set(selected_methods) - set(available_methods))
     if unknown:
         raise ValueError(f"Unavailable vector-EIG methods: {unknown}")
+    kept: list[str] = []
+    for method in selected_methods:
+        ckpt = _VECTOR_CHECKPOINTS.get(method)
+        if ckpt is not None and not (model_dir(ctx.out_dir) / ckpt).is_file():
+            print(f"[evaluate] skip {method}: missing {ckpt}")
+            continue
+        kept.append(method)
+    selected_methods = tuple(kept)
+    if not selected_methods:
+        raise ValueError("No vector-EIG methods left to evaluate")
     dad = (
         _load_policy(ctx, "dad_eig", device)
         if "dad_eig" in selected_methods
@@ -1367,7 +1404,9 @@ def evaluate_vector_eig(
     fixed_preparation_seconds = 0.0
     if "fixed_open_loop" in selected_methods:
         fixed_started = time.perf_counter()
-        fixed = _fixed_sequence(ctx, engine, n_fantasies=4 if smoke else 16)
+        fixed = _fixed_sequence(
+            ctx, engine, n_fantasies=4 if smoke else 16, seed=eval_seed
+        )
         if device.type == "cuda":
             torch.cuda.synchronize(device)
         fixed_preparation_seconds = float(time.perf_counter() - fixed_started)
@@ -1452,6 +1491,7 @@ def evaluate_vector_eig(
                     moe_step0_action=(
                         moe_step0_action if method == "moe_sboed" else None
                     ),
+                    eval_seed=eval_seed,
                 )
                 row["theta_id"] = i
                 row["design_replicate"] = replicate
@@ -1497,6 +1537,7 @@ def evaluate_vector_eig(
                     elapsed_method / max(len(rows), 1)
                 ),
                 "n_unique_sequences": len({tuple(r["sequence"]) for r in rows}),
+                "eval_seed": int(eval_seed),
                 "timing_scope": (
                     "offline=method-specific preparation; online=CUDA-synchronized warm "
                     "action selection + observation lookup + posterior update; shared "
@@ -1525,6 +1566,7 @@ def evaluate_vector_eig(
                 "observation": observation_name,
                 "n_obs": ctx.n_obs,
                 "device": str(device),
+                "eval_seed": int(eval_seed),
                 "summaries": summaries,
                 "rollouts": all_rows,
             },
@@ -1537,6 +1579,7 @@ def evaluate_vector_eig(
         "observation": observation_name,
         "n_obs": ctx.n_obs,
         "device": str(device),
+        "eval_seed": int(eval_seed),
         "summaries": summaries,
     }
 

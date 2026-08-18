@@ -1,6 +1,6 @@
-"""Policy network definitions only (DAD, RL-sBOED, MoE).
+"""Policy network definitions only (DAD, RL-sBOED, MoE-sBOED).
 
-Training loops live in ``src.objectives.mocu`` (objective/MOCU) and ``src.objectives.eig`` (EIG).
+Training loops live in ``src.objectives.mocu`` (MOCU) and ``src.objectives.eig`` (EIG).
 """
 
 from __future__ import annotations

@@ -8,7 +8,7 @@ from typing import Any
 import numpy as np
 
 from src.config import SBOEDConfig, repo_root
-from src.inference.spce import log_prior_uniform_discrete
+from src.control.posterior_ctrl import log_prior_uniform_discrete
 from src.banks.power_grid import resolve_dataset_dir, system_name_from_cfg
 from src.objectives.mocu.context import (
     ExperimentContext,
@@ -138,7 +138,7 @@ def build_sir_context(
     else:
         out_dir = Path(out_dir).resolve()
         out_dir.mkdir(parents=True, exist_ok=True)
-    from src.reporting.run_context import ensure_result_layout
+    from src.layout import ensure_result_layout
 
     ensure_result_layout(out_dir)
 

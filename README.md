@@ -56,10 +56,10 @@ src/
   domains/swing|sir/   # physics + design
   banks/               # bank I/O + core audits (not the on-disk folder)
   observations/        # compress / likelihood / carry-state
-  control/             # u_req, posterior, rewards, myopic/fixed
-  inference/           # sPCE + scoring
+  control/             # posterior → ψ*, CUDA sim, myopic/fixed
+  layout.py            # stamped experiments/ dirs, run_config, model/eval paths
   policies/            # policy nets only (dad / rl_sboed / moe)
-  reporting/           # run dirs + summary tables
+  results/             # summary.md, comparison tables, T-sweep plots
   objectives/          # optimization goals (not shared architecture)
     mocu/              # objective_based / MOCU train+eval
     eig/               # eig_based / EIG train+eval

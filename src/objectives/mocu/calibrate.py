@@ -13,10 +13,10 @@ import numpy as np
 from src.config import SBOEDConfig, repo_root
 from src.objectives.mocu.context import (
     build_context_from_config,
+    control_engine_for,
     observe_compressed,
     update_posterior_vector,
 )
-from src.objectives.mocu.evaluate import control_engine_for
 from src.control.posterior_ctrl import normalize_log_weights, posterior_safe_u_ctrl
 from src.control.u_req import ControlSpec
 

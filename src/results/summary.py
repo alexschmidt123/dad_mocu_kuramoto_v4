@@ -110,7 +110,7 @@ def write_objective_summary_md(
 
     system = system or str(meta.get("system") or exp_dir.name)
     if "T" not in meta and "step_number" not in meta:
-        from src.reporting.run_context import parse_result_dir_name
+        from src.layout import parse_result_dir_name
 
         parsed = parse_result_dir_name(exp_dir.name)
         if parsed and parsed.get("step_number") is not None:

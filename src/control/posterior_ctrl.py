@@ -1,4 +1,7 @@
-"""Posterior → Yoon IBR terminal operator ψ*(h_T).
+"""Discrete-θ posterior and Yoon IBR terminal operator ψ*(h_T).
+
+Particle Bayes (weights, entropy, prior) lives here — there is no separate
+inference package. Likelihood evaluations are ``src.observations.likelihood``.
 
 Yoon terminology (TSP 2013):
   ψ_θ*  = model-specific optimal operator  (= min safe support for θ)
@@ -20,7 +23,98 @@ from typing import Any, Literal, Sequence
 
 import numpy as np
 
+from src.observations.likelihood import log_gaussian_observation_density
+
 RobustRule = Literal["ibr_max", "quantile"]
+
+
+def clamp_info_gain(value: float) -> float:
+    """Information gain is non-negative; clip numerical / noise-induced negatives."""
+    return float(max(0.0, value))
+
+
+def normalize_log_weights(log_unnormalized: np.ndarray) -> np.ndarray:
+    """Stable softmax of log-weights; returns probabilities summing to 1."""
+    x = np.asarray(log_unnormalized, dtype=np.float64).reshape(-1)
+    c = float(np.max(x))
+    w = np.exp(x - c)
+    s = float(np.sum(w))
+    if not np.isfinite(s) or s <= 0.0:
+        raise RuntimeError("Posterior weights degenerate.")
+    return w / s
+
+
+def log_prior_uniform_discrete(n: int) -> np.ndarray:
+    return np.full(n, -np.log(n))
+
+
+def posterior_entropy(p: np.ndarray, eps: float = 1e-300) -> float:
+    """Shannon entropy H[p] in nats."""
+    p = np.asarray(p, dtype=np.float64)
+    p = np.clip(p, eps, 1.0)
+    return float(-np.sum(p * np.log(p)))
+
+
+def sequential_posterior_from_log_likelihoods(
+    log_L_steps: np.ndarray,
+    log_p0: np.ndarray | None = None,
+) -> tuple[np.ndarray, list[np.ndarray]]:
+    """Sequential Bayes on discrete support; returns final posterior and trace."""
+    T, N = log_L_steps.shape
+    if log_p0 is None:
+        log_p0 = log_prior_uniform_discrete(N)
+    log_unnorm = np.array(log_p0, dtype=np.float64)
+    p_trace: list[np.ndarray] = [normalize_log_weights(log_unnorm)]
+    for t in range(T):
+        log_unnorm = log_unnorm + log_L_steps[t]
+        p_trace.append(normalize_log_weights(log_unnorm))
+    return p_trace[-1], p_trace
+
+
+def posterior_after_gaussian_observations(
+    f_steps: np.ndarray,
+    y_steps: np.ndarray,
+    sigma_y: float,
+    log_p0: np.ndarray | None = None,
+) -> tuple[np.ndarray, list[np.ndarray]]:
+    """Belief after T Gaussian observations."""
+    T, N = f_steps.shape
+    log_L_steps = np.zeros((T, N), dtype=np.float64)
+    for t in range(T):
+        log_L_steps[t] = log_gaussian_observation_density(
+            float(y_steps[t]), f_steps[t], sigma_y
+        )
+    return sequential_posterior_from_log_likelihoods(log_L_steps, log_p0)
+
+
+def posterior_mean_mk_vectors(
+    p: np.ndarray,
+    M_support: np.ndarray,
+    K_support: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Posterior mean per-bus vectors; ``M_support``, ``K_support`` shape ``(N, n_buses)``."""
+    p = np.asarray(p, dtype=np.float64).reshape(-1)
+    M_support = np.asarray(M_support, dtype=np.float64)
+    K_support = np.asarray(K_support, dtype=np.float64)
+    M_hat = np.sum(p[:, None] * M_support, axis=0)
+    K_hat = np.sum(p[:, None] * K_support, axis=0)
+    return M_hat, K_hat
+
+
+def sample_mk_prior(
+    M_lower: float,
+    M_upper: float,
+    K_lower: float,
+    K_upper: float,
+    n: int,
+    rng: np.random.Generator,
+    *,
+    n_buses: int = 1,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Sample θ=(M,K) from independent uniform priors; shape ``(n, n_buses)``."""
+    M = rng.uniform(M_lower, M_upper, size=(n, n_buses))
+    K = rng.uniform(K_lower, K_upper, size=(n, n_buses))
+    return M, K
 
 
 def weighted_quantile(
@@ -340,17 +434,6 @@ def belief_mocu(
     return float(np.sum(w * ocu(v, float(psi_star))))
 
 
-def normalize_log_weights(log_w: np.ndarray) -> np.ndarray:
-    """Stable softmax of log-weights; returns probabilities summing to 1."""
-    x = np.asarray(log_w, dtype=np.float64).reshape(-1)
-    c = float(np.max(x))
-    w = np.exp(x - c)
-    s = float(np.sum(w))
-    if not np.isfinite(s) or s <= 0.0:
-        raise RuntimeError("Posterior weights degenerate.")
-    return w / s
-
-
 def posterior_ess(weights: np.ndarray) -> float:
     w = np.asarray(weights, dtype=np.float64).reshape(-1)
     w = np.clip(w, 0.0, None)
@@ -371,3 +454,36 @@ def weighted_cdf_at(values: np.ndarray, weights: np.ndarray, u: float) -> float:
         return float("nan")
     w = w / s
     return float(np.sum(w[v <= float(u)]))
+
+
+def batch_u_ctrl(
+    U: np.ndarray,
+    log_w: np.ndarray,
+    *,
+    alpha: float,
+    margin: float,
+    u_grid: np.ndarray,
+    snap_up: bool = True,
+) -> np.ndarray:
+    """Vectorized terminal control. ``log_w``: (..., N) → (...).
+
+    ``snap_up=True`` (historical): snap_up(Q + margin).
+    ``snap_up=False`` (continuous studies): Q + margin.
+    """
+    flat = log_w.reshape(-1, log_w.shape[-1])
+    m = np.max(flat, axis=1, keepdims=True)
+    w = np.exp(flat - m)
+    w = w / np.clip(w.sum(axis=1, keepdims=True), 1e-300, None)
+    order = np.argsort(U, kind="mergesort")
+    U_sorted = U[order]
+    w_sorted = w[:, order]
+    cdf = np.cumsum(w_sorted, axis=1)
+    q = 1.0 - float(alpha)
+    idx = np.sum(cdf < q, axis=1)
+    idx = np.clip(idx, 0, U.size - 1)
+    u0 = U_sorted[idx] + float(margin)
+    if not snap_up:
+        return u0.reshape(log_w.shape[:-1])
+    gi = np.searchsorted(u_grid, u0, side="left")
+    gi = np.clip(gi, 0, u_grid.size - 1)
+    return u_grid[gi].reshape(log_w.shape[:-1])
