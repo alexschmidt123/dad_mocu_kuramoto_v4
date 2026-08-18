@@ -344,40 +344,114 @@ def write_run_config(
     experiment_type: str | None = None,
     extra: dict[str, Any] | None = None,
 ) -> Path:
-    """
-    Single experiment record as ``run_config.json`` (no config.yaml / run_config.yaml).
+    """Write this run's record as ``run_config.json``.
 
-    Ensures ``model/`` + ``eval/`` exist. Merges ``extra`` keys into the document.
+    Identity fields (type, T, N_obs, noise_sigma, seed, methods) are explicit.
+    Training knobs are filtered to the selected methods (no MoE keys on a DAD-only
+    run). YAML is the template; this file is what the experiment actually used.
     """
     exp_dir = Path(exp_dir)
     ensure_result_layout(exp_dir)
     path = run_config_path(exp_dir)
+    extra_doc = dict(extra or {})
+    extra_methods = extra_doc.pop("methods", None)
+    extra_seed = extra_doc.pop("seed", None)
+    prev = load_run_config_doc(exp_dir)
+    extra_keys = set((extra or {}).keys())
+
+    exp_type = (
+        str(experiment_type).strip().lower().replace("-", "_")
+        if experiment_type is not None
+        else str(
+            extra_doc.get("experiment_type")
+            or prev.get("experiment_type")
+            or (cfg.raw.get("experiment") or {}).get("experiment_type")
+            or "objective_based"
+        )
+        .strip()
+        .lower()
+        .replace("-", "_")
+    )
+    stamped = _resolve_run_methods(
+        extra_methods=extra_methods,
+        previous=prev,
+        yaml_methods=list(cfg.methods),
+    )
+    obs = dict(cfg.raw.get("observation") or {})
+    n_obs = int(
+        extra_doc.get("N_obs", obs.get("N_obs", prev.get("N_obs", 0)))
+    )
+    noise_sigma = float(
+        extra_doc.get(
+            "noise_sigma",
+            obs.get("noise_sigma", prev.get("noise_sigma", 0.005)),
+        )
+    )
+    seed = _resolve_run_seed(extra_seed, prev)
+    horizon = int(cfg.step_number)
+
     exp = dict(cfg.raw.get("experiment") or {})
-    exp["step_number"] = int(cfg.step_number)
-    # Naming is enforced by the folder rule; do not persist a conflicting output_dir.
+    exp["step_number"] = horizon
+    exp["experiment_type"] = exp_type
+    exp["methods"] = stamped
     exp.pop("output_dir", None)
-    body = dict(cfg.raw)
+
+    body = _filter_run_body(
+        dict(cfg.raw),
+        methods=stamped,
+        experiment_type=exp_type,
+    )
     body["experiment"] = exp
+    obs_block = dict(body.get("observation") or {})
+    obs_block["N_obs"] = n_obs
+    obs_block["noise_sigma"] = noise_sigma
+    body["observation"] = obs_block
+
+    labels = dict(cfg.run_labels())
+    labels.pop("step_number", None)
     doc: dict[str, Any] = {
-        "step_number": int(cfg.step_number),
         "source_config": str(cfg.config_path.resolve()),
         "config_name": cfg.run_slug,
         "data_dir": str(Path(data_path).resolve()),
-        **cfg.run_labels(),
+        **labels,
+        "experiment_type": exp_type,
+        "T": horizon,
+        "step_number": horizon,
+        "N_obs": n_obs,
+        "noise_sigma": noise_sigma,
+        "seed": seed,
+        "methods": stamped,
         **body,
     }
-    if experiment_type is not None:
-        doc["experiment_type"] = str(experiment_type).strip().lower().replace("-", "_")
-    if extra:
-        doc.update(extra)
-    # Preserve step-local fields written earlier in this exp folder.
-    prev = load_run_config_doc(exp_dir)
-    extra_keys = set((extra or {}).keys())
+    extra_doc.pop("experiment_type", None)
+    extra_doc.pop("N_obs", None)
+    extra_doc.pop("noise_sigma", None)
+    extra_doc.pop("exp_dir", None)
+    if extra_doc:
+        doc.update(extra_doc)
     if "training_results" in prev and "training_results" not in extra_keys:
         doc["training_results"] = prev["training_results"]
     if "data_generation" in prev and "data_generation" not in extra_keys:
         doc["data_generation"] = prev["data_generation"]
-    # Drop legacy duplicates if present from older runs.
+    # Re-apply identity after extra merge so YAML leftovers cannot overwrite them.
+    doc["experiment_type"] = exp_type
+    doc["T"] = horizon
+    doc["step_number"] = horizon
+    doc["N_obs"] = n_obs
+    doc["noise_sigma"] = noise_sigma
+    doc["seed"] = seed
+    doc["methods"] = stamped
+    exp_block = dict(doc.get("experiment") or {})
+    exp_block["methods"] = stamped
+    exp_block["experiment_type"] = exp_type
+    exp_block["step_number"] = horizon
+    doc["experiment"] = exp_block
+    training = _filter_training_block(doc.get("training"), stamped)
+    if training:
+        doc["training"] = training
+    else:
+        doc.pop("training", None)
+
     for stale in (LEGACY_RUN_CONFIG_YAML, LEGACY_CONFIG_COPY):
         stale_path = exp_dir / stale
         if stale_path.is_file():
@@ -389,6 +463,117 @@ def write_run_config(
         legacy_ptr.unlink()
 
     return path
+
+
+def _resolve_run_seed(extra_seed: Any, previous: dict[str, Any]) -> int | None:
+    if extra_seed is not None and str(extra_seed).strip() != "":
+        return int(extra_seed)
+    if previous.get("seed") is not None and str(previous.get("seed")).strip() != "":
+        return int(previous["seed"])
+    return None
+
+
+def _filter_run_body(
+    raw: dict[str, Any],
+    *,
+    methods: list[str],
+    experiment_type: str,
+) -> dict[str, Any]:
+    """Keep physics/bank sections; drop objective-only blocks on EIG runs."""
+    body = dict(raw)
+    if experiment_type == "eig_based":
+        for key in ("control", "control_safety_calibration", "oracle"):
+            body.pop(key, None)
+    selected = set(methods)
+    trainable = {"dad", "rl_sboed", "moe_sboed", "matched_dense"}
+    if not selected & trainable:
+        body.pop("training", None)
+    return body
+
+
+def _filter_training_block(
+    training: Any, methods: list[str]
+) -> dict[str, Any] | None:
+    """Drop method-specific knobs that this run did not use."""
+    if not isinstance(training, dict) or not training:
+        return None
+    selected = set(methods)
+    trainable = {"dad", "rl_sboed", "moe_sboed", "matched_dense"}
+    if not selected & trainable:
+        return None
+    keep_moe = bool(selected & {"moe_sboed", "matched_dense"})
+    keep_rl = "rl_sboed" in selected
+    keep_dad = "dad" in selected
+    keep_step = "step_dad" in selected
+    out: dict[str, Any] = {}
+    for key, value in training.items():
+        lk = str(key).lower()
+        if "moe" in lk or "matched_dense" in lk or "matcheddense" in lk:
+            if not keep_moe:
+                continue
+        elif "eig_rl" in lk or lk.startswith("rl_"):
+            if not keep_rl:
+                continue
+        elif "eig_dad" in lk or "dad_optimizer" in lk or lk.startswith("dad_"):
+            if not keep_dad:
+                continue
+        elif "step_dad" in lk:
+            if not keep_step:
+                continue
+        out[key] = value
+    return out or None
+
+
+def _resolve_run_methods(
+    *,
+    extra_methods: Any,
+    previous: dict[str, Any],
+    yaml_methods: list[str],
+) -> list[str]:
+    """Prefer this-step selection, else already-stamped run methods, else YAML."""
+    if extra_methods is not None:
+        stamped = _canonical_run_methods(extra_methods)
+        if stamped:
+            return stamped
+    prev_block = dict(previous.get("experiment") or {})
+    prev_methods = prev_block.get("methods", previous.get("methods"))
+    stamped = _canonical_run_methods(prev_methods)
+    if stamped:
+        return stamped
+    stamped = _canonical_run_methods(yaml_methods)
+    return stamped or list(yaml_methods)
+
+
+def _canonical_run_methods(raw: Any) -> list[str]:
+    """Canonical keys (dad, random, …); accepts vector-EIG aliases."""
+    if raw is None:
+        return []
+    if isinstance(raw, str):
+        items = [part.strip() for part in raw.split(",") if part.strip()]
+    else:
+        items = [str(item).strip() for item in list(raw) if str(item).strip()]
+    if not items:
+        return []
+    from src.objectives.mocu.context import normalize_method_key
+
+    aliases = {
+        "dad_eig": "dad",
+        "rl_sboed_eig": "rl_sboed",
+        "myopic_delta_h": "myopic",
+        "fixed_open_loop": "fixed",
+    }
+    out: list[str] = []
+    seen: set[str] = set()
+    for item in items:
+        key = aliases.get(item, item)
+        try:
+            canon = normalize_method_key(key)
+        except ValueError:
+            continue
+        if canon not in seen:
+            seen.add(canon)
+            out.append(canon)
+    return out
 
 
 def resolve_experiment_config_path(exp_dir: Path) -> Path:

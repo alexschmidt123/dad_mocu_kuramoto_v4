@@ -263,7 +263,11 @@ else
     echo "Train: (skipped — eval-only methods)"
 fi
 
-./scripts/data_generation.sh --config "$CONFIG" "${TYPE_ARGS[@]}" "${T_ARGS[@]}" "${OBS_ARGS[@]}" "${EXP_ARGS[@]}" ${FORCE} ${SMOKE}
+if [[ -n "$METHOD_FILTER" ]]; then
+    ./scripts/data_generation.sh --config "$CONFIG" "${TYPE_ARGS[@]}" "${T_ARGS[@]}" "${OBS_ARGS[@]}" "${EXP_ARGS[@]}" --method "$METHOD_FILTER" --seed "$SEED" ${FORCE} ${SMOKE}
+else
+    ./scripts/data_generation.sh --config "$CONFIG" "${TYPE_ARGS[@]}" "${T_ARGS[@]}" "${OBS_ARGS[@]}" "${EXP_ARGS[@]}" --seed "$SEED" ${FORCE} ${SMOKE}
+fi
 
 if [[ -n "$BANK_STRUCTURE_AUDIT" ]]; then
     echo "=== bank-structure-audit (Myopic trap / adaptive-room gate) ==="
@@ -285,9 +289,9 @@ else
 fi
 
 if [[ -n "$METHOD_FILTER" ]]; then
-    ./scripts/evaluation.sh --config "$CONFIG" "${TYPE_ARGS[@]}" "${T_ARGS[@]}" "${OBS_ARGS[@]}" "${EXP_ARGS[@]}" --method "$METHOD_FILTER" ${SMOKE}
+    ./scripts/evaluation.sh --config "$CONFIG" "${TYPE_ARGS[@]}" "${T_ARGS[@]}" "${OBS_ARGS[@]}" "${EXP_ARGS[@]}" --method "$METHOD_FILTER" --seed "$SEED" ${SMOKE}
 else
-    ./scripts/evaluation.sh --config "$CONFIG" "${TYPE_ARGS[@]}" "${T_ARGS[@]}" "${OBS_ARGS[@]}" "${EXP_ARGS[@]}" ${SMOKE}
+    ./scripts/evaluation.sh --config "$CONFIG" "${TYPE_ARGS[@]}" "${T_ARGS[@]}" "${OBS_ARGS[@]}" "${EXP_ARGS[@]}" --seed "$SEED" ${SMOKE}
 fi
 
 echo ""

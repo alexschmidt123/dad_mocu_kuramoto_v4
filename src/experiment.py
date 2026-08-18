@@ -129,6 +129,15 @@ def _add_exp_dir(parser: argparse.ArgumentParser) -> None:
     )
 
 
+def _add_seed(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=101,
+        help="Training RNG seed recorded on this experiment (default: 101)",
+    )
+
+
 def _add_T(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "-T",
@@ -182,6 +191,26 @@ def _resolve_exp_dir(
     )
 
 
+def _run_method_keys(cfg, method_arg: str | None) -> list[str]:
+    """Canonical methods for this experiment (CLI subset, else yaml)."""
+    return methods_from_args(cfg, method_arg)
+
+
+def _run_record_extra(
+    args: argparse.Namespace,
+    *,
+    methods: list[str] | None = None,
+    **more: Any,
+) -> dict[str, Any]:
+    extra = dict(more)
+    if methods is not None:
+        extra["methods"] = list(methods)
+    seed = getattr(args, "seed", None)
+    if seed is not None:
+        extra["seed"] = int(seed)
+    return extra
+
+
 def cmd_allocate_dir(args: argparse.Namespace) -> None:
     """Print a newly allocated result folder path (for run.sh capture)."""
     cfg = load_experiment_config(
@@ -212,9 +241,10 @@ def cmd_generate_data(args: argparse.Namespace) -> None:
         cfg, exp_type, args.exp_dir, create_new=args.exp_dir is None
     )
     force = bool(getattr(args, "force", False))
+    run_methods = _run_method_keys(cfg, getattr(args, "method", None))
     print(
         f"[generate-data] type={exp_type} config={cfg.config_path} "
-        f"exp_dir={exp_dir} smoke={args.smoke} force={force}"
+        f"exp_dir={exp_dir} smoke={args.smoke} force={force} methods={run_methods}"
     )
     from src.domains.sir.context import is_sir_config
 
@@ -246,12 +276,14 @@ def cmd_generate_data(args: argparse.Namespace) -> None:
             cfg,
             data_dir,
             experiment_type=exp_type,
-            extra={
-                "observation_model": "sir_infected_count_gaussian",
-                "domain": "sir_ode",
-                "design": "measurement_time_chronological_on_idad_grid",
-                "N_obs": 1,
-                "data_generation": {
+            extra=_run_record_extra(
+                args,
+                methods=run_methods,
+                observation_model="sir_infected_count_gaussian",
+                domain="sir_ode",
+                design="measurement_time_chronological_on_idad_grid",
+                N_obs=1,
+                data_generation={
                     **dict(cfg.raw.get("data_generation") or {}),
                     "reused": bool(rep.get("reused")),
                     "force": force,
@@ -262,7 +294,7 @@ def cmd_generate_data(args: argparse.Namespace) -> None:
                     "train_theta_count": rep.get("train_theta_count"),
                     "test_theta_count": rep.get("test_theta_count"),
                 },
-            },
+            ),
         )
         print(json.dumps(rep, indent=2, default=str))
         print(f"EXP_DIR={exp_dir}")
@@ -303,10 +335,12 @@ def cmd_generate_data(args: argparse.Namespace) -> None:
             cfg,
             data_dir,
             experiment_type=exp_type,
-            extra={
-                "observation_model": obs_model,
-                "N_obs": int(args.n_obs),
-                "data_generation": {
+            extra=_run_record_extra(
+                args,
+                methods=run_methods,
+                observation_model=obs_model,
+                N_obs=int(args.n_obs),
+                data_generation={
                     **dict(cfg.raw.get("data_generation") or {}),
                     "reused": bool(rep.get("reused")),
                     "force": force,
@@ -318,8 +352,8 @@ def cmd_generate_data(args: argparse.Namespace) -> None:
                     "N_sim": rep.get("N_sim"),
                     "train_theta_count": rep.get("train_theta_count"),
                     "test_theta_count": rep.get("test_theta_count"),
-                }
-            },
+                },
+            ),
         )
         slim = {k: v for k, v in rep.items() if k != "time_vector"}
         slim["experiment_type"] = exp_type
@@ -369,6 +403,10 @@ def cmd_train(args: argparse.Namespace) -> None:
     exp_dir = _resolve_exp_dir(
         cfg, exp_type, args.exp_dir, create_new=False
     )
+    from src.reporting.run_context import load_run_config_doc
+
+    prev_methods = load_run_config_doc(exp_dir).get("methods")
+    train_record_methods = list(prev_methods) if prev_methods else [key]
 
     if exp_type == "objective_based":
         ctx = build_context_from_config(
@@ -379,7 +417,13 @@ def cmd_train(args: argparse.Namespace) -> None:
             experiment_type=exp_type,
         )
         write_run_config(
-            exp_dir, cfg, ctx.data_dir, experiment_type=exp_type
+            exp_dir,
+            cfg,
+            ctx.data_dir,
+            experiment_type=exp_type,
+            extra=_run_record_extra(
+                args, methods=train_record_methods, N_obs=ctx.n_obs
+            ),
         )
         display = method_display_name(key)
         print(
@@ -410,14 +454,16 @@ def cmd_train(args: argparse.Namespace) -> None:
             cfg,
             ctx.data_dir,
             experiment_type=exp_type,
-            extra={
-                "observation_model": (
+            extra=_run_record_extra(
+                args,
+                methods=train_record_methods,
+                observation_model=(
                     "continuous_duration_max_rocof"
                     if int(args.n_obs) == 0
                     else "sampled_delta_f_vector"
                 ),
-                "N_obs": ctx.n_obs,
-            },
+                N_obs=ctx.n_obs,
+            ),
         )
         if key == "dad":
             result = train_vector_eig_policy(
@@ -515,12 +561,12 @@ def cmd_evaluate(args: argparse.Namespace) -> None:
             cfg,
             ctx.data_dir,
             experiment_type=exp_type,
-            extra={
-                "methods": method_keys,
-                "smoke": bool(args.smoke),
-                "exp_dir": str(exp_dir),
-                "eval_meta": meta,
-            },
+            extra=_run_record_extra(
+                args,
+                methods=method_keys,
+                smoke=bool(args.smoke),
+                eval_meta=meta,
+            ),
         )
         print(
             f"[evaluate] type={exp_type} methods={method_keys} "
@@ -584,15 +630,16 @@ def cmd_evaluate(args: argparse.Namespace) -> None:
             cfg,
             ctx.data_dir,
             experiment_type=exp_type,
-            extra={
-                "observation_model": (
+            extra=_run_record_extra(
+                args,
+                methods=list(requested),
+                observation_model=(
                     "continuous_duration_max_rocof"
                     if int(args.n_obs) == 0
                     else "sampled_delta_f_vector"
                 ),
-                "N_obs": ctx.n_obs,
-                "methods": list(vector_methods),
-            },
+                N_obs=ctx.n_obs,
+            ),
         )
         result = evaluate_vector_eig(
             ctx,
@@ -838,7 +885,18 @@ def build_parser() -> argparse.ArgumentParser:
     _add_exp_dir(gen)
     _add_T(gen)
     _add_observation_overrides(gen)
+    _add_seed(gen)
     gen.add_argument("--smoke", action="store_true")
+    gen.add_argument(
+        "--method",
+        "-m",
+        default=None,
+        help=(
+            "Optional comma-separated method keys for this experiment "
+            f"({', '.join(EXTENDED_METHOD_KEYS)}). "
+            "Omit = experiment.methods in yaml."
+        ),
+    )
     gen.add_argument(
         "--force",
         action="store_true",
@@ -887,6 +945,7 @@ def build_parser() -> argparse.ArgumentParser:
     _add_exp_dir(ev)
     _add_T(ev)
     _add_observation_overrides(ev)
+    _add_seed(ev)
     ev.add_argument("--smoke", action="store_true")
     ev.set_defaults(func=cmd_evaluate)
 
