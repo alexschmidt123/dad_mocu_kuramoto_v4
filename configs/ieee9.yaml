@@ -12,8 +12,11 @@ system:
 N: 3
 
 data:
+  # Relative to the clone root, so both workstations share the same layout.
   dataset_dir: data/ieee9_duration_bus
-  generate_if_missing: false
+  # If the bank already exists, generate-data reuses it. If it is missing
+  # (fresh clone), generate-data builds it with CUDA.
+  generate_if_missing: true
 
 observation:
   # Use sampled frequency trajectories; scalar max-ROCOF was too compressed.

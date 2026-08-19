@@ -17,10 +17,36 @@
 # --- shared env / helpers (also used when this file is sourced) ---
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$ROOT"
-# Prefer the project conda env when present (activated env still wins if already first on PATH).
-if [[ -x "/home/grads/g/g.lin/miniconda3/envs/mocu_optimized/bin/python3" ]]; then
-    export PATH="/home/grads/g/g.lin/miniconda3/envs/mocu_optimized/bin:${PATH}"
-fi
+# Prefer conda env mocu_optimized without hardcoding a user home.
+# If that env is already active, leave PATH alone; otherwise prepend a
+# standard install location so both workstations work without `conda activate`.
+_prepend_mocu_optimized() {
+    local bin candidates=()
+    if [[ "${CONDA_DEFAULT_ENV:-}" == "mocu_optimized" && -x "${CONDA_PREFIX:-}/bin/python3" ]]; then
+        return 0
+    fi
+    candidates+=(
+        "${HOME}/miniconda3/envs/mocu_optimized/bin"
+        "${HOME}/anaconda3/envs/mocu_optimized/bin"
+        "${HOME}/miniforge3/envs/mocu_optimized/bin"
+        "${HOME}/mambaforge/envs/mocu_optimized/bin"
+    )
+    if [[ -n "${CONDA_PREFIX:-}" ]]; then
+        candidates+=("$(dirname "${CONDA_PREFIX}")/mocu_optimized/bin")
+    fi
+    if [[ -n "${CONDA_EXE:-}" ]]; then
+        candidates+=("$(dirname "$(dirname "${CONDA_EXE}")")/envs/mocu_optimized/bin")
+    fi
+    for bin in "${candidates[@]}"; do
+        if [[ -n "$bin" && -x "${bin}/python3" ]]; then
+            export PATH="${bin}:${PATH}"
+            return 0
+        fi
+    done
+    return 0
+}
+_prepend_mocu_optimized
+unset -f _prepend_mocu_optimized
 export PYTHONPATH="${ROOT}${PYTHONPATH:+:${PYTHONPATH}}"
 
 EXPERIMENT_TYPE_DEFAULT="objective_based"

@@ -29,6 +29,7 @@ from src.config import (
 )
 from src.banks.quality import BankQualityError
 from src.banks.power_grid import (
+    generate_if_missing_flag,
     generate_physical_bank,
     resolve_dataset_dir,
 )
@@ -378,21 +379,30 @@ def cmd_generate_data(args: argparse.Namespace) -> None:
 
         data_dir = resolve_dataset_dir(cfg)
         print(f"[generate-data] dataset_dir={data_dir}")
-        if force:
+        complete = bank_is_complete(data_dir)
+        if force and complete:
             raise SystemExit(
-                "Experiments are databank-only: --force regeneration is disabled. "
-                "Reuse the existing physical bank."
+                "Refusing --force on a complete physical bank. "
+                "Reuse the existing dataset_dir (delete it only if you intend "
+                "a full CUDA regeneration)."
             )
-        if not bank_is_complete(data_dir):
+        if complete:
+            if not bank_has_max_rocof(data_dir):
+                print(
+                    f"[generate-data] bank present but max_rocof missing; "
+                    "backfilling under {data_dir}."
+                )
+        elif generate_if_missing_flag(cfg):
+            print(
+                f"[generate-data] bank missing or incomplete at {data_dir}; "
+                "running CUDA generation (this can take a long time)."
+            )
+        else:
             raise SystemExit(
                 f"Physical databank missing or incomplete at {data_dir}. "
-                "The experiment pipeline will not simulate trajectories on the fly."
-            )
-        if not bank_has_max_rocof(data_dir):
-            raise SystemExit(
-                f"Physical databank at {data_dir} is missing max_rocof arrays "
-                "required by the shared bank contract. Complete the bank "
-                "offline first."
+                "Copy a complete bank to that path, or set "
+                "data.generate_if_missing: true in the YAML so generate-data "
+                "can run CUDA generation on this machine."
             )
         rep = generate_physical_bank(cfg, smoke=args.smoke, force=False)
         if exp_type == "eig_based" and int(args.n_obs) == 0:
