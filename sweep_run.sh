@@ -31,7 +31,9 @@ source "$ROOT/run.sh"
 CONFIGS="ieee9,ieee14"
 TS="$DEFAULT_STEP_NUMBER"
 N_OBS_VALUES="$DEFAULT_N_OBS"
+N_OBS_SET=0
 NOISE_SIGMAS="$DEFAULT_NOISE_SIGMA"
+NOISE_SIGMA_SET=0
 SEEDS="$DEFAULT_SEEDS"
 FORCE=""
 METHOD=""
@@ -87,8 +89,8 @@ while [[ $# -gt 0 ]]; do
     case "$1" in
         --configs|--systems|--config|-config|-c) CONFIGS="$2"; shift 2 ;;
         -T|--T|--step-number|--step_number) TS="$2"; shift 2 ;;
-        --N_obs|--n-obs|--n_obs) N_OBS_VALUES="$2"; shift 2 ;;
-        --noise_sigma|--noise-sigma) NOISE_SIGMAS="$2"; shift 2 ;;
+        --N_obs|--n-obs|--n_obs) N_OBS_VALUES="$2"; N_OBS_SET=1; shift 2 ;;
+        --noise_sigma|--noise-sigma) NOISE_SIGMAS="$2"; NOISE_SIGMA_SET=1; shift 2 ;;
         --seeds|--seed) SEEDS="$2"; shift 2 ;;
         --method|-method|-m) METHOD="$2"; shift 2 ;;
         --experiment_type|--experiment-type)
@@ -115,6 +117,33 @@ for item in "${_raw_cfgs[@]}"; do
     CFG_ARR+=("$(resolve_cfg "$item")")
 done
 [[ ${#CFG_ARR[@]} -gt 0 ]] || { echo "No configs given" >&2; usage; exit 1; }
+
+# With one config, omitted observation arguments come from its active
+# objective-specific profile. Multi-config sweeps require explicit values to
+# avoid silently applying one system's observation model to another.
+if [[ "$N_OBS_SET" -eq 0 || "$NOISE_SIGMA_SET" -eq 0 ]]; then
+    if [[ ${#CFG_ARR[@]} -ne 1 ]]; then
+        echo "Multiple configs require explicit --N_obs and --noise_sigma" >&2
+        exit 1
+    fi
+    mapfile -t OBSERVATION_DEFAULTS < <(python3 -c '
+import sys, yaml
+from pathlib import Path
+raw = yaml.safe_load(Path(sys.argv[1]).read_text()) or {}
+etype = str(sys.argv[2]).strip().lower().replace("-", "_")
+obs = dict(raw.get("observation") or {})
+profile = obs.get(etype)
+active = dict(profile) if isinstance(profile, dict) else obs
+print(int(active.get("N_obs", 0)))
+print(float(active.get("noise_sigma", 0.005)))
+' "${CFG_ARR[0]}" "$EXPERIMENT_TYPE")
+    if [[ "$N_OBS_SET" -eq 0 ]]; then
+        N_OBS_VALUES="${OBSERVATION_DEFAULTS[0]}"
+    fi
+    if [[ "$NOISE_SIGMA_SET" -eq 0 ]]; then
+        NOISE_SIGMAS="${OBSERVATION_DEFAULTS[1]}"
+    fi
+fi
 
 T_ARR=()
 IFS=',' read -r -a _raw_ts <<< "$TS"
@@ -225,8 +254,10 @@ for cfg in "${CFG_ARR[@]}"; do
         [[ -n "$BANK_STRUCTURE_AUDIT" ]] && ARGS+=(--bank-structure-audit)
         cell_log="$(mktemp)"
         set +e
-        # shellcheck disable=SC2086
-        bash run.sh "${ARGS[@]}" "${extra[@]+"${extra[@]}"}" ${SMOKE} | tee "$cell_log"
+        cell_cmd=(bash run.sh "${ARGS[@]}")
+        [[ ${#extra[@]} -gt 0 ]] && cell_cmd+=("${extra[@]}")
+        [[ -n "$SMOKE" ]] && cell_cmd+=("$SMOKE")
+        "${cell_cmd[@]}" | tee "$cell_log"
         rc=${PIPESTATUS[0]}
         set -e
         cell="$(grep '^EXP_DIR=' "$cell_log" | tail -n 1 | sed 's/^EXP_DIR=//' | tr -d '\r' | sed 's/[[:space:]]*$//')"

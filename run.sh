@@ -212,6 +212,28 @@ while [[ $# -gt 0 ]]; do
 done
 
 [[ -n "$CONFIG" ]] || { usage; exit 1; }
+
+# Resolve objective-specific observation defaults before validating / stamping.
+# A flat observation block remains supported for legacy configs and SIR. Explicit
+# --N_obs / --noise_sigma always win over the selected YAML subtree.
+mapfile -t OBSERVATION_DEFAULTS < <(python3 -c '
+import sys, yaml
+from pathlib import Path
+raw = yaml.safe_load(Path(sys.argv[1]).read_text()) or {}
+etype = str(sys.argv[2]).strip().lower().replace("-", "_")
+obs = dict(raw.get("observation") or {})
+profile = obs.get(etype)
+active = dict(profile) if isinstance(profile, dict) else obs
+print(int(active.get("N_obs", 0)))
+print(float(active.get("noise_sigma", 0.005)))
+' "$CONFIG" "$EXPERIMENT_TYPE")
+if [[ "$N_OBS_SET" -eq 0 ]]; then
+    N_OBS="${OBSERVATION_DEFAULTS[0]}"
+fi
+if [[ "$NOISE_SIGMA_SET" -eq 0 ]]; then
+    NOISE_SIGMA="${OBSERVATION_DEFAULTS[1]}"
+fi
+
 [[ "$T" =~ ^[1-9][0-9]*$ ]] || { echo "Invalid --T: $T (positive integer required)" >&2; exit 1; }
 [[ "$N_OBS" =~ ^[0-9]+$ ]] || { echo "Invalid --N_obs: $N_OBS (non-negative integer required)" >&2; exit 1; }
 [[ "$SEED" =~ ^[0-9]+$ ]] || { echo "Invalid --seed: $SEED (non-negative integer required)" >&2; exit 1; }
@@ -289,38 +311,59 @@ else
     echo "Train: (skipped — eval-only methods)"
 fi
 
-if [[ -n "$METHOD_FILTER" ]]; then
-    ./scripts/data_generation.sh --config "$CONFIG" "${TYPE_ARGS[@]}" "${T_ARGS[@]}" "${OBS_ARGS[@]}" "${EXP_ARGS[@]}" --method "$METHOD_FILTER" --seed "$SEED" ${FORCE} ${SMOKE}
-else
-    ./scripts/data_generation.sh --config "$CONFIG" "${TYPE_ARGS[@]}" "${T_ARGS[@]}" "${OBS_ARGS[@]}" "${EXP_ARGS[@]}" --seed "$SEED" ${FORCE} ${SMOKE}
-fi
-
-if [[ -n "$BANK_STRUCTURE_AUDIT" ]]; then
-    echo "=== bank-structure-audit (Myopic trap / adaptive-room gate) ==="
-    python3 -m src.experiment bank-structure-audit --config "$CONFIG" \
+# Load generate/train/eval into memory before those steps run. Bash rereads
+# this file after each command; editing run.sh during training can otherwise
+# resume at a stale offset and execute `--N_obs` as a command.
+run_pipeline() {
+    local cmd=()
+    cmd=(
+        ./scripts/data_generation.sh --config "$CONFIG"
         "${TYPE_ARGS[@]}" "${T_ARGS[@]}" "${OBS_ARGS[@]}" "${EXP_ARGS[@]}"
-    audit_rc=$?
-    echo "=== bank-structure-audit done (skipping train/eval; omit flag for full runs) ==="
-    echo "Done → $EXP_DIR"
+        --seed "$SEED"
+    )
+    [[ -n "$METHOD_FILTER" ]] && cmd+=(--method "$METHOD_FILTER")
+    [[ -n "$FORCE" ]] && cmd+=("$FORCE")
+    [[ -n "$SMOKE" ]] && cmd+=("$SMOKE")
+    "${cmd[@]}"
+
+    if [[ -n "$BANK_STRUCTURE_AUDIT" ]]; then
+        echo "=== bank-structure-audit (Myopic trap / adaptive-room gate) ==="
+        python3 -m src.experiment bank-structure-audit --config "$CONFIG" \
+            "${TYPE_ARGS[@]}" "${T_ARGS[@]}" "${OBS_ARGS[@]}" "${EXP_ARGS[@]}"
+        local audit_rc=$?
+        echo "=== bank-structure-audit done (skipping train/eval; omit flag for full runs) ==="
+        echo "Done → $EXP_DIR"
+        echo "EXP_DIR=$EXP_DIR"
+        exit "$audit_rc"
+    fi
+
+    if [[ ${#TRAIN_METHODS[@]} -gt 0 ]]; then
+        local train_csv
+        train_csv="$(IFS=,; echo "${TRAIN_METHODS[*]}")"
+        cmd=(
+            ./scripts/training.sh --config "$CONFIG" --method "$train_csv"
+            --seed "$SEED"
+            "${TYPE_ARGS[@]}" "${T_ARGS[@]}" "${OBS_ARGS[@]}" "${EXP_ARGS[@]}"
+        )
+        [[ -n "$SMOKE" ]] && cmd+=("$SMOKE")
+        "${cmd[@]}"
+    else
+        echo "[run.sh] skipping training.sh (no offline trainers in selection)"
+    fi
+
+    cmd=(
+        ./scripts/evaluation.sh --config "$CONFIG"
+        "${TYPE_ARGS[@]}" "${T_ARGS[@]}" "${OBS_ARGS[@]}" "${EXP_ARGS[@]}"
+        --seed "$SEED"
+    )
+    [[ -n "$METHOD_FILTER" ]] && cmd+=(--method "$METHOD_FILTER")
+    [[ -n "$SMOKE" ]] && cmd+=("$SMOKE")
+    "${cmd[@]}"
+
+    echo ""
+    printf "Done config=%s type=%s T=%s.\n" "$CONFIG" "$EXPERIMENT_TYPE" "$T"
     echo "EXP_DIR=$EXP_DIR"
-    exit "$audit_rc"
-fi
+    echo "LOG_FILE=${RUN_LOG_FILE:-}"
+}
 
-if [[ ${#TRAIN_METHODS[@]} -gt 0 ]]; then
-    TRAIN_CSV="$(IFS=,; echo "${TRAIN_METHODS[*]}")"
-    ./scripts/training.sh --config "$CONFIG" --method "$TRAIN_CSV" --seed "$SEED" \
-        "${TYPE_ARGS[@]}" "${T_ARGS[@]}" "${OBS_ARGS[@]}" "${EXP_ARGS[@]}" ${SMOKE}
-else
-    echo "[run.sh] skipping training.sh (no offline trainers in selection)"
-fi
-
-if [[ -n "$METHOD_FILTER" ]]; then
-    ./scripts/evaluation.sh --config "$CONFIG" "${TYPE_ARGS[@]}" "${T_ARGS[@]}" "${OBS_ARGS[@]}" "${EXP_ARGS[@]}" --method "$METHOD_FILTER" --seed "$SEED" ${SMOKE}
-else
-    ./scripts/evaluation.sh --config "$CONFIG" "${TYPE_ARGS[@]}" "${T_ARGS[@]}" "${OBS_ARGS[@]}" "${EXP_ARGS[@]}" --seed "$SEED" ${SMOKE}
-fi
-
-echo ""
-printf "Done config=%s type=%s T=%s.\n" "$CONFIG" "$EXPERIMENT_TYPE" "$T"
-echo "EXP_DIR=$EXP_DIR"
-echo "LOG_FILE=${RUN_LOG_FILE:-}"
+run_pipeline

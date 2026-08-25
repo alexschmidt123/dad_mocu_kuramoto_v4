@@ -226,6 +226,7 @@ def _evaluate_run_identity(
     args: argparse.Namespace,
 ) -> tuple[Any, str, Path, dict[str, Any], int]:
     """Load eval config from --exp-dir run_config when present."""
+    from src.objectives.mocu.context import GLOBAL_SEED
     from src.layout import (
         load_run_config_doc,
         method_checkpoint_available,
@@ -261,7 +262,18 @@ def _evaluate_run_identity(
     )
     exp_dir = _resolve_exp_dir(cfg, exp_type, args.exp_dir, create_new=False)
     run_doc = load_run_config_doc(exp_dir) or run_doc
+    train_seed = int(
+        run_doc.get("seed", getattr(args, "seed", None))
+        if run_doc.get("seed", getattr(args, "seed", None)) is not None
+        else GLOBAL_SEED
+    )
     eval_seed = resolve_eval_seed(exp_dir, getattr(args, "seed", None))
+    if exp_type == "objective_based":
+        # Training seeds measure optimizer variability.  Evaluation noise must
+        # remain fixed across those seeds or the reported variance conflates two
+        # unrelated sources.  This also supplies common random numbers across T.
+        evaluation = dict(cfg.raw.get("evaluation") or {})
+        eval_seed = int(evaluation.get("objective_eval_seed", eval_seed))
     if args.method:
         method_keys = methods_from_args(cfg, args.method)
     else:
@@ -275,7 +287,12 @@ def _evaluate_run_identity(
             print(f"[evaluate] skip {key}: missing .pth under {exp_dir / 'model'}")
     if not kept:
         raise SystemExit(f"No evaluable methods remain in {exp_dir}")
-    return cfg, exp_type, exp_dir, {"methods": kept, "eval_seed": eval_seed, "run_doc": run_doc}, eval_seed
+    return cfg, exp_type, exp_dir, {
+        "methods": kept,
+        "train_seed": train_seed,
+        "eval_seed": eval_seed,
+        "run_doc": run_doc,
+    }, eval_seed
 
 
 def cmd_allocate_dir(args: argparse.Namespace) -> None:
@@ -662,7 +679,7 @@ def cmd_evaluate(args: argparse.Namespace) -> None:
             extra=_run_record_extra(
                 args,
                 methods=method_keys,
-                seed=eval_seed,
+                seed=int(identity["train_seed"]),
                 eval_seed=eval_seed,
                 smoke=bool(args.smoke),
                 eval_meta=meta,

@@ -13,7 +13,7 @@ from src.control.posterior_ctrl import normalize_log_weights
 from src.objectives.mocu.context import (
     GLOBAL_SEED,
     ExperimentContext,
-    expected_u_after_action_vector,
+    expected_mocu_after_action_vector,
     normalize_method_key,
     observe_compressed,
     update_posterior_vector,
@@ -29,13 +29,20 @@ def select_myopic_action(
     step: int,
     seed: int = GLOBAL_SEED,
     n_hypothetical: int | None = None,
+    common_random_numbers: bool = False,
 ) -> int:
-    """One-step myopic: minimize expected posterior-safe u_ctrl."""
+    """One-step Myopic: minimize expected safety-aware posterior MOCU.
+
+    Evaluation uses common random numbers so two identical beliefs receive the
+    same fantasy particles/noise.  This prevents Monte Carlo variation from
+    being misreported as posterior-conditioned adaptivity.
+    """
     ctrl = dict(ctx.cfg.raw.get("control") or {})
     n_hyp = int(n_hypothetical or ctrl.get("myopic_hypothetical", 64))
     used = {int(a) for a in used_actions}
     w = normalize_log_weights(log_w)
-    rng = np.random.default_rng(int(seed) + int(rollout_id) * 17 + int(step) * 13)
+    sampling_id = 0 if common_random_numbers else int(rollout_id)
+    rng = np.random.default_rng(int(seed) + sampling_id * 17 + int(step) * 13)
     idx = rng.choice(len(w), size=min(n_hyp, len(w)), p=w, replace=True)
     noise = rng.normal(0.0, ctx.sigma_y, size=(len(idx), ctx.obs_dim))
 
@@ -48,7 +55,7 @@ def select_myopic_action(
     best_a = None
     best_score = float("inf")
     for a in feasible.tolist():
-        score = expected_u_after_action_vector(
+        score = expected_mocu_after_action_vector(
             int(a),
             log_w,
             centres=ctx.centres_support,
@@ -59,6 +66,8 @@ def select_myopic_action(
             u_grid=ctx.u_grid,
             idx=idx,
             noise=noise,
+            undercontrol_penalty=ctx.undercontrol_penalty,
+            violation_penalty=ctx.violation_penalty,
         )
         if score < best_score - 1e-15 or (
             abs(score - best_score) <= 1e-15 and (best_a is None or a < best_a)

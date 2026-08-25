@@ -1,0 +1,406 @@
+{
+  "purpose": "Plan-2 structure audit: Myopic trap + Fixed-beatable adaptive room + multi-T monotone gap(T) (Solution-1 bank gate). Pass/fail only \u2014 never filter \u03b8/designs.",
+  "system": "ieee9",
+  "data_dir": "/home/grads/g/g.lin/Documents/dad_mocu_kuramoto_v4/data/ieee9_probe_amplitude_sweep/amp_0p075/probe",
+  "config_path": "/home/grads/g/g.lin/Documents/dad_mocu_kuramoto_v4/configs/sweeps/ieee9_probe_amplitude/ieee9_amp_0p075.yaml",
+  "N_obs": 5,
+  "noise_sigma": 0.01,
+  "verdict": "MYOPIC_TRAP_READY_FOR_DAD_RL",
+  "dad_rl_ready": true,
+  "myopic_beatable": true,
+  "fixed_beatable": false,
+  "branching_ok": false,
+  "adaptive_room": false,
+  "monotone_adaptive_room": false,
+  "moe_deferred": true,
+  "u_heterogeneity": {
+    "n": 512,
+    "mean": 0.37480468749999996,
+    "std": 0.015969971134205098,
+    "q05": 0.35,
+    "q95": 0.4,
+    "headroom_q95_minus_mean": 0.025195312500000067,
+    "positive_frac": 1.0,
+    "n_unique_rounded": 8
+  },
+  "action_redundancy": {
+    "n_actions": 54,
+    "n_theta": 512,
+    "n_unique_amps": 1,
+    "n_unique_buses": 9,
+    "near_duplicate_threshold": 0.98,
+    "near_duplicate_frac": 0.42907058001397624,
+    "n_near_duplicate_pairs": 614,
+    "n_pairs": 1431,
+    "mean_abs_corr": 0.9632972230186889,
+    "max_abs_corr": 1.001944260933291,
+    "same_bus_pair_count": 135,
+    "same_bus_near_dup_frac": 0.37777777777777777,
+    "same_bus_amp_normalized_corr_mean": 0.0,
+    "amp_scale_redundant": false,
+    "top_near_duplicates": [
+      {
+        "i": 49,
+        "j": 53,
+        "abs_corr": 1.001944260933291,
+        "bus_i": 4,
+        "bus_j": 8,
+        "amp_i": 0.075,
+        "amp_j": 0.075
+      },
+      {
+        "i": 47,
+        "j": 50,
+        "abs_corr": 1.0019263447908375,
+        "bus_i": 2,
+        "bus_j": 5,
+        "amp_i": 0.075,
+        "amp_j": 0.075
+      },
+      {
+        "i": 51,
+        "j": 52,
+        "abs_corr": 1.0019249049817234,
+        "bus_i": 6,
+        "bus_j": 7,
+        "amp_i": 0.075,
+        "amp_j": 0.075
+      },
+      {
+        "i": 38,
+        "j": 41,
+        "abs_corr": 1.0019197577273748,
+        "bus_i": 2,
+        "bus_j": 5,
+        "amp_i": 0.075,
+        "amp_j": 0.075
+      },
+      {
+        "i": 31,
+        "j": 35,
+        "abs_corr": 1.0019161875200044,
+        "bus_i": 4,
+        "bus_j": 8,
+        "amp_i": 0.075,
+        "amp_j": 0.075
+      },
+      {
+        "i": 47,
+        "j": 51,
+        "abs_corr": 1.0019027033848547,
+        "bus_i": 2,
+        "bus_j": 6,
+        "amp_i": 0.075,
+        "amp_j": 0.075
+      },
+      {
+        "i": 50,
+        "j": 51,
+        "abs_corr": 1.00190061849728,
+        "bus_i": 5,
+        "bus_j": 6,
+        "amp_i": 0.075,
+        "amp_j": 0.075
+      },
+      {
+        "i": 40,
+        "j": 44,
+        "abs_corr": 1.0018865694701171,
+        "bus_i": 4,
+        "bus_j": 8,
+        "amp_i": 0.075,
+        "amp_j": 0.075
+      }
+    ]
+  },
+  "myopic_trap": {
+    "myopic_first_design": 36,
+    "planning_first_design": 48,
+    "approx_fixed_pair": [
+      48,
+      45
+    ],
+    "myopic_first_equals_planning_first": false,
+    "myopic_first_in_fixed_pair": false,
+    "planning_minus_myopic": -0.0004166666666666763,
+    "xi1_mean_abs_corr_with_others": 0.9725915351568547,
+    "trap_present": true,
+    "strong_trap": true,
+    "myopic_first_meta": {
+      "bus": 0,
+      "amp": 0.075,
+      "duration": 2.5
+    },
+    "planning_first_meta": {
+      "bus": 3,
+      "amp": 0.075,
+      "duration": 3.0
+    },
+    "interpretation": "MYOPIC_TRAP: \u03be1 is one-step best but a different first design is better for T\u22652 (information overlay / option-value)."
+  },
+  "t2_adaptive_screen": {
+    "N_obs": 5,
+    "sigma": 0.01,
+    "support_size": 96,
+    "n_actions": 54,
+    "alpha": 0.05,
+    "margin": 0.0,
+    "myopic_first_design": 36,
+    "planning_first_design": 48,
+    "approx_fixed_pair": [
+      48,
+      45
+    ],
+    "J_myopic_T2": 0.392109375,
+    "J_planning_T2": 0.3916927083333333,
+    "J_fixed_T2_approx": 0.39083333333333337,
+    "planning_minus_myopic": -0.0004166666666666763,
+    "planning_minus_fixed": 0.00085937499999994,
+    "n_distinct_second_actions": 8,
+    "second_action_entropy": 1.701667217382549,
+    "second_action_mass": {
+      "45": 0.3333333333333333,
+      "0": 0.25,
+      "27": 0.20833333333333334,
+      "2": 0.041666666666666664,
+      "18": 0.041666666666666664,
+      "9": 0.041666666666666664,
+      "36": 0.041666666666666664,
+      "37": 0.041666666666666664
+    },
+    "most_common_second_action_prob": 0.3333333333333333,
+    "second_action_effective_n": 4.430769230769231,
+    "forced_fixed_second_action": 45,
+    "mean_branch_value": 0.0001562500000000013,
+    "median_branch_value": 0.0,
+    "frac_branch_value_gt0": 0.125,
+    "first_candidates": [
+      48,
+      49,
+      50,
+      51,
+      47,
+      46,
+      45,
+      44,
+      40,
+      41,
+      42,
+      43,
+      36
+    ],
+    "search_note": "Approximate Monte Carlo T=2 screen: top-k first actions, full second-action catalog. Not a trained-policy result. mean_branch_value = E[u|Fixed \u03be2] \u2212 E[u|a2\u2605] at planning \u03be1.",
+    "observation_mode": "sampled_delta_f",
+    "obs_indices_head": [
+      0,
+      640,
+      1280,
+      1919,
+      2559
+    ]
+  },
+  "multi_horizon_adaptive_screen": {
+    "horizons": [
+      2,
+      3,
+      4
+    ],
+    "by_horizon": {
+      "2": {
+        "horizon": 2,
+        "N_obs": 5,
+        "sigma": 0.01,
+        "support_size": 96,
+        "n_actions": 54,
+        "J_plan": 0.39250000000000007,
+        "J_fixed": 0.39208333333333334,
+        "gap": 0.0004166666666667318,
+        "planning_minus_fixed": 0.0004166666666667318,
+        "planning_prefix": [
+          44,
+          48
+        ],
+        "myopic_first_design": 36,
+        "approx_fixed_subset": [
+          35,
+          51
+        ],
+        "n_fixed_subsets_scored": 178,
+        "n_prefixes_scored": 64,
+        "top_actions": [
+          48,
+          49,
+          50,
+          51,
+          47,
+          46,
+          45,
+          44,
+          40,
+          41,
+          42,
+          43
+        ],
+        "first_candidates": [
+          48,
+          49,
+          50,
+          51,
+          47,
+          46,
+          45,
+          44,
+          40,
+          41,
+          42,
+          43,
+          36
+        ],
+        "search_note": "Approximate MC multi-T screen: non-myopic prefix (len\u22642) then one-step-greedy remainder vs best Fixed size-T subset. Not a trained policy."
+      },
+      "3": {
+        "horizon": 3,
+        "N_obs": 5,
+        "sigma": 0.01,
+        "support_size": 96,
+        "n_actions": 54,
+        "J_plan": 0.3820833333333334,
+        "J_fixed": 0.38333333333333336,
+        "gap": -0.0012499999999999734,
+        "planning_minus_fixed": -0.0012499999999999734,
+        "planning_prefix": [
+          27
+        ],
+        "myopic_first_design": 27,
+        "approx_fixed_subset": [
+          27,
+          29,
+          34
+        ],
+        "n_fixed_subsets_scored": 220,
+        "n_prefixes_scored": 64,
+        "top_actions": [
+          31,
+          30,
+          29,
+          27,
+          28,
+          34,
+          33,
+          32,
+          35,
+          25,
+          19,
+          23
+        ],
+        "first_candidates": [
+          31,
+          30,
+          29,
+          27,
+          28,
+          34,
+          33,
+          32,
+          35,
+          25,
+          19,
+          23
+        ],
+        "search_note": "Approximate MC multi-T screen: non-myopic prefix (len\u22642) then one-step-greedy remainder vs best Fixed size-T subset. Not a trained policy."
+      },
+      "4": {
+        "horizon": 4,
+        "N_obs": 5,
+        "sigma": 0.01,
+        "support_size": 96,
+        "n_actions": 54,
+        "J_plan": 0.385,
+        "J_fixed": 0.38458333333333333,
+        "gap": 0.0004166666666666763,
+        "planning_minus_fixed": 0.0004166666666666763,
+        "planning_prefix": [
+          48,
+          44
+        ],
+        "myopic_first_design": 36,
+        "approx_fixed_subset": [
+          40,
+          41,
+          43,
+          47
+        ],
+        "n_fixed_subsets_scored": 220,
+        "n_prefixes_scored": 64,
+        "top_actions": [
+          48,
+          49,
+          50,
+          51,
+          47,
+          46,
+          45,
+          44,
+          40,
+          41,
+          42,
+          43
+        ],
+        "first_candidates": [
+          48,
+          49,
+          50,
+          51,
+          47,
+          46,
+          45,
+          44,
+          40,
+          41,
+          42,
+          43,
+          36
+        ],
+        "search_note": "Approximate MC multi-T screen: non-myopic prefix (len\u22642) then one-step-greedy remainder vs best Fixed size-T subset. Not a trained policy."
+      }
+    },
+    "gaps": {
+      "2": 0.0004166666666667318,
+      "3": -0.0012499999999999734,
+      "4": 0.0004166666666666763
+    },
+    "min_fixed_advantage": 0.01,
+    "min_gap_improve_per_horizon": 0.005,
+    "monotone_ok": false,
+    "monotone_failures": [
+      "gap(2)=0.000417 (need \u2264 -0.01)",
+      "gap(3)=-0.001250 not \u2264 gap(2)-0.005=-0.004583",
+      "gap(4)=0.000417 not \u2264 gap(3)-0.005=-0.006250"
+    ]
+  },
+  "thresholds": {
+    "near_duplicate_corr": 0.98,
+    "near_duplicate_frac_limit": 0.25,
+    "advantage_eps": 0.0001,
+    "min_fixed_advantage": 0.01,
+    "min_distinct_second_actions": 2,
+    "min_mean_branch_value": 0.01,
+    "max_mode_second_action_prob": 0.75,
+    "structure_audit_horizons": [
+      2,
+      3,
+      4
+    ],
+    "min_gap_improve_per_horizon": 0.005
+  },
+  "recommendations": [
+    "High cross-action redundancy: drop near-duplicate buses/amps and regenerate into a new dataset_dir.",
+    "Adaptive planning does not beat Fixed on this screen: increase U heterogeneity (stronger contingency / lower nadir) or reduce open-loop sufficiency by making probes more informative but belief-dependent.",
+    "Weak U headroom: tighten control.contingency magnitude and regenerate.",
+    "Multi-T adaptive room is not monotone: enlarge nested duration complementarity so gap(T)=J_plan\u2212J_fixed deepens at T=3,4 (history-contingent residual U-tail), then regenerate with --force."
+  ],
+  "next_steps": [
+    "Solution-1 FAIL: retune YAML (contingency / probe_durations), regenerate FULL bank with --force (no \u03b8/design filtering).",
+    "Re-run --bank-structure-audit at every sweep \u03c3 until myopic_trap, adaptive_room, and monotone_adaptive_room pass."
+  ]
+}

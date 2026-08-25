@@ -1,4 +1,5 @@
-# WSCC/IEEE 9-bus EIG: fixed amplitude, discrete duration and bus actions.
+# WSCC/IEEE 9-bus: shared physics bank; MOCU (objective_based) and EIG
+# (eig_based) are independent experiment types with separate training blocks.
 #
 # The physical 9-bus lossless network is Kron-reduced onto its three dynamic
 # generator buses (physical buses 1, 2, 3).  In this reduced ODE, indices
@@ -14,15 +15,26 @@ N: 3
 data:
   # Relative to the clone root, so both workstations share the same layout.
   dataset_dir: data/ieee9_duration_bus
+  # Separate terminal-control/OCU extension.  Row n is tied to row n of the
+  # shared EIG probe bank; delta_f is referenced, not duplicated.
+  mocu_dataset_dir: data/ieee9_mocu_duration_bus
   # If the bank already exists, generate-data reuses it. If it is missing
   # (fresh clone), generate-data builds it with CUDA.
   generate_if_missing: true
 
 observation:
-  # Use sampled frequency trajectories; scalar max-ROCOF was too compressed.
-  N_obs: 200
+  # EIG and MOCU are independent protocols. run.sh resolves the active subtree
+  # from --experiment_type; explicit CLI observation arguments still override it.
   sampling: uniform
-  noise_sigma: 0.005
+  objective_based:
+    # Structural screen: vector observations restore posterior branching, while
+    # scalar max-ROCOF (N_obs=0) is noise-dominated and collapses terminal control.
+    N_obs: 5
+    noise_sigma: 0.005
+  eig_based:
+    # Frozen, completed poster protocol. Do not retune from MOCU diagnostics.
+    N_obs: 5
+    noise_sigma: 0.01
 
 oracle:
   tolerance: 1.0e-4
@@ -83,12 +95,17 @@ experiment:
   mode: duration_bus_reset
   step_number: 3
   methods: [dad, rl_sboed, moe_sboed, myopic, fixed, random]
-  experiment_type: eig_based
+  # Prefer CLI --experiment_type; default is overridden by run.sh / sweep_run.sh.
+  experiment_type: objective_based
 
-# Retained for the shared code path; EIG does not optimize this terminal MOCU.
+# MOCU / objective_based only (ignored when stamping eig_based run_config).
 control:
-  alpha: 0.01
+  # Match the required held-out safety threshold (1-alpha = 0.95). Safety is
+  # still measured by the physical simulator; methods below 0.95 are invalid.
+  alpha: 0.05
+  enforce_bayes_loss_alignment: true
   safety_margin: 0.0
+  snap_up: true
   rocof_limit_hz_s: 22.0
   delta_f_nadir_hz: -0.2
   T_obs_sec: 10.0
@@ -96,8 +113,16 @@ control:
   fs_hz: 40.0
   contingency: {bus: 0, magnitude: -0.45, units: pu}
   profile: {bus: 0, t_start: 0.0, duration: 10.0, shape: step, units: pu}
-  u_candidates: [0.0, 0.045, 0.09, 0.135, 0.18, 0.225, 0.27, 0.315, 0.36, 0.405, 0.45]
-  myopic_hypothetical: 64
+  # Dense grid around the active U band (~0.33–0.40 continuous oracle). Coarse
+  # step 0.045 collapsed every method onto median u_ctrl=0.405.
+  u_candidates: [
+    0.00, 0.05, 0.10, 0.15, 0.20, 0.25, 0.30,
+    0.31, 0.32, 0.33, 0.34, 0.35, 0.36, 0.37, 0.38, 0.39,
+    0.40, 0.41, 0.42, 0.43, 0.44, 0.45, 0.46, 0.47, 0.48, 0.49, 0.50
+  ]
+  # Evaluation uses common random numbers; 256 fantasies reduce action-ranking
+  # noise without allowing identical-prior rollouts to appear adaptive.
+  myopic_hypothetical: 256
   fixed_exhaustive_threshold: 0
   fixed_noise_replicas: 2
   fixed_greedy_restarts: 8
@@ -111,48 +136,157 @@ data_generation:
   test_seed: 202
 
 bank_quality:
-  enabled: false
+  enabled: true
+  min_u_positive_frac: 0.50
+  min_u_q95: 0.05
+  # Dense u grid + this contingency: U∈[~0.34,0.41], Q95−mean≈0.025.
+  min_u_headroom: 0.02
+  min_max_abs_corr_rocof_u: 0.05
+
+# Evaluation-only settings shared by every IEEE9 EIG seed.  In particular,
+# Fixed is calibrated with its own seed and is never recalibrated from eval_seed.
+evaluation:
+  eig_test_systems: 128
+  eig_fixed_calibration_seed: 104729
+  eig_random_replicates: 32
+  # One prespecified held-out observation-noise seed for every MOCU training
+  # seed and horizon. This makes seed variance mean policy-training variance.
+  objective_eval_seed: 104729
+
+# Frozen poster protocol.  This records the intended cells in every stamped
+# run_config without changing the normal CLI/default observation settings.
+# Reproduce with:
+#   bash sweep_run.sh --configs ieee9 --experiment_type eig_based --T 3,4,5 \
+#     --N_obs 5 --noise_sigma 0.01 --seeds 101,202,303 \
+#     --method dad,rl_sboed,myopic,fixed,random
+poster_eig_protocol:
+  horizons: [3, 4, 5]
+  N_obs: 5
+  noise_sigma: 0.01
+  seeds: [101, 202, 303]
+  methods: [dad, rl_sboed, myopic, fixed, random]
+  claim_scope: paired_terminal_eig
+
+# Independent MOCU pilot selected by the baseline structural screen. Promote to
+# a T/seed sweep only if the T=3 seed-101 pilot has safety >=0.95 and produces
+# non-degenerate terminal controls / paired improvement over Fixed or Myopic.
+poster_mocu_protocol:
+  pilot_horizon: 2
+  horizons: [2, 3, 4]
+  N_obs: 5
+  noise_sigma: 0.01
+  alpha: 0.05
+  pilot_seed: 101
+  seeds: [101, 202, 303]
+  methods: [dad, rl_sboed, myopic, fixed, random]
+  minimum_safety_rate: 0.95
+  promotion_gate: paired_advantage_and_non_degenerate_terminal_control
 
 training:
+  # Shared across types (merged into the active subtree).
   use_bank_observations: true
   device: auto
-  eig_epochs: 200
-  eig_steps_per_epoch: 512
-  batch_size: 256
-  learning_rate: 0.0003
-  entropy_coef: 0.05
   policy_hidden: 256
-  eig_validation_systems: 128
-  eig_bc_trajectories: 96
-  eig_bc_lookahead: two_step
-  eig_bc_temperature: 0.5
-  eig_bc_fantasies: 12
-  eig_rl_use_ppo: true
-  eig_moe_ppo_epochs: 4
-  eig_moe_ppo_clip: 0.2
-  eig_moe_critic_lr: 0.001
-  # Real MoE: do not CE-clone two-step/myopic into fused logits.
-  eig_moe_cf_coefficient: 0.0
-  eig_moe_cf_anneal_fraction: 0.0
-  eig_moe_cf_floor_fraction: 0.0
-  eig_moe_cf_rollouts_per_batch: 0
-  # Step 0 is expert 0; keep it trainable so PPO can improve the first probe.
-  eig_moe_freeze_base_after_bc: false
-  eig_moe_leave_base_coefficient: 0.0
-  eig_moe_leave_base_margin: 0.5
-  eig_moe_branching_coefficient: 0.15
-  eig_moe_low_ess_residual_coefficient: 0.10
-  eig_moe_low_ess_threshold: 0.4
-  eig_moe_residual_scale_coefficient: 0.05
-  eig_moe_logit_scale_target: 3.5
-  # Encourage confident, belief-dependent expert selection while the balance
-  # term prevents one-expert collapse. This operates only inside MoE-sBOED.
-  eig_moe_balance_coefficient: 0.005
-  eig_moe_routing_information_coefficient: 0.01
-  eig_moe_redundancy_coefficient: 0.02
-  eig_prefer_unique_sequence_floor: true
-  eig_min_unique_sequence_fraction: 0.08
-  eig_unique_floor_slack: 0.03
+  # MOCU / objective_based — independent of eig_based below.
+  objective_based:
+    # Hard guard in mocu/train.py: reported reference methods cannot silently
+    # acquire auxiliary objectives or a different DAD optimizer.
+    reference_method_fidelity: true
+    # Focused IEEE9 MOCU protocol: enough Monte Carlo budget to keep the
+    # independently trained horizon policies from being dominated by optimizer
+    # noise. This does not alter either reference objective.
+    updates: 2000
+    min_updates_per_horizon: 200
+    trajectories_per_update: 128
+    ppo_epochs: 4
+    validation_interval: 50
+    validation_rollouts: 256
+    patience: 0
+    # Reference-safe exploration schedule: both policies explore broadly early,
+    # then specialize before validation checkpoint selection.  This changes no
+    # reward, policy information, DAD estimator, or PPO objective.
+    entropy_coefficient: 0.10
+    entropy_final_coefficient: 0.005
+    entropy_anneal_fraction: 0.80
+    # Reference-method fidelity: DAD and RL-sBOED use only their published
+    # policy-gradient objectives. Experimental auxiliaries stay disabled.
+    dense_counterfactual_coefficient: 0.0
+    dense_counterfactual_temperature: 0.35
+    dense_branching_coefficient: 0.0
+    dense_branching_similarity_threshold: 0.50
+    dense_branching_margin: 0.35
+    # DAD: terminal reward + one-pass score-function update. RL-sBOED retains
+    # the stepwise telescoping reward + clipped PPO path in mocu/train.py.
+    dad_optimizer: reinforce
+    # Select primarily by held-out terminal MOCU. Adaptivity is reported as a
+    # mechanism diagnostic and must never improve a worse objective score.
+    checkpoint_diversity_weight: 0.0
+    min_unique_sequence_fraction: 0.10
+    prefer_unique_sequence_floor: false
+    unique_floor_mocu_slack: 0.0025
+    open_loop_warn_after_updates: 100
+    actor_lr: 0.0003
+    critic_lr: 0.001
+    max_grad_norm: 1.0
+    undercontrol_penalty: 20.0
+    # Keep the terminal rule and its scored loss mathematically aligned.
+    # With alpha=0.05 and undercontrol_penalty=20, zero event penalty gives
+    # over/under slopes 1:19, whose Bayes action is exactly Q_0.95(U|history).
+    # Physical safety remains an independent >=0.95 evaluation validity gate.
+    violation_penalty: 0.0
+    checkpoint_safety_penalty: 50.0
+    min_valid_safety_rate: 0.95
+    moe_counterfactual_coefficient: 0.0
+    moe_branching_coefficient: 0.0
+    moe_counterfactual_floor_fraction: 0.0
+    moe_counterfactual_anneal_fraction: 0.33
+    moe_counterfactual_bootstrap: true
+    moe_prototype_reset_fraction: 0.2
+    moe_balance_coefficient: 0.001
+    moe_redundancy_coefficient: 0.005
+    moe_logit_scale_init: 3.0
+    moe_fixed_bc_coefficient: 0.25
+    moe_fixed_bc_anneal_fraction: 0.5
+    moe_fixed_bc_floor_fraction: 0.0
+    moe_fixed_bc_ess_threshold: 0.4
+    moe_low_ess_residual_coefficient: 0.05
+    moe_low_ess_threshold: 0.4
+    moe_residual_scale_coefficient: 0.01
+    moe_logit_scale_target: 3.5
+  # EIG / eig_based — independent of objective_based above.
+  eig_based:
+    eig_epochs: 200
+    eig_steps_per_epoch: 512
+    batch_size: 256
+    learning_rate: 0.0003
+    entropy_coef: 0.05
+    eig_validation_systems: 128
+    eig_bc_trajectories: 96
+    eig_bc_lookahead: two_step
+    eig_bc_temperature: 0.5
+    eig_bc_fantasies: 12
+    eig_rl_use_ppo: true
+    eig_moe_ppo_epochs: 4
+    eig_moe_ppo_clip: 0.2
+    eig_moe_critic_lr: 0.001
+    eig_moe_cf_coefficient: 0.0
+    eig_moe_cf_anneal_fraction: 0.0
+    eig_moe_cf_floor_fraction: 0.0
+    eig_moe_cf_rollouts_per_batch: 0
+    eig_moe_freeze_base_after_bc: false
+    eig_moe_leave_base_coefficient: 0.0
+    eig_moe_leave_base_margin: 0.5
+    eig_moe_branching_coefficient: 0.15
+    eig_moe_low_ess_residual_coefficient: 0.10
+    eig_moe_low_ess_threshold: 0.4
+    eig_moe_residual_scale_coefficient: 0.05
+    eig_moe_logit_scale_target: 3.5
+    eig_moe_balance_coefficient: 0.005
+    eig_moe_routing_information_coefficient: 0.01
+    eig_moe_redundancy_coefficient: 0.02
+    eig_prefer_unique_sequence_floor: true
+    eig_min_unique_sequence_fraction: 0.08
+    eig_unique_floor_slack: 0.03
 
 control_safety_calibration:
   enabled: false

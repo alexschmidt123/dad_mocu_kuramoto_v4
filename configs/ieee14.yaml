@@ -92,43 +92,45 @@ bank_quality:
 
 training:
   device: auto
-  updates: 1000
-  # Keeps T<=5 unchanged; gives T=10 at least 2000 updates.
-  min_updates_per_horizon: 200
-  trajectories_per_update: 64
-  ppo_epochs: 4
-  validation_interval: 25
-  validation_rollouts: 128
-  patience: 0
-  entropy_coefficient: 0.10
-  checkpoint_diversity_weight: 0.3
-  min_unique_sequence_fraction: 0.25
-  open_loop_warn_after_updates: 100
-  actor_lr: 0.0003
-  critic_lr: 0.001
-  max_grad_norm: 1.0
-  undercontrol_penalty: 20.0
-  violation_penalty: 0.25
-  checkpoint_safety_penalty: 50.0
-  min_valid_safety_rate: 0.95
-  # Ablation-driven default: pure PPO (CF off). Re-enable CF only if needed.
-  moe_counterfactual_coefficient: 0.0
-  moe_branching_coefficient: 0.0
-  moe_counterfactual_floor_fraction: 0.0
-  moe_counterfactual_anneal_fraction: 0.33
-  moe_counterfactual_bootstrap: true
-  moe_prototype_reset_fraction: 0.2
-  moe_balance_coefficient: 0.001
-  moe_redundancy_coefficient: 0.005
-  moe_logit_scale_init: 3.0
-  moe_fixed_bc_coefficient: 0.25
-  moe_fixed_bc_anneal_fraction: 0.5
-  moe_fixed_bc_floor_fraction: 0.0
-  moe_fixed_bc_ess_threshold: 0.4
-  moe_low_ess_residual_coefficient: 0.05
-  moe_low_ess_threshold: 0.4
-  moe_residual_scale_coefficient: 0.01
-  moe_logit_scale_target: 3.5
+  # Nested so MOCU knobs never collide with an eig_based block if one is added.
+  objective_based:
+    updates: 1000
+    # Keeps T<=5 unchanged; gives T=10 at least 2000 updates.
+    min_updates_per_horizon: 200
+    trajectories_per_update: 64
+    ppo_epochs: 4
+    validation_interval: 25
+    validation_rollouts: 128
+    patience: 0
+    entropy_coefficient: 0.10
+    checkpoint_diversity_weight: 0.3
+    min_unique_sequence_fraction: 0.25
+    open_loop_warn_after_updates: 100
+    actor_lr: 0.0003
+    critic_lr: 0.001
+    max_grad_norm: 1.0
+    undercontrol_penalty: 20.0
+    violation_penalty: 0.25
+    checkpoint_safety_penalty: 50.0
+    min_valid_safety_rate: 0.95
+    # Ablation-driven default: pure PPO (CF off). Re-enable CF only if needed.
+    moe_counterfactual_coefficient: 0.0
+    moe_branching_coefficient: 0.0
+    moe_counterfactual_floor_fraction: 0.0
+    moe_counterfactual_anneal_fraction: 0.33
+    moe_counterfactual_bootstrap: true
+    moe_prototype_reset_fraction: 0.2
+    moe_balance_coefficient: 0.001
+    moe_redundancy_coefficient: 0.005
+    moe_logit_scale_init: 3.0
+    moe_fixed_bc_coefficient: 0.25
+    moe_fixed_bc_anneal_fraction: 0.5
+    moe_fixed_bc_floor_fraction: 0.0
+    moe_fixed_bc_ess_threshold: 0.4
+    moe_low_ess_residual_coefficient: 0.05
+    moe_low_ess_threshold: 0.4
+    moe_residual_scale_coefficient: 0.01
+    moe_logit_scale_target: 3.5
 
 control_safety_calibration:
   # Do not recalibrate by T: that changes the definition of u_ctrl and makes

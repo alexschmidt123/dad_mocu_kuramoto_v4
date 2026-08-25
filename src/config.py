@@ -23,6 +23,97 @@ IEEE_SYSTEM_LABELS: dict[str, str] = {
 # Horizon when CLI does not pass ``-T`` (see ``run.sh`` / ``src.experiment``).
 DEFAULT_STEP_NUMBER = 5
 
+EXPERIMENT_TYPES = ("objective_based", "eig_based")
+
+# Top-level training keys shared by both experiment types (merged into the
+# active subtree). Everything else is type-specific.
+_TRAINING_SHARED_KEYS = frozenset(
+    {
+        "device",
+        "use_bank_observations",
+        "policy_hidden",
+        "reuse_policy",
+    }
+)
+
+# Flat-legacy keys that belong only to eig_based when training is not nested.
+_EIG_FLAT_KEYS = frozenset(
+    {
+        "batch_size",
+        "learning_rate",
+        "entropy_coef",
+        "eig_epochs",
+        "eig_steps_per_epoch",
+        "eig_validation_systems",
+        "eig_bc_trajectories",
+        "eig_bc_lookahead",
+        "eig_bc_temperature",
+        "eig_bc_fantasies",
+        "eig_rl_use_ppo",
+        "eig_dad_use_ppo",
+        "eig_prefer_unique_sequence_floor",
+        "eig_min_unique_sequence_fraction",
+        "eig_unique_floor_slack",
+    }
+)
+
+
+def normalize_experiment_type(experiment_type: str) -> str:
+    et = str(experiment_type).strip().lower().replace("-", "_")
+    if et not in EXPERIMENT_TYPES:
+        raise ValueError(
+            f"Invalid experiment_type {experiment_type!r} "
+            f"(allowed: {', '.join(EXPERIMENT_TYPES)})"
+        )
+    return et
+
+
+def resolve_training_block(
+    training: dict[str, Any] | None,
+    experiment_type: str,
+) -> dict[str, Any]:
+    """Return training knobs for one experiment type only.
+
+    Preferred YAML shape (independent MOCU vs EIG)::
+
+        training:
+          device: auto
+          objective_based: {updates: ..., trajectories_per_update: ...}
+          eig_based: {eig_epochs: ..., batch_size: ...}
+
+    Legacy flat ``training:`` is still accepted: ``eig_*`` keys go to EIG only;
+    MOCU keys never leak into EIG and vice versa.
+    """
+    raw = dict(training or {})
+    et = normalize_experiment_type(experiment_type)
+    shared = {k: raw[k] for k in _TRAINING_SHARED_KEYS if k in raw}
+
+    nested = raw.get(et)
+    if isinstance(nested, dict):
+        out = dict(shared)
+        out.update(dict(nested))
+        return out
+
+    # Legacy flat block: strip the other experiment family's keys.
+    out = dict(shared)
+    if et == "objective_based":
+        for key, value in raw.items():
+            if key in EXPERIMENT_TYPES or key in _TRAINING_SHARED_KEYS:
+                continue
+            lk = str(key)
+            if lk.startswith("eig_") or lk in _EIG_FLAT_KEYS:
+                continue
+            out[key] = value
+        return out
+
+    for key, value in raw.items():
+        if key in EXPERIMENT_TYPES or key in _TRAINING_SHARED_KEYS:
+            continue
+        lk = str(key)
+        if lk.startswith("eig_") or lk in _EIG_FLAT_KEYS:
+            out[key] = value
+    return out
+
 
 @dataclass
 class SBOEDConfig:
@@ -193,7 +284,12 @@ class SBOEDConfig:
 
     @property
     def training(self) -> dict[str, Any]:
+        """Full ``training:`` block (may contain both objective_based and eig_based)."""
         return dict(self.raw.get("training") or {})
+
+    def training_for(self, experiment_type: str) -> dict[str, Any]:
+        """Training knobs for one experiment type (MOCU and EIG stay independent)."""
+        return resolve_training_block(self.training, experiment_type)
 
     @property
     def topology(self) -> str:

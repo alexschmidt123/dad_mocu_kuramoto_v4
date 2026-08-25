@@ -88,6 +88,11 @@ class TrainConfig:
     gae_lambda: float = 1.0
     # Default kept high enough to avoid open-loop collapse (was 0.005).
     entropy_coefficient: float = 0.05
+    # Prespecified linear annealing keeps early exploration while allowing the
+    # final deterministic policy to specialize.  A fraction <= 0 preserves the
+    # historical constant-coefficient behavior.
+    entropy_final_coefficient: float = 0.05
+    entropy_anneal_fraction: float = 0.0
     actor_lr: float = 3e-4
     critic_lr: float = 1e-3
     max_grad_norm: float = 1.0
@@ -114,6 +119,18 @@ class TrainConfig:
     # Checkpoint score adds this penalty per unit empirical under-control rate.
     checkpoint_safety_penalty: float = 10.0
     min_valid_safety_rate: float = 0.95
+    # Dense DAD/RL policies otherwise see only the sampled action's return out
+    # of a large discrete action set.  This auxiliary uses the same simulated
+    # rollout batch to rank every feasible next experiment under the current
+    # belief; it is objective supervision, not imitation of another method.
+    dense_counterfactual_coefficient: float = 0.0
+    dense_counterfactual_temperature: float = 0.35
+    # Decision-sensitive post-prior branching. Pairs are regularized only when
+    # their all-action MOCU rankings disagree; identical-prior states (step 0)
+    # are explicitly excluded.
+    dense_branching_coefficient: float = 0.0
+    dense_branching_similarity_threshold: float = 0.5
+    dense_branching_margin: float = 0.35
     # Supervised all-action counterfactual decision-value objective for MoE.
     # Default 0: IEEE-5 T=3 σ=0.01 ablations found pure PPO better than CF
     # warm-start / floor variants on terminal MOCU.  Set >0 to re-enable.
@@ -174,8 +191,17 @@ class TrainConfig:
 
     @classmethod
     def from_cfg(cls, training: dict[str, Any] | None) -> "TrainConfig":
-        """Load from config ``training:``; accept legacy epochs/batch_size aliases."""
+        """Load MOCU knobs from an already-resolved ``objective_based`` training dict.
+
+        Callers must pass ``cfg.training_for("objective_based")`` (or the nested
+        ``training.objective_based`` subtree). EIG keys must not appear here.
+        """
         raw = dict(training or {})
+        if any(str(k).startswith("eig_") for k in raw) or "eig_based" in raw:
+            raise ValueError(
+                "MOCU TrainConfig received EIG training keys; pass "
+                "cfg.training_for('objective_based') so MOCU and EIG stay independent"
+            )
         cfg = cls()
         updates = raw.get("updates", raw.get("epochs"))
         if updates is not None:
@@ -194,6 +220,12 @@ class TrainConfig:
         ent = raw.get("entropy_coefficient", raw.get("entropy_coef"))
         if ent is not None:
             cfg.entropy_coefficient = float(ent)
+        if "entropy_final_coefficient" in raw:
+            cfg.entropy_final_coefficient = float(
+                raw["entropy_final_coefficient"]
+            )
+        if "entropy_anneal_fraction" in raw:
+            cfg.entropy_anneal_fraction = float(raw["entropy_anneal_fraction"])
         lr = raw.get("learning_rate")
         if "actor_lr" in raw:
             cfg.actor_lr = float(raw["actor_lr"])
@@ -239,6 +271,24 @@ class TrainConfig:
             cfg.checkpoint_safety_penalty = float(raw["checkpoint_safety_penalty"])
         if "min_valid_safety_rate" in raw:
             cfg.min_valid_safety_rate = float(raw["min_valid_safety_rate"])
+        if "dense_counterfactual_coefficient" in raw:
+            cfg.dense_counterfactual_coefficient = float(
+                raw["dense_counterfactual_coefficient"]
+            )
+        if "dense_counterfactual_temperature" in raw:
+            cfg.dense_counterfactual_temperature = float(
+                raw["dense_counterfactual_temperature"]
+            )
+        if "dense_branching_coefficient" in raw:
+            cfg.dense_branching_coefficient = float(
+                raw["dense_branching_coefficient"]
+            )
+        if "dense_branching_similarity_threshold" in raw:
+            cfg.dense_branching_similarity_threshold = float(
+                raw["dense_branching_similarity_threshold"]
+            )
+        if "dense_branching_margin" in raw:
+            cfg.dense_branching_margin = float(raw["dense_branching_margin"])
         if "moe_counterfactual_coefficient" in raw:
             cfg.moe_counterfactual_coefficient = float(
                 raw["moe_counterfactual_coefficient"]
@@ -332,6 +382,24 @@ def _annealed_weight(
     anneal_updates = max(1, int(round(fraction * int(updates))))
     annealed = base * max(0.0, 1.0 - (int(update) - 1) / anneal_updates)
     return max(annealed, floor)
+
+
+def entropy_weight(config: "TrainConfig", update: int) -> float:
+    """Prespecified linear entropy schedule for either reference optimizer.
+
+    This changes only the exploration regularizer, not DAD's terminal
+    REINFORCE objective or RL-sBOED's PPO/telescoping-return objective.
+    """
+    start = float(config.entropy_coefficient)
+    final = float(config.entropy_final_coefficient)
+    if start < 0.0 or final < 0.0:
+        raise ValueError("entropy coefficients must be non-negative")
+    fraction = float(config.entropy_anneal_fraction)
+    if fraction <= 0.0:
+        return start
+    anneal_updates = max(1, int(round(fraction * int(config.updates))))
+    progress = min(max((int(update) - 1) / anneal_updates, 0.0), 1.0)
+    return start + progress * (final - start)
 
 
 def moe_counterfactual_weight(config: "TrainConfig", update: int) -> float:
@@ -485,6 +553,103 @@ def sequence_diversity_stats(sequences: list[str]) -> dict[str, float | int]:
     }
 
 
+def dense_counterfactual_ranking_loss(
+    logits: torch.Tensor,
+    target_utility: torch.Tensor,
+    feasible_mask: torch.Tensor,
+    *,
+    temperature: float = 0.35,
+) -> tuple[torch.Tensor, dict[str, float]]:
+    """Train a dense policy from belief-specific all-action utilities.
+
+    Utilities are standardized within each state before forming a soft target,
+    because absolute MOCU differences are small and vary with posterior depth.
+    Infeasible (already selected) actions receive no probability mass.
+    """
+    feasible = feasible_mask.bool() & torch.isfinite(target_utility)
+    count = feasible.sum(dim=-1, keepdim=True).clamp_min(1)
+    safe = torch.where(feasible, target_utility.detach(), torch.zeros_like(target_utility))
+    mean = safe.sum(dim=-1, keepdim=True) / count
+    centered = torch.where(feasible, safe - mean, torch.zeros_like(safe))
+    scale = torch.sqrt(
+        (centered.square().sum(dim=-1, keepdim=True) / count).clamp_min(1e-8)
+    )
+    standardized = centered / scale
+    target_logits = (standardized / max(float(temperature), 1e-3)).masked_fill(
+        ~feasible, -1e9
+    )
+    target_prob = torch.softmax(target_logits, dim=-1)
+    predicted = logits.masked_fill(~feasible, -1e9)
+    loss = -(target_prob * F.log_softmax(predicted, dim=-1)).sum(dim=-1).mean()
+    agreement = (
+        predicted.argmax(dim=-1) == target_logits.argmax(dim=-1)
+    ).float().mean()
+    return loss, {
+        "dense_cf_loss": float(loss.detach()),
+        "dense_cf_top1_agreement": float(agreement.detach()),
+    }
+
+
+def dense_post_prior_branching_loss(
+    logits: torch.Tensor,
+    target_utility: torch.Tensor,
+    feasible_mask: torch.Tensor,
+    steps: torch.Tensor,
+    *,
+    similarity_threshold: float = 0.5,
+    margin: float = 0.35,
+) -> tuple[torch.Tensor, dict[str, float]]:
+    """Separate policies only for post-prior states needing different actions.
+
+    Counterfactual utility fingerprints determine whether two same-stage
+    posterior states disagree. The loss never acts at step zero and never
+    rewards diversity between states with compatible MOCU rankings.
+    """
+    feasible = feasible_mask.bool() & torch.isfinite(target_utility)
+    count = feasible.sum(dim=-1, keepdim=True).clamp_min(1)
+    safe = torch.where(feasible, target_utility.detach(), torch.zeros_like(target_utility))
+    mean = safe.sum(dim=-1, keepdim=True) / count
+    centered = torch.where(feasible, safe - mean, torch.zeros_like(safe))
+    scale = torch.sqrt(
+        (centered.square().sum(dim=-1, keepdim=True) / count).clamp_min(1e-8)
+    )
+    fingerprints = torch.where(feasible, centered / scale, torch.zeros_like(centered))
+    unit = F.normalize(fingerprints, dim=-1, eps=1e-8)
+    similarity = unit @ unit.transpose(0, 1)
+
+    masked_logits = logits.clamp(-50.0, 50.0).masked_fill(~feasible, -1e9)
+    probs = torch.softmax(masked_logits, dim=-1)
+    stage = steps.reshape(-1)
+    same_stage = stage[:, None] == stage[None, :]
+    post_prior = (stage > 0)[:, None] & (stage > 0)[None, :]
+    off_diagonal = ~torch.eye(
+        probs.shape[0], dtype=torch.bool, device=probs.device
+    )
+    disagree = (
+        (similarity < float(similarity_threshold))
+        & same_stage
+        & post_prior
+        & off_diagonal
+    )
+    if not bool(disagree.any()):
+        zero = logits.sum() * 0.0
+        return zero, {
+            "dense_branching_pairs": 0.0,
+            "dense_branching_loss": 0.0,
+            "dense_branching_step0_pairs": 0.0,
+        }
+    total_variation = 0.5 * (
+        probs[:, None, :] - probs[None, :, :]
+    ).abs().sum(dim=-1)
+    loss = F.relu(float(margin) - total_variation)[disagree].mean()
+    return loss, {
+        "dense_branching_pairs": float(disagree.sum().detach()) / 2.0,
+        "dense_branching_loss": float(loss.detach()),
+        "dense_branching_step0_pairs": 0.0,
+        "dense_branching_tv": float(total_variation[disagree].mean().detach()),
+    }
+
+
 def checkpoint_score(
     mean_u_ctrl: float,
     n_unique: int,
@@ -610,6 +775,7 @@ def _policy_config(ctx: ExperimentContext) -> PolicyConfig:
         max_steps=ctx.horizon,
         obs_dim=ctx.obs_dim,
         summary_dim=33,
+        particle_dim=int(ctx.particle_features.shape[1]),
     )
 
 
@@ -828,8 +994,8 @@ def evaluate_policy(
             safety_aware_control_cost(
                 r["u_ctrl"],
                 r["u_req"],
-                undercontrol_penalty=10.0,
-                violation_penalty=0.10,
+                undercontrol_penalty=ctx.undercontrol_penalty,
+                violation_penalty=ctx.violation_penalty,
             )
             - r["u_req"]
             for r in rows
@@ -1249,11 +1415,36 @@ def train_policy(
     seed: int = 101,
     smoke: bool = False,
 ) -> dict[str, Any]:
-    config = TrainConfig.from_cfg(ctx.cfg.training)
+    training_block = ctx.cfg.training_for(
+        getattr(ctx, "experiment_type", "objective_based")
+    )
+    config = TrainConfig.from_cfg(training_block)
+    if (
+        abs(float(config.undercontrol_penalty) - float(ctx.undercontrol_penalty))
+        > 1e-12
+        or abs(float(config.violation_penalty) - float(ctx.violation_penalty))
+        > 1e-12
+    ):
+        raise RuntimeError(
+            "MOCU cost mismatch between context and trainer; all methods must "
+            "share undercontrol_penalty and violation_penalty"
+        )
+    if bool(training_block.get("reference_method_fidelity", False)):
+        if method in ("DAD", "RL-sBOED") and (
+            float(config.dense_counterfactual_coefficient) != 0.0
+            or float(config.dense_branching_coefficient) != 0.0
+        ):
+            raise ValueError(
+                "reference_method_fidelity forbids dense counterfactual/branching "
+                "auxiliaries for DAD and RL-sBOED"
+            )
+        if method == "DAD" and str(config.dad_optimizer).lower() != "reinforce":
+            raise ValueError(
+                "reference_method_fidelity requires DAD terminal-reward REINFORCE"
+            )
     # MoE default: soft unique-floor + joint MOCU/diversity score when YAML omits keys.
     if method == "MoE-sBOED":
-        training_raw = dict(ctx.cfg.training or {})
-        if "prefer_unique_sequence_floor" not in training_raw:
+        if "prefer_unique_sequence_floor" not in training_block:
             config = replace(config, prefer_unique_sequence_floor=True)
             print(
                 "[train] MoE-sBOED: enabling prefer_unique_sequence_floor "
@@ -1321,8 +1512,12 @@ def train_policy(
         f"total_trajectories={total_traj_budget} "
         f"val_every={config.validation_interval} "
         f"val_rollouts={config.validation_rollouts} "
-        f"entropy_coef={config.entropy_coefficient} "
-        f"diversity_w={config.checkpoint_diversity_weight}"
+        f"entropy_coef={config.entropy_coefficient}→"
+        f"{config.entropy_final_coefficient} "
+        f"entropy_anneal_fraction={config.entropy_anneal_fraction} "
+        f"diversity_w={config.checkpoint_diversity_weight} "
+        f"dense_cf={config.dense_counterfactual_coefficient} "
+        f"dense_branch={config.dense_branching_coefficient}"
     )
     torch.manual_seed(seed)
     np.random.seed(seed)
@@ -1402,6 +1597,7 @@ def train_policy(
         update_t0 = time.time()
         policy.train()
         critic.train()
+        current_entropy_weight = entropy_weight(config, update)
         cf_weight = (
             moe_counterfactual_weight(config, update)
             if isinstance(policy, BeliefConditionedMoEPolicy)
@@ -1412,8 +1608,23 @@ def train_policy(
             if isinstance(policy, BeliefConditionedMoEPolicy)
             else 0.0
         )
+        dense_cf_weight = (
+            float(config.dense_counterfactual_coefficient)
+            if not isinstance(policy, BeliefConditionedMoEPolicy)
+            else 0.0
+        )
+        dense_branch_weight = (
+            float(config.dense_branching_coefficient)
+            if not isinstance(policy, BeliefConditionedMoEPolicy)
+            else 0.0
+        )
         # Branching needs CF fingerprints even when CF ranking loss is off.
-        need_counterfactual = (cf_weight > 0.0) or (branch_weight > 0.0)
+        need_counterfactual = (
+            (cf_weight > 0.0)
+            or (branch_weight > 0.0)
+            or (dense_cf_weight > 0.0)
+            or (dense_branch_weight > 0.0)
+        )
         fixed_bc_weight = (
             moe_fixed_bc_weight(config, update)
             if isinstance(policy, BeliefConditionedMoEPolicy)
@@ -1474,7 +1685,7 @@ def train_policy(
             if dad_reinforce:
                 policy_loss = -(
                     (new_lp * adv_t.detach()).mean()
-                    + config.entropy_coefficient * entropy
+                    + current_entropy_weight * entropy
                 )
             else:
                 ratio = torch.exp(new_lp - old_lp_t)
@@ -1487,8 +1698,32 @@ def train_policy(
                 )
                 policy_loss = -(
                     torch.min(surr1, surr2).mean()
-                    + config.entropy_coefficient * entropy
+                    + current_entropy_weight * entropy
                 )
+            if dense_cf_weight > 0.0 and rollout["counterfactual_utility"] is not None:
+                dense_cf_loss, dense_cf_stats = dense_counterfactual_ranking_loss(
+                    policy(*inputs[:-1], inputs[-1]),
+                    rollout["counterfactual_utility"],
+                    inputs[-1],
+                    temperature=float(config.dense_counterfactual_temperature),
+                )
+                policy_loss = policy_loss + dense_cf_weight * dense_cf_loss
+                moe_stats.update(dense_cf_stats)
+                moe_stats["dense_cf_weight"] = float(dense_cf_weight)
+            if dense_branch_weight > 0.0 and rollout["counterfactual_utility"] is not None:
+                dense_branch_loss, dense_branch_stats = dense_post_prior_branching_loss(
+                    policy(*inputs[:-1], inputs[-1]),
+                    rollout["counterfactual_utility"],
+                    inputs[-1],
+                    inputs[4],
+                    similarity_threshold=float(
+                        config.dense_branching_similarity_threshold
+                    ),
+                    margin=float(config.dense_branching_margin),
+                )
+                policy_loss = policy_loss + dense_branch_weight * dense_branch_loss
+                moe_stats.update(dense_branch_stats)
+                moe_stats["dense_branching_weight"] = float(dense_branch_weight)
             if isinstance(policy, BeliefConditionedMoEPolicy):
                 auxiliary, moe_stats = policy.specialization_loss(*inputs[:-1])
                 policy_loss = policy_loss + auxiliary
@@ -1580,6 +1815,7 @@ def train_policy(
             "update_seconds": float(update_elapsed),
             "trajectories_sampled": int(trajectories_sampled),
             "policy_entropy": last_entropy,
+            "entropy_coefficient": float(current_entropy_weight),
             **moe_stats,
         }
         log_every = max(1, min(25, int(config.validation_interval)))
@@ -1595,6 +1831,7 @@ def train_policy(
                 f"[train] {method} update={update}/{config.updates} "
                 f"mean_u={row['mean_train_u_ctrl']:.4f} "
                 f"entropy={last_entropy:.3f} "
+                f"entropy_coef={current_entropy_weight:.5f} "
                 f"update_s={update_elapsed:.2f} "
                 f"traj={trajectories_sampled}/{total_traj_budget} "
                 f"elapsed={elapsed:.1f}s eta={eta:.1f}s"
@@ -1747,6 +1984,11 @@ def train_policy(
             "validation_n_unique_sequences": best_unique,
             "validation_meets_unique_floor": best_meets_floor,
             "parent_initialization": None,
+            "entropy_coefficient": float(config.entropy_coefficient),
+            "entropy_final_coefficient": float(
+                config.entropy_final_coefficient
+            ),
+            "entropy_anneal_fraction": float(config.entropy_anneal_fraction),
             "moe_counterfactual_coefficient": (
                 float(config.moe_counterfactual_coefficient)
                 if isinstance(policy, BeliefConditionedMoEPolicy) else 0.0
@@ -1804,6 +2046,9 @@ def train_policy(
         "n_updates_ran": len(history),
         "trajectories_sampled": int(trajectories_sampled),
         "trajectories_budget": int(total_traj_budget),
+        "entropy_coefficient": float(config.entropy_coefficient),
+        "entropy_final_coefficient": float(config.entropy_final_coefficient),
+        "entropy_anneal_fraction": float(config.entropy_anneal_fraction),
         "config": asdict(config),
         "n_obs": ctx.n_obs,
         "obs_indices": ctx.obs_indices.tolist(),

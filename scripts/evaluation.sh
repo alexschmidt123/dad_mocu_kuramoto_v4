@@ -56,4 +56,5 @@ ARGS+=(-T "$T")
 if [[ -n "$METHOD" && "${METHOD,,}" != "all" ]]; then
     ARGS+=(--method "$METHOD")
 fi
-exec python3 -m src.experiment "${ARGS[@]}" ${SMOKE}
+[[ -n "$SMOKE" ]] && ARGS+=("$SMOKE")
+exec python3 -m src.experiment "${ARGS[@]}"

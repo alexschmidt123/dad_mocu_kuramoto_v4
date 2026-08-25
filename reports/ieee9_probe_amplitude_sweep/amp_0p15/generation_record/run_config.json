@@ -1,0 +1,294 @@
+{
+  "source_config": "/home/grads/g/g.lin/Documents/dad_mocu_kuramoto_v4/configs/sweeps/ieee9_probe_amplitude/ieee9_amp_0p15.yaml",
+  "config_name": "ieee9_amp_0p15",
+  "data_dir": "/home/grads/g/g.lin/Documents/dad_mocu_kuramoto_v4/data/ieee9_probe_amplitude_sweep/amp_0p15/probe",
+  "system_label": "IEEE-9",
+  "topology": "ieee9",
+  "run_name": "ieee9_amp_0p15",
+  "preset": "default",
+  "n_buses": 3,
+  "experiment_type": "eig_based",
+  "T": 5,
+  "step_number": 5,
+  "N_obs": 5,
+  "noise_sigma": 0.01,
+  "seed": 101,
+  "methods": [
+    "dad",
+    "rl_sboed",
+    "moe_sboed",
+    "myopic",
+    "fixed",
+    "random"
+  ],
+  "system": {
+    "name": "ieee9"
+  },
+  "N": 3,
+  "data": {
+    "dataset_dir": "data/ieee9_probe_amplitude_sweep/amp_0p15/probe",
+    "mocu_dataset_dir": "data/ieee9_probe_amplitude_sweep/amp_0p15/mocu",
+    "generate_if_missing": true
+  },
+  "observation": {
+    "sampling": "uniform",
+    "objective_based": {
+      "N_obs": 5,
+      "noise_sigma": 0.005
+    },
+    "eig_based": {
+      "N_obs": 5,
+      "noise_sigma": 0.01
+    },
+    "N_obs": 5,
+    "noise_sigma": 0.01
+  },
+  "swing_equation": {
+    "topology": "ieee9",
+    "physical_bus_count": 9,
+    "dynamic_machine_buses": [
+      1,
+      2,
+      3
+    ],
+    "retained_bus_map": [
+      1,
+      2,
+      3
+    ],
+    "observation_bus": 1,
+    "base_frequency_hz": 60.0,
+    "base_power_mva": 100.0,
+    "coupling_strength": 1.0,
+    "damping": 0.0,
+    "latent_model": "machinewise_mk",
+    "M_lower_nodes": [
+      0.0877898665,
+      0.0237671385,
+      0.0111779822
+    ],
+    "M_upper_nodes": [
+      0.1630383235,
+      0.0441389715,
+      0.0207591098
+    ],
+    "K_lower_nodes": [
+      0.029375,
+      0.013125,
+      0.0075
+    ],
+    "K_upper_nodes": [
+      0.29375,
+      0.13125,
+      0.075
+    ],
+    "use_node_specific_damping": true,
+    "D_nodes": [
+      0.01254141,
+      0.003395306,
+      0.001596855
+    ],
+    "P_m_nodes": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "theta0_nodes": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "omega0_nodes": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "enforce_initial_equilibrium": true,
+    "probe_buses": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8
+    ],
+    "probe_amplitudes": [
+      0.15
+    ],
+    "probe_durations": [
+      0.5,
+      1.0,
+      1.5,
+      2.0,
+      2.5,
+      3.0
+    ],
+    "probe_duration": 2.0,
+    "reset_after_probe": true,
+    "T_obs_sec": 4.0,
+    "ode_dt": 0.0015625,
+    "fs_hz": 40.0,
+    "sigma": 0.2
+  },
+  "prior": {
+    "mc_samples": 512,
+    "mc_support_seed": 1
+  },
+  "experiment": {
+    "mode": "duration_bus_reset",
+    "step_number": 5,
+    "methods": [
+      "dad",
+      "rl_sboed",
+      "moe_sboed",
+      "myopic",
+      "fixed",
+      "random"
+    ],
+    "experiment_type": "eig_based"
+  },
+  "data_generation": {
+    "backend": "cuda",
+    "cuda_batch_size": 128,
+    "theta_sample_size_train": 512,
+    "theta_sample_size_test": 128,
+    "train_seed": 101,
+    "test_seed": 202,
+    "reused": false,
+    "force": false,
+    "smoke": false,
+    "bank_shape_train": [
+      512,
+      54,
+      2560
+    ],
+    "bank_shape_test": [
+      128,
+      54,
+      2560
+    ],
+    "elapsed_seconds": 79.81507873535156,
+    "N_sim": 2560,
+    "train_theta_count": 512,
+    "test_theta_count": 128
+  },
+  "evaluation": {
+    "eig_test_systems": 128,
+    "eig_fixed_calibration_seed": 104729,
+    "eig_random_replicates": 32,
+    "objective_eval_seed": 104729
+  },
+  "poster_eig_protocol": {
+    "horizons": [
+      3,
+      4,
+      5
+    ],
+    "N_obs": 5,
+    "noise_sigma": 0.01,
+    "seeds": [
+      101,
+      202,
+      303
+    ],
+    "methods": [
+      "dad",
+      "rl_sboed",
+      "myopic",
+      "fixed",
+      "random"
+    ],
+    "claim_scope": "paired_terminal_eig"
+  },
+  "poster_mocu_protocol": {
+    "pilot_horizon": 2,
+    "horizons": [
+      2,
+      3,
+      4
+    ],
+    "N_obs": 5,
+    "noise_sigma": 0.01,
+    "alpha": 0.05,
+    "pilot_seed": 101,
+    "seeds": [
+      101,
+      202,
+      303
+    ],
+    "methods": [
+      "dad",
+      "rl_sboed",
+      "myopic",
+      "fixed",
+      "random"
+    ],
+    "minimum_safety_rate": 0.95,
+    "promotion_gate": "paired_advantage_and_non_degenerate_terminal_control"
+  },
+  "training": {
+    "device": "auto",
+    "use_bank_observations": true,
+    "policy_hidden": 256,
+    "eig_epochs": 200,
+    "eig_steps_per_epoch": 512,
+    "batch_size": 256,
+    "learning_rate": 0.0003,
+    "entropy_coef": 0.05,
+    "eig_validation_systems": 128,
+    "eig_bc_trajectories": 96,
+    "eig_bc_lookahead": "two_step",
+    "eig_bc_temperature": 0.5,
+    "eig_bc_fantasies": 12,
+    "eig_rl_use_ppo": true,
+    "eig_moe_ppo_epochs": 4,
+    "eig_moe_ppo_clip": 0.2,
+    "eig_moe_critic_lr": 0.001,
+    "eig_moe_cf_coefficient": 0.0,
+    "eig_moe_cf_anneal_fraction": 0.0,
+    "eig_moe_cf_floor_fraction": 0.0,
+    "eig_moe_cf_rollouts_per_batch": 0,
+    "eig_moe_freeze_base_after_bc": false,
+    "eig_moe_leave_base_coefficient": 0.0,
+    "eig_moe_leave_base_margin": 0.5,
+    "eig_moe_branching_coefficient": 0.15,
+    "eig_moe_low_ess_residual_coefficient": 0.1,
+    "eig_moe_low_ess_threshold": 0.4,
+    "eig_moe_residual_scale_coefficient": 0.05,
+    "eig_moe_logit_scale_target": 3.5,
+    "eig_moe_balance_coefficient": 0.005,
+    "eig_moe_routing_information_coefficient": 0.01,
+    "eig_moe_redundancy_coefficient": 0.02,
+    "eig_prefer_unique_sequence_floor": true,
+    "eig_min_unique_sequence_fraction": 0.08,
+    "eig_unique_floor_slack": 0.03
+  },
+  "amplitude_sweep": {
+    "fixed_probe_amplitude_pu": 0.15,
+    "buses": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8
+    ],
+    "durations_s": [
+      0.5,
+      1.0,
+      1.5,
+      2.0,
+      2.5,
+      3.0
+    ],
+    "n_actions": 54,
+    "methods_trained": []
+  },
+  "observation_model": "sampled_delta_f_vector"
+}

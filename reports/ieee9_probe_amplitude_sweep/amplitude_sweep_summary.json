@@ -1,0 +1,242 @@
+{
+  "purpose": "method-independent IEEE9 fixed-probe-amplitude structural sweep",
+  "methods_trained": [],
+  "controlled_factors": {
+    "durations_s": [
+      0.5,
+      1.0,
+      1.5,
+      2.0,
+      2.5,
+      3.0
+    ],
+    "buses": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8
+    ],
+    "n_actions": 54,
+    "N_obs": 5,
+    "noise_sigma": 0.01,
+    "theta_train_seed": 101,
+    "theta_test_seed": 202
+  },
+  "cells": [
+    {
+      "amplitude_pu": 0.025,
+      "durations_s": [
+        0.5,
+        1.0,
+        1.5,
+        2.0,
+        2.5,
+        3.0
+      ],
+      "buses": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8
+      ],
+      "n_actions": 54,
+      "N_obs": 5,
+      "noise_sigma": 0.01,
+      "probe_bank": "data/ieee9_probe_amplitude_sweep/amp_0p025/probe",
+      "mocu_bank": "data/ieee9_probe_amplitude_sweep/amp_0p025/mocu",
+      "config": "configs/sweeps/ieee9_probe_amplitude/ieee9_amp_0p025.yaml",
+      "audit_exit_code": 1,
+      "verdict": "MYOPIC_TRAP_READY_FOR_DAD_RL",
+      "myopic_beatable": true,
+      "adaptive_room": false,
+      "monotone_adaptive_room": false,
+      "audit_available": true,
+      "audit_json": "reports/ieee9_probe_amplitude_sweep/amp_0p025/audit/diagnostics/bank_structure_audit.json"
+    },
+    {
+      "amplitude_pu": 0.05,
+      "durations_s": [
+        0.5,
+        1.0,
+        1.5,
+        2.0,
+        2.5,
+        3.0
+      ],
+      "buses": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8
+      ],
+      "n_actions": 54,
+      "N_obs": 5,
+      "noise_sigma": 0.01,
+      "probe_bank": "data/ieee9_probe_amplitude_sweep/amp_0p05/probe",
+      "mocu_bank": "data/ieee9_probe_amplitude_sweep/amp_0p05/mocu",
+      "config": "configs/sweeps/ieee9_probe_amplitude/ieee9_amp_0p05.yaml",
+      "audit_exit_code": 1,
+      "verdict": "REDUNDANT_LITTLE_ADAPTIVE_ROOM",
+      "myopic_beatable": false,
+      "adaptive_room": false,
+      "monotone_adaptive_room": false,
+      "audit_available": true,
+      "audit_json": "reports/ieee9_probe_amplitude_sweep/amp_0p05/audit/diagnostics/bank_structure_audit.json"
+    },
+    {
+      "amplitude_pu": 0.075,
+      "durations_s": [
+        0.5,
+        1.0,
+        1.5,
+        2.0,
+        2.5,
+        3.0
+      ],
+      "buses": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8
+      ],
+      "n_actions": 54,
+      "N_obs": 5,
+      "noise_sigma": 0.01,
+      "probe_bank": "data/ieee9_probe_amplitude_sweep/amp_0p075/probe",
+      "mocu_bank": "data/ieee9_probe_amplitude_sweep/amp_0p075/mocu",
+      "config": "configs/sweeps/ieee9_probe_amplitude/ieee9_amp_0p075.yaml",
+      "audit_exit_code": 1,
+      "verdict": "MYOPIC_TRAP_READY_FOR_DAD_RL",
+      "myopic_beatable": true,
+      "adaptive_room": false,
+      "monotone_adaptive_room": false,
+      "audit_available": true,
+      "audit_json": "reports/ieee9_probe_amplitude_sweep/amp_0p075/audit/diagnostics/bank_structure_audit.json"
+    },
+    {
+      "amplitude_pu": 0.1,
+      "durations_s": [
+        0.5,
+        1.0,
+        1.5,
+        2.0,
+        2.5,
+        3.0
+      ],
+      "buses": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8
+      ],
+      "n_actions": 54,
+      "N_obs": 5,
+      "noise_sigma": 0.01,
+      "probe_bank": "data/ieee9_probe_amplitude_sweep/amp_0p1/probe",
+      "mocu_bank": "data/ieee9_probe_amplitude_sweep/amp_0p1/mocu",
+      "config": "configs/sweeps/ieee9_probe_amplitude/ieee9_amp_0p1.yaml",
+      "audit_exit_code": 1,
+      "verdict": "MYOPIC_TRAP_READY_FOR_DAD_RL",
+      "myopic_beatable": true,
+      "adaptive_room": false,
+      "monotone_adaptive_room": false,
+      "audit_available": true,
+      "audit_json": "reports/ieee9_probe_amplitude_sweep/amp_0p1/audit/diagnostics/bank_structure_audit.json"
+    },
+    {
+      "amplitude_pu": 0.15,
+      "durations_s": [
+        0.5,
+        1.0,
+        1.5,
+        2.0,
+        2.5,
+        3.0
+      ],
+      "buses": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8
+      ],
+      "n_actions": 54,
+      "N_obs": 5,
+      "noise_sigma": 0.01,
+      "probe_bank": "data/ieee9_probe_amplitude_sweep/amp_0p15/probe",
+      "mocu_bank": "data/ieee9_probe_amplitude_sweep/amp_0p15/mocu",
+      "config": "configs/sweeps/ieee9_probe_amplitude/ieee9_amp_0p15.yaml",
+      "audit_exit_code": 1,
+      "verdict": "MYOPIC_TRAP_READY_FOR_DAD_RL",
+      "myopic_beatable": true,
+      "adaptive_room": false,
+      "monotone_adaptive_room": false,
+      "audit_available": true,
+      "audit_json": "reports/ieee9_probe_amplitude_sweep/amp_0p15/audit/diagnostics/bank_structure_audit.json"
+    },
+    {
+      "amplitude_pu": 0.2,
+      "durations_s": [
+        0.5,
+        1.0,
+        1.5,
+        2.0,
+        2.5,
+        3.0
+      ],
+      "buses": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8
+      ],
+      "n_actions": 54,
+      "N_obs": 5,
+      "noise_sigma": 0.01,
+      "probe_bank": "data/ieee9_probe_amplitude_sweep/amp_0p2/probe",
+      "mocu_bank": "data/ieee9_probe_amplitude_sweep/amp_0p2/mocu",
+      "config": "configs/sweeps/ieee9_probe_amplitude/ieee9_amp_0p2.yaml",
+      "audit_exit_code": 1,
+      "verdict": "REDUNDANT_LITTLE_ADAPTIVE_ROOM",
+      "myopic_beatable": false,
+      "adaptive_room": false,
+      "monotone_adaptive_room": false,
+      "audit_available": true,
+      "audit_json": "reports/ieee9_probe_amplitude_sweep/amp_0p2/audit/diagnostics/bank_structure_audit.json"
+    }
+  ]
+}

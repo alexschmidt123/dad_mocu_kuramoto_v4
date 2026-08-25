@@ -1,0 +1,326 @@
+system:
+  name: ieee9
+N: 3
+data:
+  dataset_dir: data/ieee9_probe_amplitude_sweep/amp_0p15/probe
+  mocu_dataset_dir: data/ieee9_probe_amplitude_sweep/amp_0p15/mocu
+  generate_if_missing: true
+observation:
+  sampling: uniform
+  objective_based:
+    N_obs: 5
+    noise_sigma: 0.005
+  eig_based:
+    N_obs: 5
+    noise_sigma: 0.01
+oracle:
+  tolerance: 0.0001
+swing_equation:
+  topology: ieee9
+  physical_bus_count: 9
+  dynamic_machine_buses:
+  - 1
+  - 2
+  - 3
+  retained_bus_map:
+  - 1
+  - 2
+  - 3
+  observation_bus: 1
+  base_frequency_hz: 60.0
+  base_power_mva: 100.0
+  coupling_strength: 1.0
+  damping: 0.0
+  latent_model: machinewise_mk
+  M_lower_nodes:
+  - 0.0877898665
+  - 0.0237671385
+  - 0.0111779822
+  M_upper_nodes:
+  - 0.1630383235
+  - 0.0441389715
+  - 0.0207591098
+  K_lower_nodes:
+  - 0.029375
+  - 0.013125
+  - 0.0075
+  K_upper_nodes:
+  - 0.29375
+  - 0.13125
+  - 0.075
+  use_node_specific_damping: true
+  D_nodes:
+  - 0.01254141
+  - 0.003395306
+  - 0.001596855
+  P_m_nodes:
+  - 0.0
+  - 0.0
+  - 0.0
+  theta0_nodes:
+  - 0.0
+  - 0.0
+  - 0.0
+  omega0_nodes:
+  - 0.0
+  - 0.0
+  - 0.0
+  enforce_initial_equilibrium: true
+  probe_buses:
+  - 0
+  - 1
+  - 2
+  - 3
+  - 4
+  - 5
+  - 6
+  - 7
+  - 8
+  probe_amplitudes:
+  - 0.15
+  probe_durations:
+  - 0.5
+  - 1.0
+  - 1.5
+  - 2.0
+  - 2.5
+  - 3.0
+  probe_duration: 2.0
+  reset_after_probe: true
+  T_obs_sec: 4.0
+  ode_dt: 0.0015625
+  fs_hz: 40.0
+  sigma: 0.2
+prior:
+  mc_samples: 512
+  mc_support_seed: 1
+experiment:
+  mode: duration_bus_reset
+  step_number: 3
+  methods:
+  - dad
+  - rl_sboed
+  - moe_sboed
+  - myopic
+  - fixed
+  - random
+  experiment_type: objective_based
+control:
+  alpha: 0.05
+  enforce_bayes_loss_alignment: true
+  safety_margin: 0.0
+  snap_up: true
+  rocof_limit_hz_s: 22.0
+  delta_f_nadir_hz: -0.2
+  T_obs_sec: 10.0
+  ode_dt: 0.00625
+  fs_hz: 40.0
+  contingency:
+    bus: 0
+    magnitude: -0.45
+    units: pu
+  profile:
+    bus: 0
+    t_start: 0.0
+    duration: 10.0
+    shape: step
+    units: pu
+  u_candidates:
+  - 0.0
+  - 0.05
+  - 0.1
+  - 0.15
+  - 0.2
+  - 0.25
+  - 0.3
+  - 0.31
+  - 0.32
+  - 0.33
+  - 0.34
+  - 0.35
+  - 0.36
+  - 0.37
+  - 0.38
+  - 0.39
+  - 0.4
+  - 0.41
+  - 0.42
+  - 0.43
+  - 0.44
+  - 0.45
+  - 0.46
+  - 0.47
+  - 0.48
+  - 0.49
+  - 0.5
+  myopic_hypothetical: 256
+  fixed_exhaustive_threshold: 0
+  fixed_noise_replicas: 2
+  fixed_greedy_restarts: 8
+data_generation:
+  backend: cuda
+  cuda_batch_size: 128
+  theta_sample_size_train: 512
+  theta_sample_size_test: 128
+  train_seed: 101
+  test_seed: 202
+bank_quality:
+  enabled: true
+  min_u_positive_frac: 0.5
+  min_u_q95: 0.05
+  min_u_headroom: 0.02
+  min_max_abs_corr_rocof_u: 0.05
+evaluation:
+  eig_test_systems: 128
+  eig_fixed_calibration_seed: 104729
+  eig_random_replicates: 32
+  objective_eval_seed: 104729
+poster_eig_protocol:
+  horizons:
+  - 3
+  - 4
+  - 5
+  N_obs: 5
+  noise_sigma: 0.01
+  seeds:
+  - 101
+  - 202
+  - 303
+  methods:
+  - dad
+  - rl_sboed
+  - myopic
+  - fixed
+  - random
+  claim_scope: paired_terminal_eig
+poster_mocu_protocol:
+  pilot_horizon: 2
+  horizons:
+  - 2
+  - 3
+  - 4
+  N_obs: 5
+  noise_sigma: 0.01
+  alpha: 0.05
+  pilot_seed: 101
+  seeds:
+  - 101
+  - 202
+  - 303
+  methods:
+  - dad
+  - rl_sboed
+  - myopic
+  - fixed
+  - random
+  minimum_safety_rate: 0.95
+  promotion_gate: paired_advantage_and_non_degenerate_terminal_control
+training:
+  use_bank_observations: true
+  device: auto
+  policy_hidden: 256
+  objective_based:
+    reference_method_fidelity: true
+    updates: 2000
+    min_updates_per_horizon: 200
+    trajectories_per_update: 128
+    ppo_epochs: 4
+    validation_interval: 50
+    validation_rollouts: 256
+    patience: 0
+    entropy_coefficient: 0.1
+    entropy_final_coefficient: 0.005
+    entropy_anneal_fraction: 0.8
+    dense_counterfactual_coefficient: 0.0
+    dense_counterfactual_temperature: 0.35
+    dense_branching_coefficient: 0.0
+    dense_branching_similarity_threshold: 0.5
+    dense_branching_margin: 0.35
+    dad_optimizer: reinforce
+    checkpoint_diversity_weight: 0.0
+    min_unique_sequence_fraction: 0.1
+    prefer_unique_sequence_floor: false
+    unique_floor_mocu_slack: 0.0025
+    open_loop_warn_after_updates: 100
+    actor_lr: 0.0003
+    critic_lr: 0.001
+    max_grad_norm: 1.0
+    undercontrol_penalty: 20.0
+    violation_penalty: 0.0
+    checkpoint_safety_penalty: 50.0
+    min_valid_safety_rate: 0.95
+    moe_counterfactual_coefficient: 0.0
+    moe_branching_coefficient: 0.0
+    moe_counterfactual_floor_fraction: 0.0
+    moe_counterfactual_anneal_fraction: 0.33
+    moe_counterfactual_bootstrap: true
+    moe_prototype_reset_fraction: 0.2
+    moe_balance_coefficient: 0.001
+    moe_redundancy_coefficient: 0.005
+    moe_logit_scale_init: 3.0
+    moe_fixed_bc_coefficient: 0.25
+    moe_fixed_bc_anneal_fraction: 0.5
+    moe_fixed_bc_floor_fraction: 0.0
+    moe_fixed_bc_ess_threshold: 0.4
+    moe_low_ess_residual_coefficient: 0.05
+    moe_low_ess_threshold: 0.4
+    moe_residual_scale_coefficient: 0.01
+    moe_logit_scale_target: 3.5
+  eig_based:
+    eig_epochs: 200
+    eig_steps_per_epoch: 512
+    batch_size: 256
+    learning_rate: 0.0003
+    entropy_coef: 0.05
+    eig_validation_systems: 128
+    eig_bc_trajectories: 96
+    eig_bc_lookahead: two_step
+    eig_bc_temperature: 0.5
+    eig_bc_fantasies: 12
+    eig_rl_use_ppo: true
+    eig_moe_ppo_epochs: 4
+    eig_moe_ppo_clip: 0.2
+    eig_moe_critic_lr: 0.001
+    eig_moe_cf_coefficient: 0.0
+    eig_moe_cf_anneal_fraction: 0.0
+    eig_moe_cf_floor_fraction: 0.0
+    eig_moe_cf_rollouts_per_batch: 0
+    eig_moe_freeze_base_after_bc: false
+    eig_moe_leave_base_coefficient: 0.0
+    eig_moe_leave_base_margin: 0.5
+    eig_moe_branching_coefficient: 0.15
+    eig_moe_low_ess_residual_coefficient: 0.1
+    eig_moe_low_ess_threshold: 0.4
+    eig_moe_residual_scale_coefficient: 0.05
+    eig_moe_logit_scale_target: 3.5
+    eig_moe_balance_coefficient: 0.005
+    eig_moe_routing_information_coefficient: 0.01
+    eig_moe_redundancy_coefficient: 0.02
+    eig_prefer_unique_sequence_floor: true
+    eig_min_unique_sequence_fraction: 0.08
+    eig_unique_floor_slack: 0.03
+control_safety_calibration:
+  enabled: false
+  mode: config
+  expected_alpha: 0.01
+amplitude_sweep:
+  fixed_probe_amplitude_pu: 0.15
+  buses:
+  - 0
+  - 1
+  - 2
+  - 3
+  - 4
+  - 5
+  - 6
+  - 7
+  - 8
+  durations_s:
+  - 0.5
+  - 1.0
+  - 1.5
+  - 2.0
+  - 2.5
+  - 3.0
+  n_actions: 54
+  methods_trained: []

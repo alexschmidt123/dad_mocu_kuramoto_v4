@@ -144,7 +144,6 @@ experiments/
 *.png
 *.jpg
 *.jpeg
-*.pdf
 *.svg
 !documents/images/*.png
 # Do not track readme in documents/images

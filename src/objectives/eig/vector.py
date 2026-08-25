@@ -6,6 +6,7 @@ import csv
 import json
 import math
 import time
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -359,7 +360,9 @@ def _load_policy(
         or name in {"moe_sboed", "matched_dense"}
         else AdaptiveExperimentPolicy
     )
-    training = dict(ctx.cfg.raw.get("training") or {})
+    training = ctx.cfg.training_for(
+        getattr(ctx, "experiment_type", "eig_based")
+    )
     hidden = int(
         meta.get("policy_hidden")
         or training.get("policy_hidden", 128)
@@ -408,7 +411,9 @@ def train_vector_eig_policy(
         torch.cuda.manual_seed_all(int(seed))
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     engine = VectorEIGEngine(ctx, device)
-    training = dict(ctx.cfg.raw.get("training") or {})
+    training = ctx.cfg.training_for(
+        getattr(ctx, "experiment_type", "eig_based")
+    )
     hidden = int(training.get("policy_hidden", 128))
     config = PolicyConfig(
         max_steps=ctx.horizon,
@@ -1242,6 +1247,149 @@ def _fixed_sequence(
     return seq
 
 
+def _frozen_fixed_sequence(
+    ctx: ExperimentContext,
+    engine: VectorEIGEngine,
+    *,
+    n_fantasies: int,
+) -> tuple[list[int], float, int, Path]:
+    """Load or create the seed-independent EIG Fixed baseline artifact.
+
+    The calibration seed belongs to the design calibration procedure, not to an
+    evaluation replicate.  Keeping the artifact under ``model/`` preserves the
+    existing result layout and makes every evaluation seed use the same design.
+    """
+    evaluation = dict(ctx.cfg.raw.get("evaluation") or {})
+    calibration_seed = int(evaluation.get("eig_fixed_calibration_seed", 104729))
+    path = model_dir(ctx.out_dir) / f"fixed_eig_T{int(ctx.horizon)}.json"
+    expected = {
+        "horizon": int(ctx.horizon),
+        "n_actions": int(ctx.n_actions),
+        "n_obs": int(ctx.n_obs),
+        "noise_sigma": float(ctx.sigma_y),
+        "calibration_seed": calibration_seed,
+        "n_fantasies": int(n_fantasies),
+    }
+    if path.is_file():
+        raw = json.loads(path.read_text(encoding="utf-8"))
+        for key, value in expected.items():
+            if raw.get(key) != value:
+                raise RuntimeError(
+                    f"Stale EIG Fixed artifact {path}: {key}={raw.get(key)!r}, "
+                    f"expected {value!r}. Remove only this model artifact and rerun "
+                    "evaluation to recalibrate Fixed."
+                )
+        sequence = [int(a) for a in raw.get("selected_action_ids", [])]
+        if len(sequence) != int(ctx.horizon) or len(set(sequence)) != len(sequence):
+            raise RuntimeError(f"Invalid frozen EIG Fixed sequence in {path}: {sequence}")
+        return sequence, float(raw.get("elapsed_seconds", 0.0)), calibration_seed, path
+
+    started = time.perf_counter()
+    sequence = _fixed_sequence(
+        ctx,
+        engine,
+        n_fantasies=n_fantasies,
+        seed=calibration_seed,
+    )
+    if engine.device.type == "cuda":
+        torch.cuda.synchronize(engine.device)
+    elapsed = float(time.perf_counter() - started)
+    payload = {
+        **expected,
+        "selected_action_ids": sequence,
+        "search_mode": "greedy_prior_eig_frozen",
+        "elapsed_seconds": elapsed,
+        "evaluation_seed_independent": True,
+    }
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    return sequence, elapsed, calibration_seed, path
+
+
+def _validate_eig_evaluation_data(ctx: ExperimentContext) -> dict[str, Any]:
+    """Cheap EIG-specific quality gate that does not depend on MOCU artifacts."""
+    support = np.asarray(ctx.centres_support)
+    if support.ndim != 3 or support.shape[0] != int(ctx.n_actions):
+        raise RuntimeError(
+            f"Invalid EIG support shape {support.shape}; expected (actions, particles, obs)."
+        )
+    if not np.isfinite(support).all():
+        raise RuntimeError("EIG posterior support contains non-finite observations")
+    if support.shape[1] < 2 or support.shape[2] < 1:
+        raise RuntimeError(f"EIG support is too small for inference: {support.shape}")
+    per_action_variance = np.var(support, axis=1).mean(axis=1)
+    informative = int(np.count_nonzero(per_action_variance > 1e-14))
+    if informative < int(ctx.horizon):
+        raise RuntimeError(
+            f"Only {informative}/{ctx.n_actions} actions vary across particles; "
+            f"cannot support a no-repeat horizon T={ctx.horizon}."
+        )
+    if len(ctx.test_systems) == 0:
+        raise RuntimeError("EIG evaluation bank has no held-out test systems")
+    return {
+        "support_shape": [int(x) for x in support.shape],
+        "finite_support": True,
+        "informative_actions": informative,
+        "n_test_systems": int(len(ctx.test_systems)),
+    }
+
+
+def _paired_eig_rows(
+    all_rows: list[dict[str, Any]], *, eval_seed: int
+) -> list[dict[str, Any]]:
+    """Paired per-system EIG differences for one evaluation seed."""
+    by_method_theta: dict[str, dict[int, list[float]]] = {}
+    for row in all_rows:
+        method = str(row["method"])
+        theta_id = int(row["theta_id"])
+        by_method_theta.setdefault(method, {}).setdefault(theta_id, []).append(
+            float(row["terminal_eig"])
+        )
+    comparisons = (
+        ("dad_eig", "fixed_open_loop"),
+        ("dad_eig", "myopic_delta_h"),
+        ("dad_eig", "random"),
+        ("rl_sboed_eig", "fixed_open_loop"),
+        ("rl_sboed_eig", "myopic_delta_h"),
+        ("rl_sboed_eig", "random"),
+    )
+    output: list[dict[str, Any]] = []
+    for left, right in comparisons:
+        if left not in by_method_theta or right not in by_method_theta:
+            continue
+        theta_ids = sorted(set(by_method_theta[left]) & set(by_method_theta[right]))
+        diffs = np.asarray(
+            [
+                float(np.mean(by_method_theta[left][i]))
+                - float(np.mean(by_method_theta[right][i]))
+                for i in theta_ids
+            ],
+            dtype=np.float64,
+        )
+        if diffs.size == 0:
+            continue
+        sem = float(diffs.std(ddof=1) / math.sqrt(diffs.size)) if diffs.size > 1 else 0.0
+        mean = float(diffs.mean())
+        output.append(
+            {
+                "comparison": f"{left} - {right}",
+                "left_method": left,
+                "right_method": right,
+                "n_paired_systems": int(diffs.size),
+                "mean_diff": mean,
+                "ci95_low": mean - 1.96 * sem,
+                "ci95_high": mean + 1.96 * sem,
+                "win_fraction": float(np.mean(diffs > 0.0)),
+                "eval_seed": int(eval_seed),
+                "pairing_note": (
+                    "paired by held-out theta; randomized baseline is averaged over "
+                    "its design replicates before differencing"
+                ),
+            }
+        )
+    return output
+
+
 @torch.no_grad()
 def _rollout(
     ctx: ExperimentContext,
@@ -1360,6 +1508,7 @@ def evaluate_vector_eig(
     eval_seed = int(eval_seed)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     engine = VectorEIGEngine(ctx, device)
+    eig_data_audit = _validate_eig_evaluation_data(ctx)
     matched_path = model_dir(ctx.out_dir) / "matched_dense.pth"
     available_methods = METHODS + (
         ("matched_dense",) if matched_path.exists() else ()
@@ -1402,14 +1551,17 @@ def evaluate_vector_eig(
         torch.cuda.synchronize(device)
     fixed: tuple[int, ...] = ()
     fixed_preparation_seconds = 0.0
+    fixed_calibration_seed: int | None = None
+    fixed_artifact: str | None = None
     if "fixed_open_loop" in selected_methods:
-        fixed_started = time.perf_counter()
-        fixed = _fixed_sequence(
-            ctx, engine, n_fantasies=4 if smoke else 16, seed=eval_seed
+        fixed, fixed_preparation_seconds, fixed_calibration_seed, fixed_path = (
+            _frozen_fixed_sequence(
+                ctx,
+                engine,
+                n_fantasies=4 if smoke else 16,
+            )
         )
-        if device.type == "cuda":
-            torch.cuda.synchronize(device)
-        fixed_preparation_seconds = float(time.perf_counter() - fixed_started)
+        fixed_artifact = str(fixed_path)
     training_seconds = {}
     for method_name, checkpoint_name in (
         ("dad_eig", "dad_eig"),
@@ -1471,7 +1623,8 @@ def evaluate_vector_eig(
         if device.type == "cuda":
             torch.cuda.synchronize(device)
         started = time.perf_counter()
-        replicates = (8 if smoke else 32) if method == "random" else 1
+        random_replicates = int(evaluation.get("eig_random_replicates", 32))
+        replicates = (8 if smoke else random_replicates) if method == "random" else 1
         rows = []
         for i in range(n):
             for replicate in range(replicates):
@@ -1520,6 +1673,12 @@ def evaluate_vector_eig(
                 "method": method,
                 "n": n,
                 "n_design_replicates": len(rows),
+                "design_replicates_per_system": int(replicates),
+                "design_replication_note": (
+                    "expected performance averaged over randomized designs"
+                    if method == "random"
+                    else "one deterministic design per held-out system"
+                ),
                 "terminal_eig_mean": float(per_theta.mean()),
                 "terminal_eig_std": (
                     float(per_theta.std(ddof=1)) if n > 1 else 0.0
@@ -1555,6 +1714,7 @@ def evaluate_vector_eig(
         writer = csv.DictWriter(f, fieldnames=list(summaries[0]))
         writer.writeheader()
         writer.writerows(summaries)
+    paired_rows = _paired_eig_rows(all_rows, eval_seed=eval_seed)
     observation_name = (
         "sir_infected_count"
         if str(getattr(ctx, "observation_mode", "")).startswith("sir_")
@@ -1567,6 +1727,13 @@ def evaluate_vector_eig(
                 "n_obs": ctx.n_obs,
                 "device": str(device),
                 "eval_seed": int(eval_seed),
+                "eig_data_audit": eig_data_audit,
+                "fixed_calibration_seed": fixed_calibration_seed,
+                "fixed_artifact": fixed_artifact,
+                "random_design_replicates_per_system": (
+                    8 if smoke else int(evaluation.get("eig_random_replicates", 32))
+                ),
+                "paired_summaries": paired_rows,
                 "summaries": summaries,
                 "rollouts": all_rows,
             },
@@ -1580,6 +1747,9 @@ def evaluate_vector_eig(
         "n_obs": ctx.n_obs,
         "device": str(device),
         "eval_seed": int(eval_seed),
+        "eig_data_audit": eig_data_audit,
+        "fixed_calibration_seed": fixed_calibration_seed,
+        "paired_summaries": paired_rows,
         "summaries": summaries,
     }
 

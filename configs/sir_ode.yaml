@@ -66,70 +66,48 @@ data_generation:
   test_seed: 202
 
 training:
-  eig_epochs: 200
-  eig_steps_per_epoch: 512
-  batch_size: 256
-  learning_rate: 0.0003
-  # Higher entropy fights open-loop collapse (old SIR uniq≈12–20 vs myopic≈125).
-  entropy_coef: 0.05
+  device: auto
   policy_hidden: 256
-  eig_validation_systems: 256
-  # Soft two-step BC: distill full ranking, not myopic argmax alone.
-  eig_bc_trajectories: 128
-  eig_bc_lookahead: two_step
-  eig_bc_temperature: 0.5
-  eig_bc_fantasies: 16
-  eig_rl_use_ppo: true
-  eig_moe_ppo_epochs: 4
-  eig_moe_ppo_clip: 0.2
-  eig_moe_critic_lr: 0.001
-  # Real MoE: residuals/router only after base BC. No teacher ranking CE.
-  eig_moe_cf_coefficient: 0.0
-  eig_moe_cf_anneal_fraction: 0.0
-  eig_moe_cf_floor_fraction: 0.0
-  eig_moe_cf_rollouts_per_batch: 0
-  eig_moe_freeze_base_after_bc: false
-  eig_moe_leave_base_coefficient: 0.0
-  eig_moe_leave_base_margin: 0.5
-  eig_moe_branching_coefficient: 0.15
-  eig_moe_low_ess_residual_coefficient: 0.10
-  eig_moe_low_ess_threshold: 0.4
-  eig_moe_residual_scale_coefficient: 0.05
-  eig_moe_logit_scale_target: 3.5
-  eig_moe_balance_coefficient: 0.05
-  # Encourage confident expert choices that change with the posterior belief;
-  # balancing above prevents this objective from collapsing to one expert.
-  eig_moe_routing_information_coefficient: 0.01
-  eig_moe_redundancy_coefficient: 0.02
-  # Soft unique floor for checkpoint selection.
-  eig_prefer_unique_sequence_floor: true
-  eig_min_unique_sequence_fraction: 0.08
-  eig_unique_floor_slack: 0.03
-
-  updates: 400
-  min_updates_per_horizon: 100
-  trajectories_per_update: 64
-  ppo_epochs: 4
-  validation_interval: 25
-  validation_rollouts: 64
-  patience: 0
-  entropy_coefficient: 0.08
-  checkpoint_diversity_weight: 0.2
-  min_unique_sequence_fraction: 0.2
-  actor_lr: 0.0005
-  critic_lr: 0.001
-  max_grad_norm: 1.0
-  moe_counterfactual_coefficient: 0.0
-  moe_counterfactual_floor_fraction: 0.0
-  moe_counterfactual_anneal_fraction: 0.33
-  moe_counterfactual_bootstrap: true
-  moe_prototype_reset_fraction: 0.2
-  moe_branching_coefficient: 0.0
-  moe_balance_coefficient: 0.001
-
-  moe_redundancy_coefficient: 0.01
-  moe_logit_scale_init: 3.0
-  moe_fixed_bc_coefficient: 0.0
+  # SIR supports eig_based only.
+  eig_based:
+    eig_epochs: 200
+    eig_steps_per_epoch: 512
+    batch_size: 256
+    learning_rate: 0.0003
+    # Higher entropy fights open-loop collapse (old SIR uniq≈12–20 vs myopic≈125).
+    entropy_coef: 0.05
+    eig_validation_systems: 256
+    # Soft two-step BC: distill full ranking, not myopic argmax alone.
+    eig_bc_trajectories: 128
+    eig_bc_lookahead: two_step
+    eig_bc_temperature: 0.5
+    eig_bc_fantasies: 16
+    eig_rl_use_ppo: true
+    eig_moe_ppo_epochs: 4
+    eig_moe_ppo_clip: 0.2
+    eig_moe_critic_lr: 0.001
+    # Real MoE: residuals/router only after base BC. No teacher ranking CE.
+    eig_moe_cf_coefficient: 0.0
+    eig_moe_cf_anneal_fraction: 0.0
+    eig_moe_cf_floor_fraction: 0.0
+    eig_moe_cf_rollouts_per_batch: 0
+    eig_moe_freeze_base_after_bc: false
+    eig_moe_leave_base_coefficient: 0.0
+    eig_moe_leave_base_margin: 0.5
+    eig_moe_branching_coefficient: 0.15
+    eig_moe_low_ess_residual_coefficient: 0.10
+    eig_moe_low_ess_threshold: 0.4
+    eig_moe_residual_scale_coefficient: 0.05
+    eig_moe_logit_scale_target: 3.5
+    eig_moe_balance_coefficient: 0.05
+    # Encourage confident expert choices that change with the posterior belief;
+    # balancing above prevents this objective from collapsing to one expert.
+    eig_moe_routing_information_coefficient: 0.01
+    eig_moe_redundancy_coefficient: 0.02
+    # Soft unique floor for checkpoint selection.
+    eig_prefer_unique_sequence_floor: true
+    eig_min_unique_sequence_fraction: 0.08
+    eig_unique_floor_slack: 0.03
 
 evaluation:
   # Development evaluation size; all systems come from the fixed test bank.

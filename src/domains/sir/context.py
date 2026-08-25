@@ -165,6 +165,8 @@ def build_sir_context(
         alpha=alpha,
         margin=margin,
         robust_rule="quantile",
+        snap_up=True,
+        experiment_type=str(experiment_type).strip().lower().replace("-", "_"),
         u_grid=u_grid,
         centres_support=centres_support,
         U_support=u_support,

@@ -86,6 +86,8 @@ class FrozenTerminalRule:
         return ControlSpec(
             alpha=float(self.alpha),
             safety_margin=float(self.margin),
+            snap_up=bool(self.snap_up),
+            robust_rule=base.robust_rule,
             rocof_limit_hz_s=base.rocof_limit_hz_s,
             delta_f_nadir_hz=base.delta_f_nadir_hz,
             profile=base.profile,

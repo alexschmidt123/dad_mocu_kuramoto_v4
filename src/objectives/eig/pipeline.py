@@ -776,7 +776,7 @@ def train_dad_policy(
     policy = DADPolicy(
         run.meta.n_actions, max_steps=cfg.step_number
     ).to(device)
-    training = dict(cfg.raw.get("training") or {})
+    training = cfg.training_for("eig_based")
     epochs = 2 if smoke else int(training.get("eig_epochs", 20))
     batch_size = 4 if smoke else int(training.get("batch_size", 16))
     steps_per_epoch = (
@@ -886,13 +886,18 @@ def train_rl_sboed_eig(
     policy_path = out / "rl_sboed_eig.pth"
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     policy = DADPolicy(run.meta.n_actions, max_steps=cfg.step_number).to(device)
-    training = dict(cfg.raw.get("training") or {})
-    epochs = 2 if smoke else int(training.get("eig_rl_epochs", 20))
+    training = cfg.training_for("eig_based")
+    epochs = 2 if smoke else int(training.get("eig_rl_epochs", training.get("eig_epochs", 20)))
     batch_size = 4 if smoke else int(training.get("batch_size", 16))
     steps_per_epoch = (
         16
         if smoke
-        else int(training.get("eig_rl_steps_per_epoch", len(run.train_systems)))
+        else int(
+            training.get(
+                "eig_rl_steps_per_epoch",
+                training.get("eig_steps_per_epoch", len(run.train_systems)),
+            )
+        )
     )
     lr = float(training.get("learning_rate", 1e-3))
     entropy_coef = float(training.get("entropy_coef", 0.01))

@@ -534,7 +534,9 @@ def write_run_config(
     exp_block["experiment_type"] = exp_type
     exp_block["step_number"] = horizon
     doc["experiment"] = exp_block
-    training = _filter_training_block(doc.get("training"), stamped)
+    training = _filter_training_block(
+        doc.get("training"), stamped, experiment_type=exp_type
+    )
     if training:
         doc["training"] = training
     else:
@@ -567,10 +569,13 @@ def _filter_run_body(
     methods: list[str],
     experiment_type: str,
 ) -> dict[str, Any]:
-    """Keep physics/bank sections; drop objective-only blocks on EIG runs."""
+    """Keep physics/bank sections; drop the other experiment family's blocks."""
+    from src.config import normalize_experiment_type
+
+    et = normalize_experiment_type(experiment_type)
     body = dict(raw)
-    if experiment_type == "eig_based":
-        for key in ("control", "control_safety_calibration", "oracle"):
+    if et == "eig_based":
+        for key in ("control", "control_safety_calibration", "oracle", "bank_quality"):
             body.pop(key, None)
     selected = set(methods)
     trainable = {"dad", "rl_sboed", "moe_sboed", "matched_dense"}
@@ -580,21 +585,27 @@ def _filter_run_body(
 
 
 def _filter_training_block(
-    training: Any, methods: list[str]
+    training: Any,
+    methods: list[str],
+    *,
+    experiment_type: str,
 ) -> dict[str, Any] | None:
-    """Drop method-specific knobs that this run did not use."""
+    """Keep only this experiment type's training knobs (+ method filter)."""
+    from src.config import resolve_training_block
+
     if not isinstance(training, dict) or not training:
         return None
     selected = set(methods)
     trainable = {"dad", "rl_sboed", "moe_sboed", "matched_dense"}
     if not selected & trainable:
         return None
+    resolved = resolve_training_block(training, experiment_type)
     keep_moe = bool(selected & {"moe_sboed", "matched_dense"})
     keep_rl = "rl_sboed" in selected
     keep_dad = "dad" in selected
     keep_step = "step_dad" in selected
     out: dict[str, Any] = {}
-    for key, value in training.items():
+    for key, value in resolved.items():
         lk = str(key).lower()
         if "moe" in lk or "matched_dense" in lk or "matcheddense" in lk:
             if not keep_moe:

@@ -32,6 +32,7 @@ from src.control.oracle_u_ctrl import (
     check_oracle_consistency,
     load_or_compute_oracle_cache,
 )
+from src.objectives.mocu.rewards import safety_aware_control_cost
 
 MIN_VALID_SAFETY_RATE = 0.95
 
@@ -211,6 +212,7 @@ def evaluate_myopic(
                 rollout_id=rid,
                 step=step,
                 seed=int(eval_seed),
+                common_random_numbers=True,
             )
 
         out = _rollout_baseline(
@@ -346,6 +348,15 @@ def attach_oracle(
         u_opt = float(opt["u_ctrl_opt"])
         u_ctrl = float(row["u_ctrl"])
         gap = u_ctrl - u_opt
+        safety_aware_ocu = (
+            safety_aware_control_cost(
+                u_ctrl,
+                u_opt,
+                undercontrol_penalty=ctx.undercontrol_penalty,
+                violation_penalty=ctx.violation_penalty,
+            )
+            - u_opt
+        )
         method_safe = False
         if not skip_cuda_safety:
             M = np.asarray(ctx.M_test[tid], dtype=np.float64)
@@ -369,8 +380,14 @@ def attach_oracle(
                 **row,
                 "u_ctrl_opt": u_opt,
                 "control_gap": gap,
-                # Realized objective cost of uncertainty for this true model.
-                "ocu": gap,
+                # Primary realized operational cost of uncertainty. Unsafe
+                # under-control is penalized and can never masquerade as gain.
+                "ocu": float(safety_aware_ocu),
+                # Retained physical diagnostic; may be negative when unsafe.
+                "raw_control_gap": gap,
+                "control_shortfall": max(u_opt - u_ctrl, 0.0),
+                "undercontrol_penalty": float(ctx.undercontrol_penalty),
+                "violation_penalty": float(ctx.violation_penalty),
                 "method_safe": int(method_safe),
                 "oracle_feasible": int(bool(opt.get("feasible", True))),
                 "oracle_message": opt.get("message", ""),
@@ -386,46 +403,64 @@ def summarize_rows(rows: list[dict[str, Any]], method: str) -> dict[str, Any]:
         return {"method": method, "n": 0}
     u = np.asarray([float(r["u_ctrl"]) for r in sub], dtype=np.float64)
     gaps = np.asarray([float(r["control_gap"]) for r in sub], dtype=np.float64)
+    ocu = np.asarray([float(r["ocu"]) for r in sub], dtype=np.float64)
     excess = np.maximum(gaps, 0.0)
     safe = np.asarray([int(r["method_safe"]) for r in sub], dtype=np.float64)
     opts = np.asarray([float(r["u_ctrl_opt"]) for r in sub], dtype=np.float64)
     under = gaps < -1e-12
     div = sequence_diversity_stats([str(r["sequence"]) for r in sub])
+    sequences = [tuple(int(a) for a in str(r["sequence"]).split()) for r in sub]
+    horizon = max((len(seq) for seq in sequences), default=0)
+    stage_unique_actions = [
+        len({seq[step] for seq in sequences if len(seq) > step})
+        for step in range(horizon)
+    ]
+    stage_unique_prefixes = [
+        len({seq[: step + 1] for seq in sequences if len(seq) > step})
+        for step in range(horizon)
+    ]
     eval_mode = sub[0].get("eval_mode", "")
     base = sub[0].get("base_method") or method
     safety_rate = float(safe.mean())
     # Cluster repeated stochastic-design draws by physical system.  Treating
     # every Random seed as an independent test system would understate the CI.
-    gaps_by_theta: dict[int, list[float]] = {}
+    ocu_by_theta: dict[int, list[float]] = {}
     for row in sub:
-        gaps_by_theta.setdefault(int(row["theta_id"]), []).append(
-            float(row["control_gap"])
+        ocu_by_theta.setdefault(int(row["theta_id"]), []).append(
+            float(row["ocu"])
         )
-    clustered_gaps = np.asarray(
-        [np.mean(values) for values in gaps_by_theta.values()], dtype=np.float64
+    clustered_ocu = np.asarray(
+        [np.mean(values) for values in ocu_by_theta.values()], dtype=np.float64
     )
-    mocu_ci = paired_bootstrap_ci(clustered_gaps)
+    mocu_ci = paired_bootstrap_ci(clustered_ocu)
     return {
         "method": method,
         "base_method": base,
         "eval_mode": eval_mode,
-        "n": len(gaps_by_theta),
+        "n": len(ocu_by_theta),
         "n_design_replicates": len(sub),
         "mean_u_ctrl": float(u.mean()),
         "median_u_ctrl": float(np.median(u)),
         "mean_u_ctrl_opt": float(opts.mean()),
         "median_u_ctrl_opt": float(np.median(opts)),
         # Raw mean(u_ctrl - u_opt); negative ⇒ under-control (often unsafe).
-        "mean_gap": float(clustered_gaps.mean()),
-        "median_gap": float(np.median(clustered_gaps)),
-        # Final objective metric: mean realized OCU on common held-out models.
-        "mean_mocu": float(clustered_gaps.mean()),
-        "median_mocu": float(np.median(clustered_gaps)),
+        "mean_gap": float(gaps.mean()),
+        "median_gap": float(np.median(gaps)),
+        # Final objective: safety-aware realized OCU on common held-out models.
+        "mean_mocu": float(clustered_ocu.mean()),
+        "median_mocu": float(np.median(clustered_ocu)),
         "mocu_ci95_low": float(mocu_ci["ci95_low"]),
         "mocu_ci95_high": float(mocu_ci["ci95_high"]),
         # Overshoot only; under-control does not improve this score.
         "mean_excess": float(excess.mean()),
         "under_control_rate": float(under.mean()),
+        "mean_shortfall": float(np.maximum(-gaps, 0.0).mean()),
+        "mocu_cost_definition": (
+            "u + undercontrol_penalty*(u_required-u)_+ + "
+            "violation_penalty*1[unsafe] - u_required"
+        ),
+        "undercontrol_penalty": float(sub[0]["undercontrol_penalty"]),
+        "violation_penalty": float(sub[0]["violation_penalty"]),
         "gap_ci95_low": float(np.percentile(gaps, 2.5)),
         "gap_ci95_high": float(np.percentile(gaps, 97.5)),
         "safety_rate": safety_rate,
@@ -434,6 +469,14 @@ def summarize_rows(rows: list[dict[str, Any]], method: str) -> dict[str, Any]:
         "n_unique_sequences": int(div["n_unique_sequences"]),
         "sequence_entropy": float(div["sequence_entropy"]),
         "unique_frac": float(div["unique_frac"]),
+        "stage_unique_actions": " ".join(map(str, stage_unique_actions)),
+        "stage_unique_prefixes": " ".join(map(str, stage_unique_prefixes)),
+        "first_action_invariant": int(
+            not stage_unique_actions or stage_unique_actions[0] == 1
+        ),
+        "post_prior_branching": int(
+            any(count > 1 for count in stage_unique_actions[1:])
+        ),
         "n_oracle_consistency_errors": int(
             sum(1 for r in sub if r.get("oracle_consistency_error"))
         ),
@@ -569,7 +612,9 @@ def run_full_evaluation(
     offline_seconds["MoE-sBOED"] = float(
         (training_results.get("moe_sboed") or {}).get("elapsed_seconds", 0.0)
     )
-    n = 4 if smoke else min(64, max(16, len(ctx.test_systems) * 2))
+    # Use every strict held-out system exactly once.  The previous hard cap of
+    # 64 discarded half of IEEE9's 128-system test bank and widened paired CIs.
+    n = 4 if smoke else len(ctx.test_systems)
     rows: list[dict[str, Any]] = []
     summary_methods: list[str] = []
     runtime_by_method: dict[str, dict[str, Any]] = {}
@@ -687,8 +732,9 @@ def run_full_evaluation(
         }
         if key in ("dad", "rl_sboed", "moe_sboed"):
             payload["adaptivity_note"] = (
-                "Claim adaptivity from n_unique_sequences / sequence_entropy "
-                "across θ under argmax (deterministic) rollouts."
+                "Under deterministic rollouts, use post-prior stage_unique_actions "
+                "/ stage_unique_prefixes; the identical-prior first action should "
+                "not be counted as adaptive branching."
             )
         (eval_root / f"{key}.json").write_text(
             json.dumps(payload, indent=2, default=str), encoding="utf-8"
@@ -702,7 +748,7 @@ def run_full_evaluation(
     for r in enriched:
         grouped.setdefault(r["method"], {})
         tid = int(r["theta_id"])
-        grouped[r["method"]].setdefault(tid, []).append(float(r["control_gap"]))
+        grouped[r["method"]].setdefault(tid, []).append(float(r["ocu"]))
     by_method = {
         method: {
             tid: float(np.mean(values)) for tid, values in per_theta.items()
@@ -714,7 +760,10 @@ def run_full_evaluation(
         ("RL-sBOED", "Random"),
         ("RL-sBOED", "DAD"),
         ("Myopic", "Fixed"),
+        ("DAD", "Fixed"),
         ("DAD", "Myopic"),
+        ("RL-sBOED", "Fixed"),
+        ("RL-sBOED", "Myopic"),
         ("MoE-sBOED", "Myopic"),
         ("MoE-sBOED", "DAD"),
     ]
@@ -755,15 +804,19 @@ def run_full_evaluation(
             "Per-method online evaluation only; training, fixed-search preprocessing, "
             "hybrid calibration, and oracle/safety evaluation are reported separately."
         ),
-        "mocu_definition": "mean over held-out systems of (u_ctrl - u_ctrl_opt)",
+        "mocu_definition": (
+            "mean held-out Bayes regret: u_ctrl + lambda*(u_required-u_ctrl)_+ "
+            "+ rho*1[u_required>u_ctrl] - u_required"
+        ),
         "ranking_rule": (
             "safety_rate >= 0.95 required; valid methods ranked by mean_mocu asc"
         ),
         "eval_seed": int(eval_seed),
         "summaries": summaries,
         "adaptivity_eval": (
-            "Policy methods use argmax rollouts; claim adaptivity from "
-            "n_unique_sequences / sequence_entropy across θ."
+            "Policy methods use argmax rollouts. Myopic uses common random "
+            "numbers. Claim adaptivity from post-prior stage_unique_actions / "
+            "stage_unique_prefixes, not stochastic first-action variation."
         ),
     }
     (eval_root / "eval_meta.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")

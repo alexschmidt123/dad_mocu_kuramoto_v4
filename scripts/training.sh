@@ -59,7 +59,8 @@ train_one() {
         --N_obs "$N_OBS" --noise_sigma "$NOISE_SIGMA" --seed "$SEED")
     args+=(-T "$T")
     [[ -n "$EXP_DIR" ]] && args+=(--exp-dir "$EXP_DIR")
-    python3 -m src.experiment "${args[@]}" ${SMOKE}
+    [[ -n "$SMOKE" ]] && args+=("$SMOKE")
+    python3 -m src.experiment "${args[@]}"
 }
 
 METHOD_FILTER=""

@@ -54,4 +54,6 @@ ARGS=(generate-data --config "$CONFIG" --experiment-type "$EXPERIMENT_TYPE" --N_
 if [[ -n "$METHOD" && "${METHOD,,}" != "all" ]]; then
     ARGS+=(--method "$METHOD")
 fi
-exec python3 -m src.experiment "${ARGS[@]}" ${FORCE} ${SMOKE}
+[[ -n "$FORCE" ]] && ARGS+=("$FORCE")
+[[ -n "$SMOKE" ]] && ARGS+=("$SMOKE")
+exec python3 -m src.experiment "${ARGS[@]}"

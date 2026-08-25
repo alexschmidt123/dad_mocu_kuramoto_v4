@@ -189,8 +189,10 @@ def write_objective_summary_md(
     extra: list[str] = [
         "Notes:",
         "",
-        "- `mean_MOCU` = mean(u_ctrl − u_ctrl_optimal) on common held-out systems.",
-        "- `u_ctrl < u_ctrl_opt` is under-control (often unsafe); it does not improve ranking.",
+        "- `mean_MOCU` = mean safety-aware OCU on common held-out systems: "
+        "u_ctrl + λ(u_opt−u_ctrl)_+ + ρ·1[unsafe] − u_opt.",
+        "- Raw `u_ctrl − u_ctrl_opt` remains a diagnostic; unsafe under-control "
+        "is penalized and cannot improve `mean_MOCU`.",
         "- Methods with safety rate below 0.95 are INVALID and receive no rank.",
         "- Valid methods are ranked by lower mean_MOCU.",
         "- `mean_u_ctrl` remains a secondary physical-control metric.",

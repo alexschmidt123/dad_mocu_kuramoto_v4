@@ -12,6 +12,7 @@ import argparse
 import csv
 import json
 import math
+import random
 import shutil
 from collections import defaultdict
 from pathlib import Path
@@ -333,6 +334,100 @@ def _collect_cells(
     return metric, offline, online
 
 
+_EIG_PAIRED_COMPARISONS = (
+    ("dad_eig", "fixed_open_loop"),
+    ("dad_eig", "myopic_delta_h"),
+    ("dad_eig", "random"),
+    ("rl_sboed_eig", "fixed_open_loop"),
+    ("rl_sboed_eig", "myopic_delta_h"),
+    ("rl_sboed_eig", "random"),
+)
+
+
+def _paired_eig_differences(exp_dir: Path) -> dict[str, list[float]]:
+    """Recover per-theta paired differences from the compact rollout artifact."""
+    path = exp_dir / "eval" / "vector_eig_results.json"
+    if not path.is_file():
+        return {}
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    grouped: dict[str, dict[int, list[float]]] = defaultdict(
+        lambda: defaultdict(list)
+    )
+    for row in raw.get("rollouts", []):
+        method = str(row.get("method", ""))
+        if not method or row.get("theta_id") is None:
+            continue
+        grouped[method][int(row["theta_id"])].append(float(row["terminal_eig"]))
+    output: dict[str, list[float]] = {}
+    for left, right in _EIG_PAIRED_COMPARISONS:
+        if left not in grouped or right not in grouped:
+            continue
+        theta_ids = sorted(set(grouped[left]) & set(grouped[right]))
+        if not theta_ids:
+            continue
+        output[f"{left} - {right}"] = [
+            sum(grouped[left][theta]) / len(grouped[left][theta])
+            - sum(grouped[right][theta]) / len(grouped[right][theta])
+            for theta in theta_ids
+        ]
+    return output
+
+
+def _hierarchical_ci(
+    seed_samples: list[list[float]], *, bootstrap_seed: int, n_bootstrap: int
+) -> tuple[float, float, float, int]:
+    """Seed-then-system bootstrap; avoids treating repeated θ banks as IID seeds."""
+    clean = [values for values in seed_samples if values]
+    if not clean:
+        return float("nan"), float("nan"), float("nan"), 0
+    seed_means = [sum(values) / len(values) for values in clean]
+    estimate = sum(seed_means) / len(seed_means)
+    rng = random.Random(int(bootstrap_seed))
+    draws: list[float] = []
+    for _ in range(max(1, int(n_bootstrap))):
+        sampled_seeds = [clean[rng.randrange(len(clean))] for _ in clean]
+        sampled_means = []
+        for values in sampled_seeds:
+            sampled = [values[rng.randrange(len(values))] for _ in values]
+            sampled_means.append(sum(sampled) / len(sampled))
+        draws.append(sum(sampled_means) / len(sampled_means))
+    draws.sort()
+    lo = draws[int(0.025 * (len(draws) - 1))]
+    hi = draws[int(0.975 * (len(draws) - 1))]
+    return estimate, lo, hi, len(clean)
+
+
+def _collect_hierarchical_eig_pairs(
+    by_t: dict[int, dict[int, Path]], *, n_bootstrap: int = 5000
+) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for t, seed_dirs in sorted(by_t.items()):
+        samples: dict[str, list[list[float]]] = defaultdict(list)
+        for _seed, exp_dir in sorted(seed_dirs.items()):
+            for comparison, values in _paired_eig_differences(exp_dir).items():
+                samples[comparison].append(values)
+        for index, (comparison, seed_samples) in enumerate(sorted(samples.items())):
+            mean, low, high, n_seeds = _hierarchical_ci(
+                seed_samples,
+                bootstrap_seed=7919 + 101 * int(t) + index,
+                n_bootstrap=n_bootstrap,
+            )
+            rows.append(
+                {
+                    "T": int(t),
+                    "comparison": comparison,
+                    "mean_diff": mean,
+                    "ci95_low": low,
+                    "ci95_high": high,
+                    "n_seeds": n_seeds,
+                    "n_systems_per_seed": [len(values) for values in seed_samples],
+                    "bootstrap_replicates": int(n_bootstrap),
+                    "method": "hierarchical seed-then-system bootstrap",
+                }
+            )
+    return rows
+
+
 def _md_table(headers: list[str], rows: list[list[str]]) -> list[str]:
     lines = [
         "| " + " | ".join(headers) + " |",
@@ -437,6 +532,7 @@ def write_sweep_plot_bundle(
     root = root or repo_root()
     eig = experiment_type == "eig_based"
     metric, offline, online = _collect_cells(by_t, eig=eig)
+    paired_eig = _collect_hierarchical_eig_pairs(by_t) if eig else []
     methods = _ordered_methods(set(metric))
     horizons = sorted(by_t)
     n_seeds = len(_unique_seeds(by_t))
@@ -490,10 +586,39 @@ def write_sweep_plot_bundle(
     time_vs_path = dest / "time_vs_T.md"
     meta_path = dest / "meta.json"
 
-    _write_text(
-        metric_path,
-        [f"# {title_metric}", ""] + _md_table(headers_metric, rows_metric) + [""],
-    )
+    metric_lines = [f"# {title_metric}", ""] + _md_table(headers_metric, rows_metric)
+    if eig:
+        metric_lines.extend(
+            [
+                "",
+                "Random is averaged over 32 randomized design sequences per held-out "
+                "system; deterministic methods use one sequence per system.",
+                "",
+                "## Paired EIG improvements",
+                "",
+                "Intervals use a hierarchical seed-then-system bootstrap. Positive "
+                "differences favor the method on the left.",
+                "",
+            ]
+        )
+        paired_table_rows = [
+            [
+                str(row["T"]),
+                str(row["comparison"]),
+                f'{float(row["mean_diff"]):.4f}',
+                f'[{float(row["ci95_low"]):.4f}, {float(row["ci95_high"]):.4f}]',
+                str(row["n_seeds"]),
+            ]
+            for row in paired_eig
+        ]
+        metric_lines.extend(
+            _md_table(
+                ["T", "Comparison", "Mean difference", "Hierarchical 95% CI", "Seeds"],
+                paired_table_rows,
+            )
+        )
+    metric_lines.append("")
+    _write_text(metric_path, metric_lines)
     _write_text(
         time_path,
         [f"# {title_time}", ""] + _md_table(headers_time, rows_time) + [""],
@@ -550,6 +675,17 @@ def write_sweep_plot_bundle(
         "n_seeds": n_seeds,
         "n_runs": len(runs),
         "runs": runs,
+        "run_selection": (
+            "newest completed result per config/T/N_obs/noise_sigma/seed; exact "
+            "selected folders are listed in runs"
+        ),
+        "paired_eig": paired_eig if eig else None,
+        "random_evaluation": (
+            "32 randomized designs per held-out system, averaged before method "
+            "comparison"
+            if eig
+            else None
+        ),
     }
     meta_path.write_text(json.dumps(meta, indent=2) + "\n", encoding="utf-8")
 

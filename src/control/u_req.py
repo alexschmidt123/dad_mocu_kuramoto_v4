@@ -60,6 +60,8 @@ class ControlSpec:
     safety_margin: float = 0.0  # additive pu after quantile; snapped up to grid
     # "ibr_max" = Yoon IBR max{U_n:w_n>0}; "quantile" = Q_{1-α}+margin
     robust_rule: str = "quantile"
+    # When True, ψ* snaps Q+margin up onto u_candidates; False keeps continuous.
+    snap_up: bool = True
     myopic_hypothetical: int = 16
     fixed_exhaustive_threshold: int = 5000
     fixed_noise_replicas: int = 2
@@ -87,6 +89,7 @@ class ControlSpec:
             alpha=float(self.alpha),
             margin=float(self.safety_margin),
             u_candidates=tuple(self.u_candidates),
+            snap_up=bool(self.snap_up),
             robust_rule=(
                 "ibr_max"
                 if str(self.robust_rule).lower() in {"ibr", "ibr_max", "max", "yoon_ibr"}
@@ -159,6 +162,7 @@ class ControlSpec:
             alpha=float(raw.get("alpha", 0.05)),
             safety_margin=float(raw.get("safety_margin", raw.get("margin", 0.0))),
             robust_rule=robust_rule,
+            snap_up=bool(raw.get("snap_up", True)),
             rocof_limit_hz_s=rocof,
             delta_f_nadir_hz=nadir,
             profile=ControlProfile(
